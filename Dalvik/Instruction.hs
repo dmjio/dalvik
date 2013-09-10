@@ -1,6 +1,7 @@
 module Dalvik.Instruction
   ( decodeInstructions
   , insnUnitCount
+  , decodeErrorAsString
   , Reg(..)
   , ConstArg(..)
   , MoveType(..)
@@ -14,6 +15,7 @@ module Dalvik.Instruction
   , Unop(..)
   , Binop(..)
   , Instruction(..)
+  , DecodeError(..)
   ) where
 
 import Control.Applicative()
@@ -245,14 +247,18 @@ splitWord16' :: Word16 -> (Word4, Word4, Word4, Word4)
 splitWord16' w = (fst4 b1, snd4 b1, fst4 b2, snd4 b2)
   where (b1, b2) = splitWord16 w
 
-type DecodeError = String -- TODO: replace with structured type
+data DecodeError = PrematureEnd Word8 Word16
+                 | InvalidOpcode Word8
+                 | InvalidBForIF35cEncoding Word8
+                 deriving (Eq, Ord, Show)
 
-prematureEnd :: Word8 -> Word16 -> DecodeError
-prematureEnd =
-  printf "Premature end of data stream at opcode %02x (%04x)"
-
-invalidOp :: Word8 -> DecodeError
-invalidOp op = "Invalid opcode: " ++ show op
+decodeErrorAsString :: DecodeError -> String
+decodeErrorAsString (PrematureEnd opcode w) =
+  printf "Premature end of data stream at opcode %02x (%04x)" opcode w
+decodeErrorAsString (InvalidOpcode op) =
+  "Invalid opcode " ++ show op
+decodeErrorAsString (InvalidBForIF35cEncoding b) =
+  printf "Invalid b value (%d) for IF35c encoding" b
 
 {- As named in the Dalvik VM Instruction Formats document. -}
 data IFormatParser
@@ -683,14 +689,14 @@ decodeInstructions (w : ws) = liftM2 (:) insn (decodeInstructions ws'')
         (IF35c  fn, w1 : w2 : ws') ->
           if b <= 5
             then (return $ fn w1 (take (fromIntegral b) [d, e, f, g, a]), ws')
-            else (fail "invalid B value for IF35c encoding", ws')
+            else (Left $ InvalidBForIF35cEncoding b, ws')
           where (g, f, e, d) = splitWord16' w2
         (IF3rc  fn, w1 : w2 : ws') ->
           (return $ fn w1 [w2..((w2 + fromIntegral aa) - 1)],  ws')
         (IF51l  fn, w1 : w2 : w3 : w4 : ws') ->
           (return $ fn aa (combine16' w4 w3 w2 w1), ws')
-        (InvalidOp, _) -> (fail $ invalidOp op, ws)
-        _ -> (fail $ prematureEnd op w, ws)
+        (InvalidOp, _) -> (Left $ InvalidOpcode op, ws)
+        _ -> (Left $ PrematureEnd op w, ws)
 
 {-
 encodeInstructions :: [Instruction] -> [Word16]

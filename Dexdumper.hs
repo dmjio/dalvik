@@ -254,7 +254,7 @@ codeLines dex flags mid code = do
             " " +++ (if sid == -1 then "" else nstr sid)
           insnText = either
                      (\msg -> p . B.string7 $
-                              "error parsing instructions: " ++ msg)
+                              "error parsing instructions: " ++ decodeErrorAsString msg)
                      (insnLines dex addr 0 insnUnits)
                      insns
           nstr nid = getStr' dex . fromIntegral $ nid
