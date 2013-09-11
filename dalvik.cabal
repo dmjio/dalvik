@@ -22,6 +22,7 @@ Library
                     conduit,
                     containers,
                     floatshow,
+                    pretty,
                     transformers,
                     vector,
                     zip-conduit
@@ -44,3 +45,7 @@ Executable Dexdumper
     Main-Is: Dexdumper.hs
     GHC-Options: -Wall -O2
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
+
+Executable SSATest
+  Main-Is: SSATest.hs
+  GHC-Options: -Wall -O2

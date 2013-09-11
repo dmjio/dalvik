@@ -10,14 +10,15 @@ toSSA f = undefined -- dexClasses f
 
 translateClass :: DT.Class -> SSA.Class
 translateClass c =
-  SSA.Class { classId = 0
-            , className = undefined
+  SSA.Class { --  classId = 0
+            -- ,
+              className = undefined
             , classParent = undefined
-            , classInterfaces = undefined
-            , classStaticFields = undefined
-            , classInstanceFields = undefined
-            , classDirectMethods = undefined
-            , classVirtualMethods = undefined
+--            , classInterfaces = undefined
+            -- , classStaticFields = undefined
+            -- , classInstanceFields = undefined
+            -- , classDirectMethods = undefined
+            -- , classVirtualMethods = undefined
             }
 
 labelFunctionValues :: DT.CodeItem -> Either DecodeError Labelling

@@ -32,7 +32,7 @@ data Reg
   = R4 Reg4
   | R8 Reg8
   | R16 Reg16
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data ConstArg
   = Const4 Int32
@@ -46,7 +46,7 @@ data ConstArg
   | ConstString StringId
   | ConstStringJumbo StringId
   | ConstClass TypeId
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 -- TODO: what's the best encoding for move instructions?
 
@@ -54,14 +54,14 @@ data MoveType
   = MNormal
   | MWide
   | MObject
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data Move1Type
   = MResult
   | MResultWide
   | MResultObject
   | MException
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data AccessType
   = AWide
@@ -70,12 +70,12 @@ data AccessType
   | AByte
   | AChar
   | AShort
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data AccessOp
   = Get (Maybe AccessType)
   | Put (Maybe AccessType)
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data InvokeKind
   = Virtual
@@ -83,7 +83,7 @@ data InvokeKind
   | Direct
   | Static
   | Interface
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data CType
   = Byte
@@ -93,7 +93,7 @@ data CType
   | Long
   | Float
   | Double
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data CmpOp
   = CLFloat
@@ -101,7 +101,7 @@ data CmpOp
   | CLDouble
   | CGDouble
   | CLong
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data IfOp
   = Eq
@@ -110,7 +110,7 @@ data IfOp
   | Ge
   | Gt
   | Le
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data Unop
   = NegInt
@@ -120,7 +120,7 @@ data Unop
   | NegFloat
   | NegDouble
   | Convert CType CType
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data Binop
   = Add
@@ -135,7 +135,7 @@ data Binop
   | Shr
   | UShr
   | RSub
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 data Instruction
   = Nop
@@ -154,7 +154,7 @@ data Instruction
   -- TODO: is this a good encoding for array instructions?
   | FilledNewArray TypeId [Reg4]
   | FilledNewArrayRange TypeId [Reg16]
-  | FillArrayData Word8 Word32 -- [Word8]
+  | FillArrayData Reg8 Word32 -- [Word8]
   | Throw Reg8
   | Goto Int8
   | Goto16 Int16
@@ -168,7 +168,7 @@ data Instruction
   | InstanceFieldOp AccessOp Reg4 Reg4 FieldId
   | StaticFieldOp AccessOp Reg8 FieldId
   -- TODO: how best to encode invoke instructions?
-  | Invoke InvokeKind Bool MethodId [Word16]
+  | Invoke InvokeKind Bool MethodId [Reg16]
   | Unop Unop Reg4 Reg4
   | IBinop Binop Bool Reg8 Reg8 Reg8
   | FBinop Binop Bool Reg8 Reg8 Reg8
@@ -179,7 +179,7 @@ data Instruction
   | PackedSwitchData Int32 [Word16]      -- TODO: Int32
   | SparseSwitchData [Word16] [Word16]   -- TODO: Int32
   | ArrayData Word16 Word32 [Word16] -- TODO
-    deriving (Show)
+    deriving (Eq, Ord, Show)
 
 insnUnitCount :: Instruction -> Int
 insnUnitCount i =
