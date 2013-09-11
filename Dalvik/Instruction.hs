@@ -14,6 +14,7 @@ module Dalvik.Instruction
   , Unop(..)
   , Binop(..)
   , Instruction(..)
+  , DecodeError
   ) where
 
 import Control.Applicative()

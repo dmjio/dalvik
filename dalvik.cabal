@@ -22,6 +22,8 @@ Library
                     conduit,
                     containers,
                     floatshow,
+                    transformers,
+                    vector,
                     zip-conduit
 
     Hs-Source-Dirs: .
@@ -32,8 +34,9 @@ Library
                      Dalvik.LEB128
                      Dalvik.Parser
                      Dalvik.Printer
+                     Dalvik.SSA
                      Dalvik.Types
-    Other-Modules:
+    Other-Modules: Dalvik.SSA.Types
     GHC-Options: -Wall -O2
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
 
