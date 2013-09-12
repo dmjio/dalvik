@@ -40,7 +40,7 @@ Library
                      Dalvik.SSA.Labelling
                      Dalvik.Types
     Other-Modules: Dalvik.SSA.Types
-    GHC-Options: -Wall -O2
+    GHC-Options: -Wall -O1
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
 
 Executable Dexdumper
