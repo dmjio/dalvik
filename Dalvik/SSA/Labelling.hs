@@ -94,18 +94,21 @@ prettyLabelling l =
       case i of
         Nop -> PP.text "nop"
         Move t r1 r2 -> PP.text $ printf ";; move %s %s %s" (show t) (show r1) (show r2)
-        Move1 t r -> PP.text $ printf ";; move1 %s %s" (show t) (show r)
+        Move1 t r -> PP.text $ printf "%s = move1 %s ;\t (move1 %s %s)" (wLabelId r) (show t) (show t) (show r)
         ReturnVoid -> PP.text "ret"
-        Return _ r -> PP.text $ printf "ret v$%s ;\t (ret %s)" (rLabelId r) (show r)
-        LoadConst r arg -> PP.text $ printf "%s = loadc %s ;\t (loadc %s %s)" (wLabelId r) (show arg) (show r) (show arg)
-        MonitorEnter r -> PP.text $ printf "menter %s ;\t (menter %s)" (rLabelId r) (show r)
-        MonitorExit r -> PP.text $ printf "mexit %s ;\t (mexit %s)" (rLabelId r) (show r)
-        CheckCast r t -> PP.text $ printf "checkcast %s %s ;\t (checkcast %s %s)" (rLabelId r) (show t) (show r) (show t)
-        InstanceOf d s t -> PP.text $ printf "%s = instanceof %s %s ;\t (instanceof %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
-        ArrayLength d s -> PP.text $ printf "%s = arraylength %s ;\t (arraylength %s %s)" (wLabelId d) (rLabelId s) (show d) (show s)
-        NewInstance d t -> PP.text $ printf "%s = newinstance %s ;\t (newinstance %s %s)" (wLabelId d) (show t) (show d) (show t)
-        NewArray d s t -> PP.text $ printf "%s = newarray %s %s ;\t (newarray %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
-        IBinop op _ d s1 s2 -> PP.text $ printf "%s = %s %s %s ;\t (%s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show d) (show op) (show s1) (show s2)
+        Return _ r -> PP.text $ printf "ret $%s ;\t (ret %s)" (rLabelId r) (show r)
+        LoadConst r arg -> PP.text $ printf "$%s = loadc %s ;\t (loadc %s %s)" (wLabelId r) (show arg) (show r) (show arg)
+        MonitorEnter r -> PP.text $ printf "menter $%s ;\t (menter %s)" (rLabelId r) (show r)
+        MonitorExit r -> PP.text $ printf "mexit $%s ;\t (mexit %s)" (rLabelId r) (show r)
+        CheckCast r t -> PP.text $ printf "checkcast $%s %s ;\t (checkcast %s %s)" (rLabelId r) (show t) (show r) (show t)
+        InstanceOf d s t -> PP.text $ printf "$%s = instanceof $%s %s ;\t (instanceof %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
+        ArrayLength d s -> PP.text $ printf "$%s = arraylength $%s ;\t (arraylength %s %s)" (wLabelId d) (rLabelId s) (show d) (show s)
+        NewInstance d t -> PP.text $ printf "$%s = newinstance $%s ;\t (newinstance %s %s)" (wLabelId d) (show t) (show d) (show t)
+        NewArray d s t -> PP.text $ printf "$%s = newarray $%s $%s ;\t (newarray %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
+        FilledNewArray t srcs -> PP.text $ printf "fillednewarray %s %s ;\t (fillednewarray %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
+        FilledNewArrayRange t srcs -> PP.text $ printf "fillednewarrayrange %s %s ;\t (fillednewarrayrange %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
+        Throw r -> PP.text $ printf "throw $%s ;\t (throw %s)" (rLabelId r) (show r)
+        IBinop op _ d s1 s2 -> PP.text $ printf "$%s = $%s $%s $%s ;\t (%s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
       where
         rLabelId reg = fromMaybe "??" $ do
           regMap <- M.lookup i (labellingReadRegs l)
