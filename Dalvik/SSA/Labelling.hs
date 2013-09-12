@@ -55,6 +55,7 @@ import Dalvik.Instruction
 
 data Label = SimpleLabel Int64
            | PhiLabel BlockNumber Int64
+           | ArgumentLabel String Int64
            deriving (Eq, Ord, Show)
 
 freshLabel :: SSALabeller Label
@@ -75,12 +76,13 @@ freshPhi bn = do
 
 -- | A labelling assigns an SSA number/Label to a register at *each*
 -- 'Instruction'.
-data Labelling = Labelling { labellingReadRegs :: Map Instruction (Map Word16 Label)
-                           , labellingWriteRegs :: Map Instruction Label
-                           , labellingPhis :: Map Label (Set Label)
-                           , labellingBasicBlocks :: Vector (BlockNumber, Vector Instruction)
-                           }
-                 deriving (Eq, Ord, Show)
+data Labelling =
+  Labelling { labellingReadRegs :: Map Instruction (Map Word16 Label)
+            , labellingWriteRegs :: Map Instruction Label
+            , labellingPhis :: Map Label (Set Label)
+            , labellingBasicBlocks :: Vector (BlockNumber, Vector Instruction)
+            }
+  deriving (Eq, Ord, Show)
 
 prettyLabelling :: Labelling -> String
 prettyLabelling l =
@@ -92,7 +94,7 @@ prettyLabelling l =
       in header $+$ body
     prettyInst i =
       case i of
-        Nop -> PP.text "nop"
+        Nop -> PP.text ";; nop"
         Move t r1 r2 -> PP.text $ printf ";; move %s %s %s" (show t) (show r1) (show r2)
         Move1 t r -> PP.text $ printf "%s = move1 %s ;\t (move1 %s %s)" (wLabelId r) (show t) (show t) (show r)
         ReturnVoid -> PP.text "ret"
@@ -107,8 +109,10 @@ prettyLabelling l =
         NewArray d s t -> PP.text $ printf "$%s = newarray $%s $%s ;\t (newarray %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
         FilledNewArray t srcs -> PP.text $ printf "fillednewarray %s %s ;\t (fillednewarray %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
         FilledNewArrayRange t srcs -> PP.text $ printf "fillednewarrayrange %s %s ;\t (fillednewarrayrange %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
+        FillArrayData r off -> PP.text $ printf "fillarraydata $%s %s ;\t (fillarraydata %s %s)" (rLabelId r) (show off) (show r) (show off)
         Throw r -> PP.text $ printf "throw $%s ;\t (throw %s)" (rLabelId r) (show r)
-        IBinop op _ d s1 s2 -> PP.text $ printf "$%s = $%s $%s $%s ;\t (%s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        Goto off -> PP.text $ printf "goto %s" ""
+        IBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
       where
         rLabelId reg = fromMaybe "??" $ do
           regMap <- M.lookup i (labellingReadRegs l)
@@ -116,11 +120,13 @@ prettyLabelling l =
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ lnum -> return (show lnum)
+            ArgumentLabel s _ -> return s
         wLabelId _reg = fromMaybe "??" $ do
           lab <- M.lookup i (labellingWriteRegs l)
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ lnum -> return (show lnum)
+            ArgumentLabel s _ -> return s
 -- Blocks need to end after branches/switches/invokes/throws
 
 data LabelState =
@@ -172,20 +178,39 @@ emptyEnv ivec bvec bmap =
     bmapVec = buildInstructionBlockMap bmap
 
 
-emptyLabelState :: LabelState
-emptyLabelState = LabelState { currentDefinition = M.empty
-                             , instructionLabels = M.empty
-                             , instructionResultLabels = M.empty
-                             , phiOperands = M.empty
-                             , labelCounter = 0
-                             }
+-- | Create a new empty state.  This state is initialized to account
+-- for method arguments, which occupy the last @length argRegs@
+-- registers.  Wide arguments take two registers, but we only need to
+-- worry about the first register in the pair (since the second is
+-- never explicitly accessed).
+emptyLabelState :: [(String, Word16)] -> LabelState
+emptyLabelState argRegs =
+  LabelState { currentDefinition = fst $ L.foldl' addArgumentMapping (M.empty, 0) argRegs
+             , instructionLabels = M.empty
+             , instructionResultLabels = M.empty
+             , phiOperands = M.empty
+             , labelCounter = fromIntegral $ length argRegs
+             }
+  where
+    addArgumentMapping (m, valNo) (argName, regno) =
+      let l = ArgumentLabel argName valNo
+      in (M.insertWith M.union regno (M.singleton 0 l) m, valNo + 1)
 
 -- | Build a vector of Instructions for fast indexing from branch
--- instructions.
-labelInstructions :: [Instruction] -> Labelling
-labelInstructions is = fst $ evalRWS label' e0 s0
+-- instructions.  The argument/register mapping should be resolved
+-- outside of this function - it only cares about which registers
+-- are occupied by arguments.
+--
+-- While wide arguments take two registers, the input mapping need
+-- only record the *first* register occupied.
+labelInstructions :: [(String, Word16)]
+                     -- ^ A mapping of argument names to the register numbers
+                     -> [Instruction]
+                     -- ^ The instruction stream for the method
+                     -> Labelling
+labelInstructions argRegs is = fst $ evalRWS label' e0 s0
   where
-    s0 = emptyLabelState
+    s0 = emptyLabelState argRegs
     e0 = emptyEnv ivec bvec bnumMap
     ivec = V.fromList is
     (bvec, bnumMap) = splitIntoBlocks ivec
@@ -291,7 +316,6 @@ recordReadRegister inst instBlock srcReg = do
 recordWriteRegister :: (FromRegister a) => Instruction -> BlockNumber -> a -> SSALabeller ()
 recordWriteRegister inst instBlock dstReg = do
   lbl <- writeRegister dstReg instBlock
-  -- recordAssignment inst dstReg lbl
   modify (addAssignment lbl)
   where
     addAssignment lbl s =

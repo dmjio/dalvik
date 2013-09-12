@@ -25,7 +25,7 @@ labelFunctionValues :: DT.CodeItem -> Either DecodeError Labelling
 labelFunctionValues ci =
   case I.decodeInstructions (codeInsns ci) of
     Left e -> Left e
-    Right insts -> Right $ labelInstructions insts
+    Right insts -> Right $ labelInstructions undefined insts
 
 {- Note [Translation]
 
