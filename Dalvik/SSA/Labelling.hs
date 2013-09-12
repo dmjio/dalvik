@@ -90,6 +90,7 @@ data Labelling =
             , labellingPhis :: Map Label (Set Label)
             , labellingBasicBlocks :: Vector (BlockNumber, Vector Instruction)
             , labellingInstructions :: Vector Instruction
+            , labellingInstructionBlockMap :: Vector BlockNumber
             }
   deriving (Eq, Ord, Show)
 
@@ -113,6 +114,8 @@ prettyLabelling :: Labelling -> String
 prettyLabelling l =
   render $ PP.vcat $ map prettyBlock $ V.toList (labellingBasicBlocks l)
   where
+    ivec = labellingInstructions l
+    bmap = labellingInstructionBlockMap l
     prettyBlock (bid, insts) =
       let header = PP.text ";; " <> PP.int bid
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
@@ -121,6 +124,11 @@ prettyLabelling l =
                                 ]
           body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ V.toList insts)
       in header $+$ PP.nest 2 body
+    branchTargets i = fromMaybe "??" $ do
+      ix <- V.elemIndex i ivec
+      ts <- terminatorAbsoluteTargets ivec ix i
+      targetBlocks <- mapM (bmap V.!?) ts
+      return $ concatMap show targetBlocks
     prettyInst i =
       case i of
         Nop -> PP.text ";; nop"
@@ -158,6 +166,13 @@ prettyLabelling l =
         PackedSwitchData _ _ -> PP.text ";; packedswitchdata"
         SparseSwitchData _ _ -> PP.text ";; sparseswitchdata"
         ArrayData _ _ _ -> PP.text ";; arraydata"
+        Goto _ -> PP.text $ printf "goto %s" (branchTargets i)
+        Goto16 _ -> PP.text $ printf "goto %s" (branchTargets i)
+        Goto32 _ -> PP.text $ printf "goto %s" (branchTargets i)
+        PackedSwitch src _ -> PP.text $ printf "switch $%s %s" (rLabelId src) (branchTargets i)
+        SparseSwitch src _ -> PP.text $ printf "switch $%s %s" (rLabelId src) (branchTargets i)
+        IfZero op src _ -> PP.text $ printf "if0 %s $%s" (show op) (rLabelId src)
+        If op src1 src2 _ -> PP.text $ printf "if %s $%s $%s" (show op) (rLabelId src1) (rLabelId src2)
       where
         rLabelId reg = fromMaybe "??" $ do
           regMap <- M.lookup i (labellingReadRegs l)
@@ -266,11 +281,13 @@ label' = do
   mapM_ labelInstruction $ V.toList $ V.indexed ivec
   s <- get
   bbs <- asks envBasicBlocks
+  bmap <- asks envInstructionBlockMap
   return $ Labelling { labellingReadRegs = instructionLabels s
                      , labellingWriteRegs = instructionResultLabels s
                      , labellingPhis = phiOperands s
                      , labellingBasicBlocks = bbs
                      , labellingInstructions = ivec
+                     , labellingInstructionBlockMap = bmap
                      }
 
 
