@@ -32,7 +32,7 @@
 -- >   r4 <- phi(r3, r1)
 -- >   r3 <- binop add r4 r2
 -- >   br (r4 < 100) loop
-module Dalvik.SSA.Labelling {- (
+module Dalvik.SSA.Labelling (
   -- * Data Types
   Label(..),
   Labelling(..),
@@ -40,7 +40,7 @@ module Dalvik.SSA.Labelling {- (
   -- * Testing
   prettyLabelling,
   generatedLabelsAreUnique
-  ) -} where
+  ) where
 
 import Control.Monad ( forM_ )
 import Control.Monad.Trans.RWS.Strict
@@ -89,6 +89,7 @@ data Labelling =
             , labellingWriteRegs :: Map Instruction Label
             , labellingPhis :: Map Label (Set Label)
             , labellingBasicBlocks :: Vector (BlockNumber, Vector Instruction)
+            , labellingInstructions :: Vector Instruction
             }
   deriving (Eq, Ord, Show)
 
@@ -102,15 +103,24 @@ generatedLabelsAreUnique =
       | S.member l marked = (marked, False)
       | otherwise = (S.insert l marked, foundRepeat)
 
--- | FIXME render phis at the beginning of each block
+phiForBlock :: BlockNumber -> Label -> Bool
+phiForBlock bid l =
+  case l of
+    PhiLabel phiBlock _ -> phiBlock == bid
+    _ -> False
+
 prettyLabelling :: Labelling -> String
 prettyLabelling l =
   render $ PP.vcat $ map prettyBlock $ V.toList (labellingBasicBlocks l)
   where
     prettyBlock (bid, insts) =
       let header = PP.text ";; " <> PP.int bid
-          body = PP.nest 2 $ PP.vcat $ map prettyInst $ V.toList insts
-      in header $+$ body
+          blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
+          blockPhiDoc = PP.vcat [ PP.text (printf "$%s = phi(%s)" phiL (show vals))
+                                | (PhiLabel _ phiL, (S.toList -> vals)) <- blockPhis
+                                ]
+          body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ V.toList insts)
+      in header $+$ PP.nest 2 body
     prettyInst i =
       case i of
         Nop -> PP.text ";; nop"
@@ -130,8 +140,24 @@ prettyLabelling l =
         FilledNewArrayRange t srcs -> PP.text $ printf "fillednewarrayrange %s %s ;\t (fillednewarrayrange %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
         FillArrayData r off -> PP.text $ printf "fillarraydata $%s %s ;\t (fillarraydata %s %s)" (rLabelId r) (show off) (show r) (show off)
         Throw r -> PP.text $ printf "throw $%s ;\t (throw %s)" (rLabelId r) (show r)
-        Goto off -> PP.text $ printf "goto %s" ""
-        IBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        Cmp op d s1 s2 -> PP.text $ printf "$%s <- cmp %s $%s $%s ;\t (cmp %s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        ArrayOp (Get _) dst src1 src2 -> PP.text $ printf "$%s = getarray $%s $%s ;\t (getarray %s %s %s)" (wLabelId dst) (rLabelId src1) (rLabelId src2) (show dst) (show src1) (show src2)
+        ArrayOp (Put _) src3 src1 src2 -> PP.text $ printf "putarray $%s $%s $%s ;\t (putarray %s %s %s)" (rLabelId src3) (rLabelId src1) (rLabelId src2) (show src3) (show src1) (show src2)
+        InstanceFieldOp (Get _) dst src f -> PP.text $ printf "$%s = getfield $%s %s ;\t (getfield %s %s %s)" (wLabelId dst) (rLabelId src) (show f) (show dst) (show src) (show f)
+        InstanceFieldOp (Put _) src2 src1 f -> PP.text $ printf "putfield $%s $%s %s ;\t (putfield %s %s %s)" (rLabelId src2) (rLabelId src1) (show f) (show src2) (show src1) (show f)
+        StaticFieldOp (Get _) dst f -> PP.text $ printf "$%s = getstatic %s ;\t (getstatic %s %s)" (wLabelId dst) (show f) (show dst) (show f)
+        StaticFieldOp (Put _) src f -> PP.text $ printf "putstatic $%s %s ;\t (putstatic %s %s)" (rLabelId src) (show f) (show src) (show f)
+        Invoke kind _ method srcs -> PP.text $ printf "invoke %s [%s] %s ;\t (%s)" (show kind) (show method) (show (map rLabelId srcs)) (show srcs)
+        Unop op d s -> PP.text $ printf "$%s <- %s $%s ;\t (%s %s %s)" (wLabelId d) (show op) (rLabelId s) (show op) (show d) (show s)
+        IBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[i] %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        FBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[f] %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        IBinopAssign op _ sd s -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[ia] %s %s)" (wLabelId sd) (show op) (rLabelId sd) (rLabelId s) (show op) (show sd) (show s)
+        FBinopAssign op _ sd s -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[fa] %s %s)" (wLabelId sd) (show op) (rLabelId sd) (rLabelId s) (show op) (show sd) (show s)
+        BinopLit16 op d s lit -> PP.text $ printf "$%s = %s $%s %d ;\t (%s %s %s %d)" (wLabelId d) (show op) (rLabelId s) lit (show op) (show d) (show s) lit
+        BinopLit8 op d s lit -> PP.text $ printf "$%s = %s $%s %d ;\t (%s %s %s %d)" (wLabelId d) (show op) (rLabelId s) lit (show op) (show d) (show s) lit
+        PackedSwitchData _ _ -> PP.text ";; packedswitchdata"
+        SparseSwitchData _ _ -> PP.text ";; sparseswitchdata"
+        ArrayData _ _ _ -> PP.text ";; arraydata"
       where
         rLabelId reg = fromMaybe "??" $ do
           regMap <- M.lookup i (labellingReadRegs l)
@@ -244,6 +270,7 @@ label' = do
                      , labellingWriteRegs = instructionResultLabels s
                      , labellingPhis = phiOperands s
                      , labellingBasicBlocks = bbs
+                     , labellingInstructions = ivec
                      }
 
 
