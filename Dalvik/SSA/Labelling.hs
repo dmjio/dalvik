@@ -32,7 +32,15 @@
 -- >   r4 <- phi(r3, r1)
 -- >   r3 <- binop add r4 r2
 -- >   br (r4 < 100) loop
-module Dalvik.SSA.Labelling where
+module Dalvik.SSA.Labelling {- (
+  -- * Data Types
+  Label(..),
+  Labelling(..),
+  labelInstructions,
+  -- * Testing
+  prettyLabelling,
+  generatedLabelsAreUnique
+  ) -} where
 
 import Control.Monad ( forM_ )
 import Control.Monad.Trans.RWS.Strict
@@ -41,7 +49,7 @@ import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
 import Data.Map ( Map )
 import qualified Data.Map as M
-import Data.Maybe ( fromMaybe, mapMaybe )
+import Data.Maybe ( fromMaybe, isJust, mapMaybe )
 import qualified Data.List as L
 import Data.Set ( Set )
 import qualified Data.Set as S
@@ -84,6 +92,17 @@ data Labelling =
             }
   deriving (Eq, Ord, Show)
 
+-- | Returns @True@ if all of the labels assigned to instructions
+-- are unique.
+generatedLabelsAreUnique :: Labelling -> Bool
+generatedLabelsAreUnique =
+  snd . foldr checkRepeats (S.empty, True) . M.toList . labellingWriteRegs
+  where
+    checkRepeats (_, l) (marked, foundRepeat)
+      | S.member l marked = (marked, False)
+      | otherwise = (S.insert l marked, foundRepeat)
+
+-- | FIXME render phis at the beginning of each block
 prettyLabelling :: Labelling -> String
 prettyLabelling l =
   render $ PP.vcat $ map prettyBlock $ V.toList (labellingBasicBlocks l)
@@ -423,9 +442,10 @@ buildPredecessors ivec bmap =
     getPreds ix = S.toList $ fromMaybe S.empty $ M.lookup ix predMap
     predMap = V.ifoldl' addTermSuccs M.empty ivec
     addTermSuccs m ix inst =
-      case terminatorAbsoluteTargets ix inst of
-        [] -> m
-        targets ->
+      case terminatorAbsoluteTargets ivec ix inst of
+        Nothing -> m
+--        Just [] -> m
+        Just targets ->
           let Just termBlock = bmap V.!? ix
               targetBlocks = mapMaybe (bmap V.!?) targets
               addPreds a targetBlock = M.insertWith S.union targetBlock (S.singleton termBlock) a
@@ -452,7 +472,7 @@ splitIntoBlocks ivec = (V.indexed $ V.fromList $ reverse blockChunks, bnumMap)
   where
     (_, blockChunks, bnumMap) = V.ifoldl' (makeBlockIfTerminator ivec) (blockBeginnings, [], M.empty) ivec
     -- Zero is an implicit block beginning since execution starts there.
-    blockBeginnings = V.ifoldl' addTargetIndex (IS.singleton 0) ivec
+    blockBeginnings = V.ifoldl' (addTargetIndex ivec) (IS.singleton 0) ivec
 
 makeBlockIfTerminator :: Vector Instruction
                          -> (IntSet, [Vector Instruction], Map (Int, Int) BlockNumber)
@@ -460,7 +480,7 @@ makeBlockIfTerminator :: Vector Instruction
                          -> Instruction
                          -> (IntSet, [Vector Instruction], Map (Int, Int) BlockNumber)
 makeBlockIfTerminator ivec acc@(blockStarts, blocks, bnums) ix inst
-  | not (isTerminator inst) = acc
+  | not (isTerminator ivec ix inst) = acc
   | otherwise =
     let (blockStart, blockStarts') = IS.deleteFindMin blockStarts
         len = ix - blockStart + 1
@@ -472,38 +492,39 @@ makeBlockIfTerminator ivec acc@(blockStarts, blocks, bnums) ix inst
 -- technically possible because of a conversion from 'Int32' to 'Int',
 -- that isn't a problem in practice because we wouldn't have enough
 -- RAM for an array big enough to suffer from the loss.
-addTargetIndex :: IntSet -> Int -> Instruction -> IntSet
-addTargetIndex acc ix inst =
-  L.foldl' (flip IS.insert) acc (terminatorAbsoluteTargets ix inst)
+addTargetIndex :: Vector Instruction -> IntSet -> Int -> Instruction -> IntSet
+addTargetIndex ivec acc ix inst =
+  case terminatorAbsoluteTargets ivec ix inst of
+    Nothing -> acc
+--    Just [] -> acc
+    Just targets -> L.foldl' (flip IS.insert) acc targets
 
 -- |
 -- FIXME: Invoke *can* be a terminator if it is in a try block.  We do
--- need to know that here, technically.
-terminatorAbsoluteTargets :: Int -> Instruction -> [Int]
-terminatorAbsoluteTargets ix inst =
+-- need to know that here, technically.  Actually, any invoke or instruction
+-- touching a reference can get an edge to an exception handler...
+terminatorAbsoluteTargets :: Vector Instruction -> Int -> Instruction -> Maybe [Int]
+terminatorAbsoluteTargets ivec ix inst =
   case inst of
-    Goto i8 -> [fromIntegral i8 + ix]
-    Goto16 i16 -> [fromIntegral i16 + ix]
-    Goto32 i32 -> [fromIntegral i32 + ix]
-    PackedSwitch _ tableOff -> undefined
-    SparseSwitch _ tableOff -> undefined
-    If _ _ _ off -> [fromIntegral off + ix]
-    IfZero _ _ off -> [fromIntegral off + ix]
-    _ -> []
+    Goto i8 -> Just [fromIntegral i8 + ix]
+    Goto16 i16 -> Just [fromIntegral i16 + ix]
+    Goto32 i32 -> Just [fromIntegral i32 + ix]
+    PackedSwitch _ tableOff ->
+      let Just (PackedSwitchData _ offs) = ivec V.!? (fromIntegral tableOff + ix)
+      in Just [fromIntegral o + ix | o <- offs]
+    SparseSwitch _ tableOff ->
+      let Just (SparseSwitchData _ offs) = ivec V.!? (fromIntegral tableOff + ix)
+      in Just [fromIntegral o + ix | o <- offs]
+    If _ _ _ off -> Just [fromIntegral off + ix]
+    IfZero _ _ off -> Just [fromIntegral off + ix]
+    ReturnVoid -> Just []
+    Return _ _ -> Just []
+    Throw _ -> Just []
+    _ -> Nothing -- FIXME: Take additional information about exception tables
 
-isTerminator :: Instruction -> Bool
-isTerminator inst =
-  case inst of
-    Goto _ -> True
-    Goto16 _ -> True
-    Goto32 _ -> True
-    PackedSwitch _ _ -> True
-    SparseSwitch _ _ -> True
-    If _ _ _ _ -> True
-    IfZero _ _ _ -> True
-    ReturnVoid -> True
-    Return _ _ -> True
-    _ -> False
+isTerminator :: Vector Instruction -> Int -> Instruction -> Bool
+isTerminator ivec ix inst =
+  isJust $ terminatorAbsoluteTargets ivec ix inst
 
 -- | This is a simple helper class to convert from Register
 -- identifiers in the low-level IR to a consistent Word16.  The spec

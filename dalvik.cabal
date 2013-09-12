@@ -1,6 +1,6 @@
 Name:           dalvik
 Version:        0.1
-Cabal-Version:  >= 1.2
+Cabal-Version:  >= 1.10
 Build-Type:     Simple
 License:        BSD3
 License-File:   LICENSE
@@ -13,6 +13,7 @@ Description:    Parser for the Dalvik virtual machine's DEX file format
 Category:       Language
 
 Library
+    default-language: Haskell2010
     Extensions:
 
     Build-Depends:  array,
@@ -36,16 +37,35 @@ Library
                      Dalvik.Parser
                      Dalvik.Printer
                      Dalvik.SSA
+                     Dalvik.SSA.Labelling
                      Dalvik.Types
     Other-Modules: Dalvik.SSA.Types
     GHC-Options: -Wall -O2
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
 
 Executable Dexdumper
-    Main-Is: Dexdumper.hs
-    GHC-Options: -Wall -O2
-    GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
-
-Executable SSATest
-  Main-Is: SSATest.hs
+  default-language: Haskell2010
+  build-depends: base == 4.*,
+                 array,
+                 bytestring,
+                 cereal,
+                 conduit,
+                 containers,
+                 floatshow,
+                 zip-conduit,
+                 dalvik
+  Main-Is: Dexdumper.hs
   GHC-Options: -Wall -O2
+  GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
+
+test-suite SSALabels
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: SSALabels.hs
+  ghc-options: -Wall -O2
+  hs-source-dirs: tests/ssa
+  build-depends: base == 4.*,
+                 containers,
+                 tasty,
+                 tasty-hunit,
+                 dalvik == 0.1
