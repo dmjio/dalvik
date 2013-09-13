@@ -60,7 +60,8 @@ import Text.PrettyPrint as PP
 import Text.Printf
 
 import Dalvik.Instruction
-
+import Debug.Trace
+debug = flip trace
 data Label = SimpleLabel Int64
            | PhiLabel BlockNumber Int64
            | ArgumentLabel String Int64
@@ -88,9 +89,8 @@ data Labelling =
   Labelling { labellingReadRegs :: Map Instruction (Map Word16 Label)
             , labellingWriteRegs :: Map Instruction Label
             , labellingPhis :: Map Label (Set Label)
-            , labellingBasicBlocks :: Vector (BlockNumber, Vector Instruction)
+            , labellingBasicBlocks :: BasicBlocks
             , labellingInstructions :: Vector Instruction
-            , labellingInstructionBlockMap :: Vector BlockNumber
             }
   deriving (Eq, Ord, Show)
 
@@ -104,89 +104,6 @@ generatedLabelsAreUnique =
       | S.member l marked = (marked, False)
       | otherwise = (S.insert l marked, foundRepeat)
 
-phiForBlock :: BlockNumber -> Label -> Bool
-phiForBlock bid l =
-  case l of
-    PhiLabel phiBlock _ -> phiBlock == bid
-    _ -> False
-
-prettyLabelling :: Labelling -> String
-prettyLabelling l =
-  render $ PP.vcat $ map prettyBlock $ V.toList (labellingBasicBlocks l)
-  where
-    ivec = labellingInstructions l
-    bmap = labellingInstructionBlockMap l
-    prettyBlock (bid, insts) =
-      let header = PP.text ";; " <> PP.int bid
-          blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
-          blockPhiDoc = PP.vcat [ PP.text (printf "$%s = phi(%s)" phiL (show vals))
-                                | (PhiLabel _ phiL, (S.toList -> vals)) <- blockPhis
-                                ]
-          body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ V.toList insts)
-      in header $+$ PP.nest 2 body
-    branchTargets i = fromMaybe "??" $ do
-      ix <- V.elemIndex i ivec
-      ts <- terminatorAbsoluteTargets ivec ix i
-      targetBlocks <- mapM (bmap V.!?) ts
-      return $ concatMap show targetBlocks
-    prettyInst i =
-      case i of
-        Nop -> PP.text ";; nop"
-        Move t r1 r2 -> PP.text $ printf ";; move %s %s %s" (show t) (show r1) (show r2)
-        Move1 t r -> PP.text $ printf "%s = move1 %s ;\t (move1 %s %s)" (wLabelId r) (show t) (show t) (show r)
-        ReturnVoid -> PP.text "ret"
-        Return _ r -> PP.text $ printf "ret $%s ;\t (ret %s)" (rLabelId r) (show r)
-        LoadConst r arg -> PP.text $ printf "$%s = loadc %s ;\t (loadc %s %s)" (wLabelId r) (show arg) (show r) (show arg)
-        MonitorEnter r -> PP.text $ printf "menter $%s ;\t (menter %s)" (rLabelId r) (show r)
-        MonitorExit r -> PP.text $ printf "mexit $%s ;\t (mexit %s)" (rLabelId r) (show r)
-        CheckCast r t -> PP.text $ printf "checkcast $%s %s ;\t (checkcast %s %s)" (rLabelId r) (show t) (show r) (show t)
-        InstanceOf d s t -> PP.text $ printf "$%s = instanceof $%s %s ;\t (instanceof %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
-        ArrayLength d s -> PP.text $ printf "$%s = arraylength $%s ;\t (arraylength %s %s)" (wLabelId d) (rLabelId s) (show d) (show s)
-        NewInstance d t -> PP.text $ printf "$%s = newinstance $%s ;\t (newinstance %s %s)" (wLabelId d) (show t) (show d) (show t)
-        NewArray d s t -> PP.text $ printf "$%s = newarray $%s $%s ;\t (newarray %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
-        FilledNewArray t srcs -> PP.text $ printf "fillednewarray %s %s ;\t (fillednewarray %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
-        FilledNewArrayRange t srcs -> PP.text $ printf "fillednewarrayrange %s %s ;\t (fillednewarrayrange %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
-        FillArrayData r off -> PP.text $ printf "fillarraydata $%s %s ;\t (fillarraydata %s %s)" (rLabelId r) (show off) (show r) (show off)
-        Throw r -> PP.text $ printf "throw $%s ;\t (throw %s)" (rLabelId r) (show r)
-        Cmp op d s1 s2 -> PP.text $ printf "$%s <- cmp %s $%s $%s ;\t (cmp %s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
-        ArrayOp (Get _) dst src1 src2 -> PP.text $ printf "$%s = getarray $%s $%s ;\t (getarray %s %s %s)" (wLabelId dst) (rLabelId src1) (rLabelId src2) (show dst) (show src1) (show src2)
-        ArrayOp (Put _) src3 src1 src2 -> PP.text $ printf "putarray $%s $%s $%s ;\t (putarray %s %s %s)" (rLabelId src3) (rLabelId src1) (rLabelId src2) (show src3) (show src1) (show src2)
-        InstanceFieldOp (Get _) dst src f -> PP.text $ printf "$%s = getfield $%s %s ;\t (getfield %s %s %s)" (wLabelId dst) (rLabelId src) (show f) (show dst) (show src) (show f)
-        InstanceFieldOp (Put _) src2 src1 f -> PP.text $ printf "putfield $%s $%s %s ;\t (putfield %s %s %s)" (rLabelId src2) (rLabelId src1) (show f) (show src2) (show src1) (show f)
-        StaticFieldOp (Get _) dst f -> PP.text $ printf "$%s = getstatic %s ;\t (getstatic %s %s)" (wLabelId dst) (show f) (show dst) (show f)
-        StaticFieldOp (Put _) src f -> PP.text $ printf "putstatic $%s %s ;\t (putstatic %s %s)" (rLabelId src) (show f) (show src) (show f)
-        Invoke kind _ method srcs -> PP.text $ printf "invoke %s [%s] %s ;\t (%s)" (show kind) (show method) (show (map rLabelId srcs)) (show srcs)
-        Unop op d s -> PP.text $ printf "$%s <- %s $%s ;\t (%s %s %s)" (wLabelId d) (show op) (rLabelId s) (show op) (show d) (show s)
-        IBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[i] %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
-        FBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[f] %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
-        IBinopAssign op _ sd s -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[ia] %s %s)" (wLabelId sd) (show op) (rLabelId sd) (rLabelId s) (show op) (show sd) (show s)
-        FBinopAssign op _ sd s -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[fa] %s %s)" (wLabelId sd) (show op) (rLabelId sd) (rLabelId s) (show op) (show sd) (show s)
-        BinopLit16 op d s lit -> PP.text $ printf "$%s = %s $%s %d ;\t (%s %s %s %d)" (wLabelId d) (show op) (rLabelId s) lit (show op) (show d) (show s) lit
-        BinopLit8 op d s lit -> PP.text $ printf "$%s = %s $%s %d ;\t (%s %s %s %d)" (wLabelId d) (show op) (rLabelId s) lit (show op) (show d) (show s) lit
-        PackedSwitchData _ _ -> PP.text ";; packedswitchdata"
-        SparseSwitchData _ _ -> PP.text ";; sparseswitchdata"
-        ArrayData _ _ _ -> PP.text ";; arraydata"
-        Goto _ -> PP.text $ printf "goto %s" (branchTargets i)
-        Goto16 _ -> PP.text $ printf "goto %s" (branchTargets i)
-        Goto32 _ -> PP.text $ printf "goto %s" (branchTargets i)
-        PackedSwitch src _ -> PP.text $ printf "switch $%s %s" (rLabelId src) (branchTargets i)
-        SparseSwitch src _ -> PP.text $ printf "switch $%s %s" (rLabelId src) (branchTargets i)
-        IfZero op src _ -> PP.text $ printf "if0 %s $%s" (show op) (rLabelId src)
-        If op src1 src2 _ -> PP.text $ printf "if %s $%s $%s" (show op) (rLabelId src1) (rLabelId src2)
-      where
-        rLabelId reg = fromMaybe "??" $ do
-          regMap <- M.lookup i (labellingReadRegs l)
-          lab <- M.lookup (fromRegister reg) regMap
-          case lab of
-            SimpleLabel lnum -> return (show lnum)
-            PhiLabel _ lnum -> return (show lnum)
-            ArgumentLabel s _ -> return s
-        wLabelId _reg = fromMaybe "??" $ do
-          lab <- M.lookup i (labellingWriteRegs l)
-          case lab of
-            SimpleLabel lnum -> return (show lnum)
-            PhiLabel _ lnum -> return (show lnum)
-            ArgumentLabel s _ -> return s
 -- Blocks need to end after branches/switches/invokes/throws
 
 data LabelState =
@@ -208,35 +125,46 @@ data LabelState =
 
 data LabelEnv =
   LabelEnv { envInstructionStream :: Vector Instruction
-           , envBasicBlocks :: Vector (BlockNumber, Vector Instruction)
-           , envInstructionBlockMap :: Vector BlockNumber
+           , envBasicBlocks :: BasicBlocks
+--           , envBasicBlocks :: Vector (BlockNumber, Vector Instruction)
+--           , envInstructionBlockMap :: Vector BlockNumber
              -- ^ One entry for each instruction
-           , envBlockPredecessors :: Vector [BlockNumber]
+--           , envBlockPredecessors :: Vector [BlockNumber]
              -- ^ The index of a block (a block number)
              -- maps to the predecessors of that block.
              -- One entry for each basic block
            }
 
+data BasicBlocks =
+  BasicBlocks { bbBlocks :: Vector (BlockNumber, Vector Instruction)
+              , bbFromInstruction :: Vector BlockNumber
+                -- ^ One entry per instruction, the reverse mapping
+              , bbPredecessors :: Vector [BlockNumber]
+                -- ^ One entry per basic block
+              }
+  deriving (Eq, Ord, Show)
+
+-- | Get the basic block ID for the instruction at the given index.
 blockForInstruction :: Int -> SSALabeller BlockNumber
 blockForInstruction ix = do
-  ivec <- asks envInstructionBlockMap
+  ivec <- asks (bbFromInstruction . envBasicBlocks)
   let Just bnum = ivec V.!? ix
   return bnum
 
 -- Builds up an implicit CFG, only recording block predecessors.
-emptyEnv :: Vector Instruction
-         -> Vector (BlockNumber, Vector Instruction)
-         -> Map (Int, Int) BlockNumber -- ^ Instruction ranges mapped to block numbers
-         -> LabelEnv
-emptyEnv ivec bvec bmap =
+emptyEnv :: Vector Instruction -> LabelEnv
+emptyEnv ivec =
   LabelEnv { envInstructionStream = ivec
-           , envBasicBlocks = bvec
-           , envInstructionBlockMap = bmapVec
-           , envBlockPredecessors = buildPredecessors ivec bmapVec
+           , envBasicBlocks = bbs
            }
   where
-    bmapVec = buildInstructionBlockMap bmap
-
+    preds = buildPredecessors ivec bvec bmapVec
+    (bvec, bnumMap) = splitIntoBlocks ivec
+    bmapVec = buildInstructionBlockMap bnumMap
+    bbs = BasicBlocks { bbBlocks = bvec
+                      , bbFromInstruction = bmapVec
+                      , bbPredecessors = buildPredecessors ivec bvec bmapVec
+                      }
 
 -- | Create a new empty state.  This state is initialized to account
 -- for method arguments, which occupy the last @length argRegs@
@@ -271,9 +199,9 @@ labelInstructions :: [(String, Word16)]
 labelInstructions argRegs is = fst $ evalRWS label' e0 s0
   where
     s0 = emptyLabelState argRegs
-    e0 = emptyEnv ivec bvec bnumMap
+    e0 = emptyEnv ivec
     ivec = V.fromList is
-    (bvec, bnumMap) = splitIntoBlocks ivec
+
 
 label' :: SSALabeller Labelling
 label' = do
@@ -281,13 +209,13 @@ label' = do
   mapM_ labelInstruction $ V.toList $ V.indexed ivec
   s <- get
   bbs <- asks envBasicBlocks
-  bmap <- asks envInstructionBlockMap
+--  bmap <- asks envInstructionBlockMap
   return $ Labelling { labellingReadRegs = instructionLabels s
                      , labellingWriteRegs = instructionResultLabels s
                      , labellingPhis = phiOperands s
                      , labellingBasicBlocks = bbs
                      , labellingInstructions = ivec
-                     , labellingInstructionBlockMap = bmap
+  --                   , labellingInstructionBlockMap = bmap
                      }
 
 
@@ -449,7 +377,7 @@ readRegisterRecursive reg block = do
     _ -> do
       p <- freshPhi block
       writeRegisterLabel reg block p
-      addPhiOperands reg p preds
+      addPhiOperands reg p preds  `debug` show preds
   writeRegisterLabel reg block l
   return l
 
@@ -460,7 +388,8 @@ addPhiOperands reg phi preds = do
     appendPhiOperand phi l
   -- FIXME: tryRemoveTrivialPhi here.  Get everything else working
   -- first, though.
-  return phi
+  ops <- gets phiOperands
+  return phi  `debug` show ops
 
 appendPhiOperand :: Label -> Label -> SSALabeller ()
 appendPhiOperand phi operand = modify appendOperand
@@ -471,17 +400,23 @@ appendPhiOperand phi operand = modify appendOperand
 
 basicBlockPredecessors :: BlockNumber -> SSALabeller [BlockNumber]
 basicBlockPredecessors b = do
-  pmap <- asks envBlockPredecessors
+  pmap <- asks (bbPredecessors . envBasicBlocks)
   let Just ps = pmap V.!? b
-  return ps
+  return ps `debug` show pmap
 
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
+--
+-- FIXME: The problem here is that it doesn't account for fallthrough
+-- into an implicit block (e.g., the *target* of a jump instruction).
+-- Save these from an earlier step so that they can be used here to
+-- build an accurate predecessor list.
 buildPredecessors :: Vector Instruction
+                     -> Vector (BlockNumber, Vector Instruction)
                      -> Vector BlockNumber
                      -> Vector [BlockNumber]
-buildPredecessors ivec bmap =
-  V.generate (V.length bmap) getPreds
+buildPredecessors ivec bvec bmap =
+  V.generate (V.length bvec) getPreds
   where
     getPreds ix = S.toList $ fromMaybe S.empty $ M.lookup ix predMap
     predMap = V.ifoldl' addTermSuccs M.empty ivec
@@ -490,7 +425,7 @@ buildPredecessors ivec bmap =
         Nothing -> m
 --        Just [] -> m
         Just targets ->
-          let Just termBlock = bmap V.!? ix
+          let Just termBlock = bmap V.!? ix `debug` ("IX: " ++ show ix)
               targetBlocks = mapMaybe (bmap V.!?) targets
               addPreds a targetBlock = M.insertWith S.union targetBlock (S.singleton termBlock) a
           in L.foldl' addPreds m targetBlocks
@@ -504,38 +439,45 @@ buildInstructionBlockMap =
 
 -- Splitting into blocks
 
--- | Split an instruction stream into basic blocks.  Each block is
--- just a constant-time slice of the input instruction stream.
---
--- The end of a block is a jump instruction (terminator).  The
--- beginnings of blocks can only be determined after examining all
--- jumps since there are no markers in the instruction stream.
+data BlockList = BlockList { blockListChunks :: Vector (BlockNumber, Vector Instruction)
+                           , methodBlockStarts :: IntSet
+                             -- ^ Indices into the instruction stream of block beginnings.
+                             
+                           , methodInstructions :: Vector Instruction
+                           }
+
+-- Scan through the instruction vector and end a block if either: 1) @ix@ is a terminator
+-- or 2) @ix + 1@ starts a block.
 splitIntoBlocks :: Vector Instruction
                    -> (Vector (BlockNumber, Vector Instruction), Map (Int, Int) BlockNumber)
-splitIntoBlocks ivec = (V.indexed $ V.fromList $ reverse blockChunks, bnumMap)
+splitIntoBlocks ivec = (V.indexed (V.fromList (reverse blocks)), blockRanges)
   where
-    (_, blockChunks, bnumMap) = V.ifoldl' (makeBlockIfTerminator ivec) (blockBeginnings, [], M.empty) ivec
-    -- Zero is an implicit block beginning since execution starts there.
+    (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec
     blockBeginnings = V.ifoldl' (addTargetIndex ivec) (IS.singleton 0) ivec
-
-makeBlockIfTerminator :: Vector Instruction
-                         -> (IntSet, [Vector Instruction], Map (Int, Int) BlockNumber)
-                         -> Int
-                         -> Instruction
-                         -> (IntSet, [Vector Instruction], Map (Int, Int) BlockNumber)
-makeBlockIfTerminator ivec acc@(blockStarts, blocks, bnums) ix inst
-  | not (isTerminator ivec ix inst) = acc
-  | otherwise =
-    let (blockStart, blockStarts') = IS.deleteFindMin blockStarts
-        len = ix - blockStart + 1
-        bnum = M.size bnums
-    in (blockStarts', V.slice blockStart len ivec : blocks, M.insert (blockStart, ix) bnum bnums)
+    splitInstrs :: ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
+                   -> Int
+                   -> Instruction
+                   -> ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
+    splitInstrs acc@(bs, ranges, blockStarts) ix inst
+      | isTerminator ivec ix inst || (ix + 1) `IS.member` blockStarts =
+        let len = ix - blockStart + 1
+        in (V.slice blockStart len ivec : bs,
+            M.insert (blockStart, ix) bnum ranges,
+            blockStarts')
+      | otherwise = acc
+      where
+        (blockStart, blockStarts') = IS.deleteFindMin blockStarts
+        bnum = M.size ranges
 
 -- | If the instruction is a jump, add all of its possible target
 -- indices (absolute, based from 0) to the Set.  While data loss is
 -- technically possible because of a conversion from 'Int32' to 'Int',
 -- that isn't a problem in practice because we wouldn't have enough
 -- RAM for an array big enough to suffer from the loss.
+--
+-- Note that conditional branch instructions actually have two
+-- targets: the explicit one and the implicit fallthrough target.
+-- The fallthrough needs to begin a new block, too.
 addTargetIndex :: Vector Instruction -> IntSet -> Int -> Instruction -> IntSet
 addTargetIndex ivec acc ix inst =
   case terminatorAbsoluteTargets ivec ix inst of
@@ -543,7 +485,10 @@ addTargetIndex ivec acc ix inst =
 --    Just [] -> acc
     Just targets -> L.foldl' (flip IS.insert) acc targets
 
--- |
+-- | Find the absolute target indices (into the instruction vector) for each
+-- block terminator instruction.  The conditional branches have explicit
+-- targets, but can also allow execution to fall through.
+--
 -- FIXME: Invoke *can* be a terminator if it is in a try block.  We do
 -- need to know that here, technically.  Actually, any invoke or instruction
 -- touching a reference can get an edge to an exception handler...
@@ -555,12 +500,12 @@ terminatorAbsoluteTargets ivec ix inst =
     Goto32 i32 -> Just [fromIntegral i32 + ix]
     PackedSwitch _ tableOff ->
       let Just (PackedSwitchData _ offs) = ivec V.!? (fromIntegral tableOff + ix)
-      in Just [fromIntegral o + ix | o <- offs]
+      in Just (ix + 1 : [fromIntegral o + ix | o <- offs])
     SparseSwitch _ tableOff ->
       let Just (SparseSwitchData _ offs) = ivec V.!? (fromIntegral tableOff + ix)
-      in Just [fromIntegral o + ix | o <- offs]
-    If _ _ _ off -> Just [fromIntegral off + ix]
-    IfZero _ _ off -> Just [fromIntegral off + ix]
+      in Just (ix + 1 : [fromIntegral o + ix | o <- offs])
+    If _ _ _ off -> Just [ix + 1, fromIntegral off + ix]
+    IfZero _ _ off -> Just [ix + 1, fromIntegral off + ix]
     ReturnVoid -> Just []
     Return _ _ -> Just []
     Throw _ -> Just []
@@ -587,3 +532,95 @@ instance FromRegister Reg where
   fromRegister (R4 r) = fromRegister r
   fromRegister (R8 r) = fromRegister r
   fromRegister (R16 r) = fromRegister r
+
+
+-- Pretty printing for debugging
+
+phiForBlock :: BlockNumber -> Label -> Bool
+phiForBlock bid l =
+  case l of
+    PhiLabel phiBlock _ -> phiBlock == bid
+    _ -> False
+
+-- | Get the block number for an instruction
+instructionBlockNumber :: BasicBlocks -> Int -> Maybe BlockNumber
+instructionBlockNumber bbs = (bbFromInstruction bbs V.!?)
+
+prettyLabelling :: Labelling -> String
+prettyLabelling l =
+  render $ PP.vcat $ map prettyBlock $ V.toList $ bbBlocks bbs
+  where
+    bbs = labellingBasicBlocks l
+    ivec = labellingInstructions l
+--    bmap = labellingInstructionBlockMap l
+    prettyBlock (bid, insts) =
+      let header = PP.text ";; " <> PP.int bid
+          blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
+          blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
+                                | (PhiLabel _ phiL, (S.toList -> vals)) <- blockPhis
+                                ]
+          body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ V.toList insts)
+      in header $+$ PP.nest 2 body
+    branchTargets i = fromMaybe "??" $ do
+      ix <- V.elemIndex i ivec
+      ts <- terminatorAbsoluteTargets ivec ix i
+      targetBlocks <- mapM (instructionBlockNumber bbs) ts
+      return $ L.intercalate ", " (map show targetBlocks)
+    prettyInst i =
+      case i of
+        Nop -> PP.text ";; nop"
+        Move t r1 r2 -> PP.text $ printf ";; move %s %s %s" (show t) (show r1) (show r2)
+        Move1 t r -> PP.text $ printf "%s = move1 %s ;\t (move1 %s %s)" (wLabelId r) (show t) (show t) (show r)
+        ReturnVoid -> PP.text "ret"
+        Return _ r -> PP.text $ printf "ret $%s ;\t (ret %s)" (rLabelId r) (show r)
+        LoadConst r arg -> PP.text $ printf "$%s = loadc %s ;\t (loadc %s %s)" (wLabelId r) (show arg) (show r) (show arg)
+        MonitorEnter r -> PP.text $ printf "menter $%s ;\t (menter %s)" (rLabelId r) (show r)
+        MonitorExit r -> PP.text $ printf "mexit $%s ;\t (mexit %s)" (rLabelId r) (show r)
+        CheckCast r t -> PP.text $ printf "checkcast $%s %s ;\t (checkcast %s %s)" (rLabelId r) (show t) (show r) (show t)
+        InstanceOf d s t -> PP.text $ printf "$%s = instanceof $%s %s ;\t (instanceof %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
+        ArrayLength d s -> PP.text $ printf "$%s = arraylength $%s ;\t (arraylength %s %s)" (wLabelId d) (rLabelId s) (show d) (show s)
+        NewInstance d t -> PP.text $ printf "$%s = newinstance $%s ;\t (newinstance %s %s)" (wLabelId d) (show t) (show d) (show t)
+        NewArray d s t -> PP.text $ printf "$%s = newarray $%s $%s ;\t (newarray %s %s %s)" (wLabelId d) (rLabelId s) (show t) (show d) (show s) (show t)
+        FilledNewArray t srcs -> PP.text $ printf "fillednewarray %s %s ;\t (fillednewarray %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
+        FilledNewArrayRange t srcs -> PP.text $ printf "fillednewarrayrange %s %s ;\t (fillednewarrayrange %s %s)" (show t) (concatMap rLabelId srcs) (show t) (show srcs)
+        FillArrayData r off -> PP.text $ printf "fillarraydata $%s %s ;\t (fillarraydata %s %s)" (rLabelId r) (show off) (show r) (show off)
+        Throw r -> PP.text $ printf "throw $%s ;\t (throw %s)" (rLabelId r) (show r)
+        Cmp op d s1 s2 -> PP.text $ printf "$%s <- cmp %s $%s $%s ;\t (cmp %s %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        ArrayOp (Get _) dst src1 src2 -> PP.text $ printf "$%s = getarray $%s $%s ;\t (getarray %s %s %s)" (wLabelId dst) (rLabelId src1) (rLabelId src2) (show dst) (show src1) (show src2)
+        ArrayOp (Put _) src3 src1 src2 -> PP.text $ printf "putarray $%s $%s $%s ;\t (putarray %s %s %s)" (rLabelId src3) (rLabelId src1) (rLabelId src2) (show src3) (show src1) (show src2)
+        InstanceFieldOp (Get _) dst src f -> PP.text $ printf "$%s = getfield $%s %s ;\t (getfield %s %s %s)" (wLabelId dst) (rLabelId src) (show f) (show dst) (show src) (show f)
+        InstanceFieldOp (Put _) src2 src1 f -> PP.text $ printf "putfield $%s $%s %s ;\t (putfield %s %s %s)" (rLabelId src2) (rLabelId src1) (show f) (show src2) (show src1) (show f)
+        StaticFieldOp (Get _) dst f -> PP.text $ printf "$%s = getstatic %s ;\t (getstatic %s %s)" (wLabelId dst) (show f) (show dst) (show f)
+        StaticFieldOp (Put _) src f -> PP.text $ printf "putstatic $%s %s ;\t (putstatic %s %s)" (rLabelId src) (show f) (show src) (show f)
+        Invoke kind _ method srcs -> PP.text $ printf "invoke %s [%s] %s ;\t (%s)" (show kind) (show method) (show (map rLabelId srcs)) (show srcs)
+        Unop op d s -> PP.text $ printf "$%s <- %s $%s ;\t (%s %s %s)" (wLabelId d) (show op) (rLabelId s) (show op) (show d) (show s)
+        IBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[i] %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        FBinop op _ d s1 s2 -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[f] %s %s %s)" (wLabelId d) (show op) (rLabelId s1) (rLabelId s2) (show op) (show d) (show s1) (show s2)
+        IBinopAssign op _ sd s -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[ia] %s %s)" (wLabelId sd) (show op) (rLabelId sd) (rLabelId s) (show op) (show sd) (show s)
+        FBinopAssign op _ sd s -> PP.text $ printf "$%s = %s $%s $%s ;\t (%s[fa] %s %s)" (wLabelId sd) (show op) (rLabelId sd) (rLabelId s) (show op) (show sd) (show s)
+        BinopLit16 op d s lit -> PP.text $ printf "$%s = %s $%s %d ;\t (%s %s %s %d)" (wLabelId d) (show op) (rLabelId s) lit (show op) (show d) (show s) lit
+        BinopLit8 op d s lit -> PP.text $ printf "$%s = %s $%s %d ;\t (%s %s %s %d)" (wLabelId d) (show op) (rLabelId s) lit (show op) (show d) (show s) lit
+        PackedSwitchData _ _ -> PP.text ";; packedswitchdata"
+        SparseSwitchData _ _ -> PP.text ";; sparseswitchdata"
+        ArrayData _ _ _ -> PP.text ";; arraydata"
+        Goto _ -> PP.text $ printf "goto %s" (branchTargets i)
+        Goto16 _ -> PP.text $ printf "goto %s" (branchTargets i)
+        Goto32 _ -> PP.text $ printf "goto %s" (branchTargets i)
+        PackedSwitch src _ -> PP.text $ printf "switch $%s %s" (rLabelId src) (branchTargets i)
+        SparseSwitch src _ -> PP.text $ printf "switch $%s %s" (rLabelId src) (branchTargets i)
+        IfZero op src _ -> PP.text $ printf "if0 %s $%s %s" (show op) (rLabelId src) (branchTargets i)
+        If op src1 src2 _ -> PP.text $ printf "if %s $%s $%s %s" (show op) (rLabelId src1) (rLabelId src2) (branchTargets i)
+      where
+        rLabelId reg = fromMaybe "??" $ do
+          regMap <- M.lookup i (labellingReadRegs l)
+          lab <- M.lookup (fromRegister reg) regMap
+          case lab of
+            SimpleLabel lnum -> return (show lnum)
+            PhiLabel _ lnum -> return (show lnum)
+            ArgumentLabel s _ -> return s
+        wLabelId _reg = fromMaybe "??" $ do
+          lab <- M.lookup i (labellingWriteRegs l)
+          case lab of
+            SimpleLabel lnum -> return (show lnum)
+            PhiLabel _ lnum -> return (show lnum)
+            ArgumentLabel s _ -> return s
