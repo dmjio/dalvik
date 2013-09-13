@@ -387,7 +387,6 @@ addPhiOperands reg phi preds = do
     appendPhiOperand phi l
   -- FIXME: tryRemoveTrivialPhi here.  Get everything else working
   -- first, though.
-  ops <- gets phiOperands
   return phi
 
 appendPhiOperand :: Label -> Label -> SSALabeller ()
