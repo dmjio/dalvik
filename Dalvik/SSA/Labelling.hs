@@ -404,11 +404,6 @@ basicBlockPredecessors b = do
 
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
---
--- FIXME: The problem here is that it doesn't account for fallthrough
--- into an implicit block (e.g., the *target* of a jump instruction).
--- Save these from an earlier step so that they can be used here to
--- build an accurate predecessor list.
 buildPredecessors :: Vector Instruction
                      -> Vector (BlockNumber, Vector Instruction)
                      -> Vector BlockNumber
@@ -493,9 +488,6 @@ addTargetIndex ivec acc ix inst =
 -- FIXME: Invoke *can* be a terminator if it is in a try block.  We do
 -- need to know that here, technically.  Actually, any invoke or instruction
 -- touching a reference can get an edge to an exception handler...
---
--- FIXME: Additionally, if the next instruction is the target of a branch,
--- then this instruction is a block terminator with a single (fallthrough) target.
 terminatorAbsoluteTargets :: Vector Instruction -> Int -> Instruction -> Maybe [Int]
 terminatorAbsoluteTargets ivec ix inst =
   case inst of
