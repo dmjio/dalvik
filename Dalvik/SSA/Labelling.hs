@@ -60,8 +60,7 @@ import Text.PrettyPrint as PP
 import Text.Printf
 
 import Dalvik.Instruction
-import Debug.Trace
-debug = flip trace
+
 data Label = SimpleLabel Int64
            | PhiLabel BlockNumber Int64
            | ArgumentLabel String Int64
@@ -126,13 +125,8 @@ data LabelState =
 data LabelEnv =
   LabelEnv { envInstructionStream :: Vector Instruction
            , envBasicBlocks :: BasicBlocks
---           , envBasicBlocks :: Vector (BlockNumber, Vector Instruction)
---           , envInstructionBlockMap :: Vector BlockNumber
-             -- ^ One entry for each instruction
---           , envBlockPredecessors :: Vector [BlockNumber]
-             -- ^ The index of a block (a block number)
-             -- maps to the predecessors of that block.
-             -- One entry for each basic block
+             -- ^ Information about basic blocks in the instruction
+             -- stream
            }
 
 data BasicBlocks =
@@ -141,6 +135,10 @@ data BasicBlocks =
                 -- ^ One entry per instruction, the reverse mapping
               , bbPredecessors :: Vector [BlockNumber]
                 -- ^ One entry per basic block
+              , bbBlockEnds :: IntSet
+                -- ^ Ends of all block ranges.  We need these because
+                -- some blocks end on implicit fallthrough on
+                -- instructions that are *not* terminators.
               }
   deriving (Eq, Ord, Show)
 
@@ -158,13 +156,16 @@ emptyEnv ivec =
            , envBasicBlocks = bbs
            }
   where
-    preds = buildPredecessors ivec bvec bmapVec
+    preds = buildPredecessors ivec bvec bmapVec blockEnds
     (bvec, bnumMap) = splitIntoBlocks ivec
     bmapVec = buildInstructionBlockMap bnumMap
     bbs = BasicBlocks { bbBlocks = bvec
                       , bbFromInstruction = bmapVec
-                      , bbPredecessors = buildPredecessors ivec bvec bmapVec
+                      , bbPredecessors = preds
+                      , bbBlockEnds = blockEnds
                       }
+    blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
+    collectEnds (_, e) _ = IS.insert e
 
 -- | Create a new empty state.  This state is initialized to account
 -- for method arguments, which occupy the last @length argRegs@
@@ -377,7 +378,7 @@ readRegisterRecursive reg block = do
     _ -> do
       p <- freshPhi block
       writeRegisterLabel reg block p
-      addPhiOperands reg p preds  `debug` show preds
+      addPhiOperands reg p preds
   writeRegisterLabel reg block l
   return l
 
@@ -389,7 +390,7 @@ addPhiOperands reg phi preds = do
   -- FIXME: tryRemoveTrivialPhi here.  Get everything else working
   -- first, though.
   ops <- gets phiOperands
-  return phi  `debug` show ops
+  return phi
 
 appendPhiOperand :: Label -> Label -> SSALabeller ()
 appendPhiOperand phi operand = modify appendOperand
@@ -402,7 +403,7 @@ basicBlockPredecessors :: BlockNumber -> SSALabeller [BlockNumber]
 basicBlockPredecessors b = do
   pmap <- asks (bbPredecessors . envBasicBlocks)
   let Just ps = pmap V.!? b
-  return ps `debug` show pmap
+  return ps
 
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
@@ -414,21 +415,32 @@ basicBlockPredecessors b = do
 buildPredecessors :: Vector Instruction
                      -> Vector (BlockNumber, Vector Instruction)
                      -> Vector BlockNumber
+                     -> IntSet
                      -> Vector [BlockNumber]
-buildPredecessors ivec bvec bmap =
+buildPredecessors ivec bvec bmap blockEnds =
   V.generate (V.length bvec) getPreds
   where
     getPreds ix = S.toList $ fromMaybe S.empty $ M.lookup ix predMap
     predMap = V.ifoldl' addTermSuccs M.empty ivec
-    addTermSuccs m ix inst =
-      case terminatorAbsoluteTargets ivec ix inst of
-        Nothing -> m
---        Just [] -> m
-        Just targets ->
-          let Just termBlock = bmap V.!? ix `debug` ("IX: " ++ show ix)
-              targetBlocks = mapMaybe (bmap V.!?) targets
-              addPreds a targetBlock = M.insertWith S.union targetBlock (S.singleton termBlock) a
-          in L.foldl' addPreds m targetBlocks
+    addTermSuccs m ix inst
+      -- @inst@ is a fallthrough instruction that implicitly ends a block,
+      -- so we need to make an entry for it.  We don't make an entry for the
+      -- last instruction in the function.
+      | not (isTerminator ivec ix inst) &&
+        IS.member ix blockEnds &&
+        ix < V.length ivec - 1 =
+        let target = ix + 1
+            Just termBlock = bmap V.!? ix
+            Just targetBlock = bmap V.!? target
+        in M.insertWith S.union targetBlock (S.singleton termBlock) m
+      | otherwise =
+        case terminatorAbsoluteTargets ivec ix inst of
+          Nothing -> m
+          Just targets ->
+            let Just termBlock = bmap V.!? ix
+                targetBlocks = mapMaybe (bmap V.!?) targets
+                addPreds a targetBlock = M.insertWith S.union targetBlock (S.singleton termBlock) a
+            in L.foldl' addPreds m targetBlocks
 
 buildInstructionBlockMap :: Map (Int, Int) BlockNumber -> Vector BlockNumber
 buildInstructionBlockMap =
@@ -438,13 +450,6 @@ buildInstructionBlockMap =
 
 
 -- Splitting into blocks
-
-data BlockList = BlockList { blockListChunks :: Vector (BlockNumber, Vector Instruction)
-                           , methodBlockStarts :: IntSet
-                             -- ^ Indices into the instruction stream of block beginnings.
-                             
-                           , methodInstructions :: Vector Instruction
-                           }
 
 -- Scan through the instruction vector and end a block if either: 1) @ix@ is a terminator
 -- or 2) @ix + 1@ starts a block.
@@ -492,6 +497,9 @@ addTargetIndex ivec acc ix inst =
 -- FIXME: Invoke *can* be a terminator if it is in a try block.  We do
 -- need to know that here, technically.  Actually, any invoke or instruction
 -- touching a reference can get an edge to an exception handler...
+--
+-- FIXME: Additionally, if the next instruction is the target of a branch,
+-- then this instruction is a block terminator with a single (fallthrough) target.
 terminatorAbsoluteTargets :: Vector Instruction -> Int -> Instruction -> Maybe [Int]
 terminatorAbsoluteTargets ivec ix inst =
   case inst of
@@ -552,7 +560,6 @@ prettyLabelling l =
   where
     bbs = labellingBasicBlocks l
     ivec = labellingInstructions l
---    bmap = labellingInstructionBlockMap l
     prettyBlock (bid, insts) =
       let header = PP.text ";; " <> PP.int bid
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
