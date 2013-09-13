@@ -210,13 +210,11 @@ label' = do
   mapM_ labelInstruction $ V.toList $ V.indexed ivec
   s <- get
   bbs <- asks envBasicBlocks
---  bmap <- asks envInstructionBlockMap
   return $ Labelling { labellingReadRegs = instructionLabels s
                      , labellingWriteRegs = instructionResultLabels s
                      , labellingPhis = phiOperands s
                      , labellingBasicBlocks = bbs
                      , labellingInstructions = ivec
-  --                   , labellingInstructionBlockMap = bmap
                      }
 
 
@@ -487,7 +485,6 @@ addTargetIndex :: Vector Instruction -> IntSet -> Int -> Instruction -> IntSet
 addTargetIndex ivec acc ix inst =
   case terminatorAbsoluteTargets ivec ix inst of
     Nothing -> acc
---    Just [] -> acc
     Just targets -> L.foldl' (flip IS.insert) acc targets
 
 -- | Find the absolute target indices (into the instruction vector) for each
