@@ -4,8 +4,9 @@ import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
 import Data.Word ( Word16 )
-import Test.Tasty as T
-import Test.Tasty.HUnit as T
+import Test.Framework as T
+import Test.Framework.Providers.HUnit as T
+import Test.HUnit as T
 
 import Dalvik.Instruction as I
 import Dalvik.SSA.Labelling
@@ -22,11 +23,13 @@ showProgram = putStrLn . (++ "\n\n") . prettyLabelling . labelInstructions argMa
 main :: IO ()
 main = do
   mapM_ showProgram [p1, p2, p3, p4]
-  T.defaultMain $ T.testGroup "basic-tests" [
-    T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 5))
-    , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 3))
-    , T.testCase "return-moved-argument" (checkReturnValue p3 (ArgumentLabel "arg1" 0))
-    , T.testCase "trivial-branch" (checkReturnValue p4 (PhiLabel 2 5))
+  T.defaultMain $ [
+    T.testGroup "basic-tests" [
+       T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 5))
+       , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 3))
+       , T.testCase "return-moved-argument" (checkReturnValue p3 (ArgumentLabel "arg1" 0))
+       , T.testCase "trivial-branch" (checkReturnValue p4 (PhiLabel 2 5))
+       ]
     ]
 
 isReturn :: Instruction -> Bool

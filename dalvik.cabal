@@ -66,6 +66,7 @@ test-suite SSALabels
   hs-source-dirs: tests/ssa
   build-depends: base == 4.*,
                  containers,
-                 tasty,
-                 tasty-hunit,
+                 HUnit,
+                 test-framework,
+                 test-framework-hunit,
                  dalvik == 0.1
