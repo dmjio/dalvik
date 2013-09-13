@@ -127,6 +127,7 @@ data LabelEnv =
            , envBasicBlocks :: BasicBlocks
              -- ^ Information about basic blocks in the instruction
              -- stream
+           , envRegisterAssignment :: Map Word16 Label
            }
 
 data BasicBlocks =
@@ -150,12 +151,16 @@ blockForInstruction ix = do
   return bnum
 
 -- Builds up an implicit CFG, only recording block predecessors.
-emptyEnv :: Vector Instruction -> LabelEnv
-emptyEnv ivec =
+emptyEnv :: [(String, Word16)] -> Vector Instruction -> LabelEnv
+emptyEnv argRegs ivec =
   LabelEnv { envInstructionStream = ivec
            , envBasicBlocks = bbs
+           , envRegisterAssignment =
+             fst $ L.foldl' allocateArgLabel (M.empty, 0) argRegs
            }
   where
+    allocateArgLabel (m, lno) (name, reg) =
+      (M.insert reg (ArgumentLabel name lno) m, lno + 1)
     preds = buildPredecessors ivec bvec bmapVec blockEnds
     (bvec, bnumMap) = splitIntoBlocks ivec
     bmapVec = buildInstructionBlockMap bnumMap
@@ -174,16 +179,16 @@ emptyEnv ivec =
 -- never explicitly accessed).
 emptyLabelState :: [(String, Word16)] -> LabelState
 emptyLabelState argRegs =
-  LabelState { currentDefinition = fst $ L.foldl' addArgumentMapping (M.empty, 0) argRegs
+  LabelState { currentDefinition = M.empty -- fst $ L.foldl' addArgumentMapping (M.empty, 0) argRegs
              , instructionLabels = M.empty
              , instructionResultLabels = M.empty
              , phiOperands = M.empty
              , labelCounter = fromIntegral $ length argRegs
              }
-  where
-    addArgumentMapping (m, valNo) (argName, regno) =
-      let l = ArgumentLabel argName valNo
-      in (M.insertWith M.union regno (M.singleton 0 l) m, valNo + 1)
+  -- where
+  --   addArgumentMapping (m, valNo) (argName, regno) =
+  --     let l = ArgumentLabel argName valNo
+  --     in (M.insertWith M.union regno (M.singleton 0 l) m, valNo + 1)
 
 -- | Build a vector of Instructions for fast indexing from branch
 -- instructions.  The argument/register mapping should be resolved
@@ -200,7 +205,7 @@ labelInstructions :: [(String, Word16)]
 labelInstructions argRegs is = fst $ evalRWS label' e0 s0
   where
     s0 = emptyLabelState argRegs
-    e0 = emptyEnv ivec
+    e0 = emptyEnv argRegs ivec
     ivec = V.fromList is
 
 
@@ -346,6 +351,10 @@ writeRegisterLabel (fromRegister -> reg) block l = do
 -- local definition (due to local variable numbering, i.e., a write in
 -- the current block), return that.  Otherwise, check for a global
 -- variable numbering.
+--
+-- FIXME: Priming the assignment state with the argument registers
+-- means that here, we never do the recursive lookup on arguments (and
+-- we need to, in case the arguments are re-defined later).
 readRegister :: (FromRegister a) => a -> BlockNumber -> SSALabeller Label
 readRegister (fromRegister -> reg) block = do
   s <- get
@@ -370,15 +379,28 @@ readRegister (fromRegister -> reg) block = do
 -- paper because we have a complete CFG.
 readRegisterRecursive :: Word16 -> BlockNumber -> SSALabeller Label
 readRegisterRecursive reg block = do
-  preds <- basicBlockPredecessors block
-  l <- case preds of
-    [singlePred] -> readRegister reg singlePred
-    _ -> do
+  preds <- basicBlockPredecessorsM block
+  argLabels <- asks envRegisterAssignment
+  l <- case (preds, block == 0) of
+    ([singlePred], False) -> readRegister reg singlePred -- and @block /= 0@
+    ([], True) -> do
+      let Just lbl = M.lookup reg argLabels
+      return lbl
+    (_, isB0) -> do
+      -- If @block == 0@, then we need to add an extra phi operand
+      -- here for the argument assignemnt, if applicable.
       p <- freshPhi block
       writeRegisterLabel reg block p
+      case isB0 of
+        False -> return ()
+        True ->
+          let Just lbl = M.lookup reg argLabels
+          in appendPhiOperand p lbl
       addPhiOperands reg p preds
   writeRegisterLabel reg block l
   return l
+
+-- envRegisterAssignment :: Map Word16 Label
 
 addPhiOperands :: Word16 -> Label -> [BlockNumber] -> SSALabeller Label
 addPhiOperands reg phi preds = do
@@ -396,11 +418,16 @@ appendPhiOperand phi operand = modify appendOperand
 
 -- Block predecessors
 
-basicBlockPredecessors :: BlockNumber -> SSALabeller [BlockNumber]
-basicBlockPredecessors b = do
-  pmap <- asks (bbPredecessors . envBasicBlocks)
-  let Just ps = pmap V.!? b
-  return ps
+basicBlockPredecessorsM :: BlockNumber -> SSALabeller [BlockNumber]
+basicBlockPredecessorsM bid = do
+  bbs <- asks envBasicBlocks
+  return $ basicBlockPredecessors bbs bid
+
+basicBlockPredecessors :: BasicBlocks -> BlockNumber -> [BlockNumber]
+basicBlockPredecessors bbs bid =
+  let Just ps = bbPredecessors bbs V.!? bid
+  in ps
+
 
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
@@ -549,7 +576,7 @@ prettyLabelling l =
     bbs = labellingBasicBlocks l
     ivec = labellingInstructions l
     prettyBlock (bid, insts) =
-      let header = PP.text ";; " <> PP.int bid
+      let header = PP.text ";; " <> PP.int bid <> PP.text (show (basicBlockPredecessors bbs bid))
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
                                 | (PhiLabel _ phiL, (S.toList -> vals)) <- blockPhis
