@@ -21,11 +21,12 @@ showProgram = putStrLn . (++ "\n\n") . prettyLabelling . labelInstructions argMa
 
 main :: IO ()
 main = do
-  mapM_ showProgram [p1, p2, p3]
+  mapM_ showProgram [p1, p2, p3, p4]
   T.defaultMain $ T.testGroup "basic-tests" [
     T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 5))
     , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 3))
     , T.testCase "return-moved-argument" (checkReturnValue p3 (ArgumentLabel "arg1" 0))
+    , T.testCase "trivial-branch" (checkReturnValue p4 (PhiLabel 2 5))
     ]
 
 isReturn :: Instruction -> Bool
@@ -67,4 +68,18 @@ p3 = [ Move MNormal (R8 0) (R8 99)
      , Move MNormal (R8 1) (R8 0)
      , Move MNormal (R8 2) (R8 1)
      , Return MNormal (R8 2)
+     ]
+
+-- | A simple branch:
+--
+-- > int f(int x) {
+-- >   if(x > 0)
+-- >     x = x * 2;
+-- >   return x;
+p4 :: [Instruction]
+p4 = [ Move MNormal (R8 0) (R8 99)
+     , IfZero Le 0 3
+     , LoadConst (R8 1) (Const4 2)
+     , IBinop Add False 0 0 1
+     , Return MNormal (R8 0)
      ]
