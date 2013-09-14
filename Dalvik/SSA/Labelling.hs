@@ -42,7 +42,7 @@ module Dalvik.SSA.Labelling (
   generatedLabelsAreUnique
   ) where
 
-import Control.Monad ( forM_ )
+import Control.Monad ( filterM, forM_, liftM )
 import Control.Monad.Trans.RWS.Strict
 import Data.Int ( Int64 )
 import Data.IntSet ( IntSet )
@@ -61,8 +61,11 @@ import Text.Printf
 
 import Dalvik.Instruction
 
+import Debug.Trace
+debug = flip trace
+
 data Label = SimpleLabel Int64
-           | PhiLabel BlockNumber Int64
+           | PhiLabel BlockNumber [BlockNumber] Int64
            | ArgumentLabel String Int64
            deriving (Eq, Ord, Show)
 
@@ -74,9 +77,10 @@ freshLabel = do
 
 freshPhi :: BlockNumber -> SSALabeller Label
 freshPhi bn = do
+  preds <- basicBlockPredecessorsM bn
   s <- get
   let lid = labelCounter s
-      l = PhiLabel bn lid
+      l = PhiLabel bn preds lid
   put s { labelCounter = lid + 1
         , phiOperands = M.insert l S.empty (phiOperands s)
         }
@@ -119,8 +123,28 @@ data LabelState =
                -- really required because of the compound instructions
                -- 'IBinopAssign' and 'FBinopAssign'
              , phiOperands :: Map Label (Set Label)
+             , incompletePhis :: Map BlockNumber (Map Word16 Label)
+             , filledBlocks :: IntSet
+             , sealedBlocks :: IntSet
              , labelCounter :: Int64
              }
+
+sealBlock :: BlockNumber -> SSALabeller ()
+sealBlock block = do
+  iphis <- gets incompletePhis `debug` ("Sealing block " ++ show block)
+  let blockPhis = maybe [] M.toList $ M.lookup block iphis
+  forM_ blockPhis $ \(reg, l) -> do
+    addPhiOperands reg block l
+  modify makeSealed
+  where
+    makeSealed s = s { sealedBlocks = IS.insert block (sealedBlocks s) }
+
+addIncompletePhi :: Word16 -> BlockNumber -> Label -> SSALabeller ()
+addIncompletePhi reg block l = modify addP
+  where
+    addP s = s { incompletePhis =
+                    M.insertWith M.union block (M.singleton reg l) (incompletePhis s)
+               }
 
 data LabelEnv =
   LabelEnv { envInstructionStream :: Vector Instruction
@@ -136,12 +160,18 @@ data BasicBlocks =
                 -- ^ One entry per instruction, the reverse mapping
               , bbPredecessors :: Vector [BlockNumber]
                 -- ^ One entry per basic block
+              , bbSuccessors :: Vector [BlockNumber]
               , bbBlockEnds :: IntSet
                 -- ^ Ends of all block ranges.  We need these because
                 -- some blocks end on implicit fallthrough on
                 -- instructions that are *not* terminators.
               }
   deriving (Eq, Ord, Show)
+
+instructionEndsBlock :: Int -> SSALabeller Bool
+instructionEndsBlock ix = do
+  bb <- asks envBasicBlocks
+  return $ IS.member ix $ bbBlockEnds bb
 
 -- | Get the basic block ID for the instruction at the given index.
 blockForInstruction :: Int -> SSALabeller BlockNumber
@@ -161,12 +191,13 @@ emptyEnv argRegs ivec =
   where
     allocateArgLabel (m, lno) (name, reg) =
       (M.insert reg (ArgumentLabel name lno) m, lno + 1)
-    preds = buildPredecessors ivec bvec bmapVec blockEnds
+    (preds, succs) = buildPredecessors ivec bvec bmapVec blockEnds
     (bvec, bnumMap) = splitIntoBlocks ivec
     bmapVec = buildInstructionBlockMap bnumMap
     bbs = BasicBlocks { bbBlocks = bvec
                       , bbFromInstruction = bmapVec
                       , bbPredecessors = preds
+                      , bbSuccessors = succs
                       , bbBlockEnds = blockEnds
                       }
     blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
@@ -179,16 +210,24 @@ emptyEnv argRegs ivec =
 -- never explicitly accessed).
 emptyLabelState :: [(String, Word16)] -> LabelState
 emptyLabelState argRegs =
-  LabelState { currentDefinition = M.empty -- fst $ L.foldl' addArgumentMapping (M.empty, 0) argRegs
+  LabelState { currentDefinition = fst $ L.foldl' addArgDef (M.empty, 0) argRegs
              , instructionLabels = M.empty
              , instructionResultLabels = M.empty
              , phiOperands = M.empty
+             , incompletePhis = M.empty
+             , filledBlocks = IS.empty
+             , sealedBlocks = IS.empty
              , labelCounter = fromIntegral $ length argRegs
              }
-  -- where
-  --   addArgumentMapping (m, valNo) (argName, regno) =
-  --     let l = ArgumentLabel argName valNo
-  --     in (M.insertWith M.union regno (M.singleton 0 l) m, valNo + 1)
+  where
+    addArgDef (m, lno) (name, reg) =
+      let l = ArgumentLabel name lno
+      in (M.insertWith M.union reg (M.singleton 0 l) m, lno + 1)
+
+blockIsSealed :: BlockNumber -> SSALabeller Bool
+blockIsSealed bname = do
+  sealed <- gets sealedBlocks
+  return $ IS.member bname sealed
 
 -- | Build a vector of Instructions for fast indexing from branch
 -- instructions.  The argument/register mapping should be resolved
@@ -212,7 +251,8 @@ labelInstructions argRegs is = fst $ evalRWS label' e0 s0
 label' :: SSALabeller Labelling
 label' = do
   ivec <- asks envInstructionStream
-  mapM_ labelInstruction $ V.toList $ V.indexed ivec
+  addPhisForArgsInEntry
+  mapM_ labelAndFillInstruction $ V.toList $ V.indexed ivec
   s <- get
   bbs <- asks envBasicBlocks
   return $ Labelling { labellingReadRegs = instructionLabels s
@@ -222,11 +262,54 @@ label' = do
                      , labellingInstructions = ivec
                      }
 
+addPhisForArgsInEntry :: SSALabeller ()
+addPhisForArgsInEntry = do
+  argRegs <- asks envRegisterAssignment
+  forM_ (M.toList argRegs) $ \(regNo, _) -> do
+    makeIncomplete regNo 0
 
 type BlockNumber = Int
 
 type SSALabeller = RWS LabelEnv () LabelState
 
+-- | Label instructions and, if they end a block, mark the block as filled.
+--
+-- If we do fill a block, we have to see if this filling will let us
+-- seal any other blocks.  A block can be sealed if all of its
+-- predecessors are filled.
+labelAndFillInstruction :: (Int, Instruction) -> SSALabeller ()
+labelAndFillInstruction i@(ix, _) = do
+  bbs <- asks envBasicBlocks
+  let Just bnum = instructionBlockNumber bbs ix
+  canSeal <- canSealBlock bnum
+  notSealed <- liftM not (blockIsSealed bnum)
+  case canSeal && notSealed of
+    True -> sealBlock bnum
+    False -> return ()
+
+  labelInstruction i
+  endsBlock <- instructionEndsBlock ix
+  case endsBlock of
+    False -> return ()
+    True -> do
+      s <- get
+      put s { filledBlocks = IS.insert bnum (filledBlocks s) }
+      -- sealBlock :: BlockNumber -> SSALabeller ()
+
+      -- Check this block and all of its successors.  For each one,
+      -- if all predecessors are filled, then seal (unless already sealed)
+      succs <- basicBlockSuccessorsM bnum
+      succs' <- filterM (liftM not . blockIsSealed) succs
+      forM_ (succs' `debug` ("At the end of block " ++ show bnum ++ ", trying to seal " ++ show succs')) $ \ss -> do
+        canSealS <- canSealBlock ss
+        case canSealS of
+          False -> return () `debug` ("  Cannot seal " ++ show ss)
+          True -> sealBlock ss
+
+canSealBlock :: BlockNumber -> SSALabeller Bool
+canSealBlock bid = do
+  ps <- basicBlockPredecessorsM bid
+  liftM and $ mapM isFilled ps
 
 -- | This is the main part of the algorithm from the paper.  Each
 -- instruction is processed separately.  Apply *read* before *write*
@@ -374,42 +457,70 @@ readRegister (fromRegister -> reg) block = do
 --
 -- Note: If there are no predecessors, it is actually not defined.  We
 -- would probably want to know about that... maybe just error for now.
---
--- Note 2: This implementation doesn't use the 'sealed' code from the
--- paper because we have a complete CFG.
 readRegisterRecursive :: Word16 -> BlockNumber -> SSALabeller Label
 readRegisterRecursive reg block = do
-  preds <- basicBlockPredecessorsM block
-  argLabels <- asks envRegisterAssignment
-  l <- case (preds, block == 0) of
-    ([singlePred], False) -> readRegister reg singlePred -- and @block /= 0@
-    ([], True) -> do
-      let Just lbl = M.lookup reg argLabels
-      return lbl
-    (_, isB0) -> do
+  isSealed <- blockIsSealed block
+  case isSealed of
+    False -> makeIncomplete reg block
+    True -> globalNumbering reg block
+
+makeIncomplete :: Word16 -> BlockNumber -> SSALabeller Label
+makeIncomplete r b = do
+  p <- freshPhi b
+  addIncompletePhi r b p
+  writeRegisterLabel r b p
+  return p
+
+globalNumbering :: Word16 -> BlockNumber -> SSALabeller Label
+globalNumbering r b = do
+  preds <- basicBlockPredecessorsM b
+  l <- case (preds {- , b == 0 -}) of
+    ([singlePred] {-, False-}) -> readRegister r singlePred -- and @block /= 0@
+    -- ([], True) -> do
+    --   let Just lbl = M.lookup r argLabels
+    --   return lbl
+    (_ {- , isB0 -}) -> do
       -- If @block == 0@, then we need to add an extra phi operand
-      -- here for the argument assignemnt, if applicable.
-      p <- freshPhi block
-      writeRegisterLabel reg block p
-      case isB0 of
-        False -> return ()
-        True ->
-          let Just lbl = M.lookup reg argLabels
-          in appendPhiOperand p lbl
-      addPhiOperands reg p preds
-  writeRegisterLabel reg block l
+      -- here for the argument assignment, if applicable.
+      p <- freshPhi b
+      writeRegisterLabel r b p
+      -- case isB0 of
+      --   False -> return ()
+      --   True ->
+      --     let Just lbl = M.lookup r argLabels
+      --     in appendPhiOperand p lbl
+      addPhiOperands r b p
+  writeRegisterLabel r b l
   return l
 
--- envRegisterAssignment :: Map Word16 Label
+isFilled :: BlockNumber -> SSALabeller Bool
+isFilled b = do
+  f <- gets filledBlocks
+  return $ IS.member b f
 
-addPhiOperands :: Word16 -> Label -> [BlockNumber] -> SSALabeller Label
-addPhiOperands reg phi preds = do
-  forM_ preds $ \p -> do
-    l <- readRegister reg p
+-- FIXME: If the predecessor is not filled, skip it!  Not skipping it
+-- adds nonsense
+addPhiOperands :: Word16 -> BlockNumber -> Label -> SSALabeller Label
+addPhiOperands reg block phi = do
+  let PhiLabel _ preds _ = phi
+  preds' <- filterM isFilled preds
+  forM_ preds' $ \p -> do
+    l <- readRegister reg p -- FIXME: this is getting the wrong operand for predecessor p - it
+                            -- needs to check the *output* register values, not *intput* register values
     appendPhiOperand phi l
-  -- FIXME: tryRemoveTrivialPhi here.  Get everything else working
-  -- first, though.
-  return phi
+  -- If this is the entry block, we also need to add in the
+  -- contributions from the initial register assignment
+  case block == 0 of
+    False -> return ()
+    True -> do
+      argLabels <- asks envRegisterAssignment
+      case M.lookup reg argLabels of
+        Nothing -> return ()
+        Just lbl -> appendPhiOperand phi lbl
+  tryRemoveTrivialPhi phi
+
+tryRemoveTrivialPhi :: Label -> SSALabeller Label
+tryRemoveTrivialPhi = return
 
 appendPhiOperand :: Label -> Label -> SSALabeller ()
 appendPhiOperand phi operand = modify appendOperand
@@ -428,6 +539,15 @@ basicBlockPredecessors bbs bid =
   let Just ps = bbPredecessors bbs V.!? bid
   in ps
 
+basicBlockSuccessorsM :: BlockNumber -> SSALabeller [BlockNumber]
+basicBlockSuccessorsM bid = do
+  bbs <- asks envBasicBlocks
+  return $ basicBlockSuccessors bbs bid
+
+basicBlockSuccessors :: BasicBlocks -> BlockNumber -> [BlockNumber]
+basicBlockSuccessors bbs bid =
+  let Just ss = bbSuccessors bbs V.!? bid
+  in ss
 
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
@@ -435,13 +555,15 @@ buildPredecessors :: Vector Instruction
                      -> Vector (BlockNumber, Vector Instruction)
                      -> Vector BlockNumber
                      -> IntSet
-                     -> Vector [BlockNumber]
+                     -> (Vector [BlockNumber], Vector [BlockNumber])
 buildPredecessors ivec bvec bmap blockEnds =
-  V.generate (V.length bvec) getPreds
+  (V.generate (V.length bvec) getPreds,
+   V.generate (V.length bvec) getSuccs)
   where
     getPreds ix = S.toList $ fromMaybe S.empty $ M.lookup ix predMap
-    predMap = V.ifoldl' addTermSuccs M.empty ivec
-    addTermSuccs m ix inst
+    getSuccs ix = S.toList $ fromMaybe S.empty $ M.lookup ix succMap
+    (predMap, succMap) = V.ifoldl' addTermSuccs (M.empty, M.empty) ivec
+    addTermSuccs m@(pm, sm) ix inst
       -- @inst@ is a fallthrough instruction that implicitly ends a block,
       -- so we need to make an entry for it.  We don't make an entry for the
       -- last instruction in the function.
@@ -451,15 +573,17 @@ buildPredecessors ivec bvec bmap blockEnds =
         let target = ix + 1
             Just termBlock = bmap V.!? ix
             Just targetBlock = bmap V.!? target
-        in M.insertWith S.union targetBlock (S.singleton termBlock) m
+        in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
+            M.insertWith S.union termBlock (S.singleton targetBlock) sm)
       | otherwise =
         case terminatorAbsoluteTargets ivec ix inst of
           Nothing -> m
           Just targets ->
             let Just termBlock = bmap V.!? ix
                 targetBlocks = mapMaybe (bmap V.!?) targets
-                addPreds a targetBlock = M.insertWith S.union targetBlock (S.singleton termBlock) a
-            in L.foldl' addPreds m targetBlocks
+                addSuccsPreds (p, s) targetBlock = (M.insertWith S.union targetBlock (S.singleton termBlock) p,
+                                                    M.insertWith S.union termBlock (S.singleton targetBlock) s)
+            in L.foldl' addSuccsPreds m targetBlocks
 
 buildInstructionBlockMap :: Map (Int, Int) BlockNumber -> Vector BlockNumber
 buildInstructionBlockMap =
@@ -562,7 +686,7 @@ instance FromRegister Reg where
 phiForBlock :: BlockNumber -> Label -> Bool
 phiForBlock bid l =
   case l of
-    PhiLabel phiBlock _ -> phiBlock == bid
+    PhiLabel phiBlock _ _ -> phiBlock == bid
     _ -> False
 
 -- | Get the block number for an instruction
@@ -579,7 +703,7 @@ prettyLabelling l =
       let header = PP.text ";; " <> PP.int bid <> PP.text (show (basicBlockPredecessors bbs bid))
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
-                                | (PhiLabel _ phiL, (S.toList -> vals)) <- blockPhis
+                                | (PhiLabel _ _ phiL, (S.toList -> vals)) <- blockPhis
                                 ]
           body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ V.toList insts)
       in header $+$ PP.nest 2 body
@@ -638,11 +762,11 @@ prettyLabelling l =
           lab <- M.lookup (fromRegister reg) regMap
           case lab of
             SimpleLabel lnum -> return (show lnum)
-            PhiLabel _ lnum -> return (show lnum)
+            PhiLabel _ _ lnum -> return (show lnum)
             ArgumentLabel s _ -> return s
         wLabelId _reg = fromMaybe "??" $ do
           lab <- M.lookup i (labellingWriteRegs l)
           case lab of
             SimpleLabel lnum -> return (show lnum)
-            PhiLabel _ lnum -> return (show lnum)
+            PhiLabel _ _ lnum -> return (show lnum)
             ArgumentLabel s _ -> return s
