@@ -254,7 +254,6 @@ labelAndFillInstruction i@(ix, _) = do
     True -> do
       s <- get
       put s { filledBlocks = IS.insert bnum (filledBlocks s) }
-      -- sealBlock :: BlockNumber -> SSALabeller ()
 
       -- Check this block and all of its successors.  For each one,
       -- if all predecessors are filled, then seal (unless already sealed)
@@ -459,15 +458,12 @@ isFilled b = do
   f <- gets filledBlocks
   return $ IS.member b f
 
--- FIXME: If the predecessor is not filled, skip it!  Not skipping it
--- adds nonsense
 addPhiOperands :: Word16 -> BlockNumber -> Label -> SSALabeller Label
 addPhiOperands reg block phi = do
   let PhiLabel _ preds _ = phi
   preds' <- filterM isFilled preds
   forM_ preds' $ \p -> do
-    l <- readRegister reg p -- FIXME: this is getting the wrong operand for predecessor p - it
-                            -- needs to check the *output* register values, not *intput* register values
+    l <- readRegister reg p
     appendPhiOperand phi l
   -- If this is the entry block, we also need to add in the
   -- contributions from the initial register assignment
