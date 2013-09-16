@@ -105,7 +105,7 @@ data LabelState =
                -- definitions that affect the phi node by the time
                -- they are filled.  Once those blocks are filled, the
                -- incomplete phis will be filled in.
-             , valueUsers :: Map Label (Set (Instruction, Word16))
+             , valueUsers :: Map Label (Set Use) -- (Instruction, Word16))
                -- ^ Record the users of each value.  This index is
                -- necessary for phi simplification.  When a trivial
                -- phi node is found, all uses of that phi node need to
@@ -121,6 +121,10 @@ data LabelState =
              , labelCounter :: Int64
                -- ^ A source of label unique IDs
              }
+
+data Use = NormalUse Instruction Word16
+         | PhiUse Label
+         deriving (Eq, Ord, Show)
 
 data LabelEnv =
   LabelEnv { envInstructionStream :: Vector Instruction
@@ -395,7 +399,7 @@ recordAssignment inst (fromRegister -> reg) lbl =
   let lbls = instructionLabels s
       users = valueUsers s
   in s { instructionLabels = M.insertWith M.union inst (M.singleton reg lbl) lbls
-       , valueUsers = M.insertWith S.union lbl (S.singleton (inst, reg)) users
+       , valueUsers = M.insertWith S.union lbl (S.singleton (NormalUse inst reg)) users
        }
 
 freshLabel :: SSALabeller Label
@@ -524,49 +528,50 @@ tryRemoveTrivialPhi phi = do
   case triv of
     Nothing -> return phi
     Just tval -> do
-      s <- get
-      -- FIXME: Users doesn't include phi nodes
-      let allUsers = maybe [] S.toList $ M.lookup phi (valueUsers s)
-          users = filter (isNotThisPhi (instructionLabels s) phi) allUsers
+      useMap <- gets valueUsers
+      -- Note that this list of value users does not include other phi nodes.
+      -- This is not a critical problem because we replace phi nodes that are
+      -- phi operands separately in 'replacePhiBy'.
+      let allUsers = maybe [] S.toList $ M.lookup phi useMap
+          users = filter (isNotThisPhi phi) allUsers
       replacePhiBy users phi tval
+
       -- Clear out the old operands to mark this phi node as dead.
       -- This will be important to note during translation (and for
       -- pretty printing).
-      modify $ \s' -> s' { phiOperands = M.insert phi S.empty (phiOperands s') }
+      modify $ \s -> s { phiOperands = M.insert phi S.empty (phiOperands s) }
+
+      -- Check each user
       forM_ users $ \u ->
-        case labelForRegAtInstruction (instructionLabels s) u of
-          Just phi'@(PhiLabel _ _ _) -> void $ tryRemoveTrivialPhi phi'
+        case u of
+          PhiUse phi' -> void $ tryRemoveTrivialPhi phi'
           _ -> return ()
       return tval
   where
-    isNotThisPhi :: Map Instruction (Map Word16 Label) -> Label -> (Instruction, Word16) -> Bool
-    isNotThisPhi lbls p i = fromMaybe True $ do
-      regAssignment <- labelForRegAtInstruction lbls i
-      return $ regAssignment /= p
+    isNotThisPhi :: Label -> Use -> Bool
+    isNotThisPhi _ (NormalUse _ _) = False
+    isNotThisPhi p (PhiUse l) = p == l
 
 -- | Replace all of the given uses by the new label provided.
 --
 -- FIXME: This could be made more efficient.  If the new label,
 -- @trivialValue@, isn't an argument, then it should be sufficient to
 -- use writeRegisterLabel for each use.
-replacePhiBy :: [(Instruction, Word16)] -> Label -> Label -> SSALabeller ()
+replacePhiBy :: [Use] -> Label -> Label -> SSALabeller ()
 replacePhiBy uses oldPhi trivialValue = do
   modify $ \s -> s { phiOperands = M.map (S.map replacePhiUses) (phiOperands s)
                    , currentDefinition = fmap (fmap replacePhiUses) (currentDefinition s)
                    }
-  forM_ uses $ \(inst, reg) -> do
-    recordAssignment inst reg trivialValue
+  -- Note that we do nothing right now in the phi use case.  This is
+  -- because we have handled phis in the above modify call.  That is
+  -- heavy handed - if we ever make that more efficient, we might need
+  -- to change the PhiUse case here.
+  forM_ uses $ \u ->
+    case u of
+      NormalUse inst reg -> recordAssignment inst reg trivialValue
+      PhiUse _ -> return ()
   where
     replacePhiUses u = if oldPhi == u  then trivialValue else u
-
--- | Look up the label for a given register at a given instruction.
--- This only checks input registers.  The output registers are trivial
--- and are recorded in the analysis state.
-labelForRegAtInstruction :: Map Instruction (Map Word16 Label) -> (Instruction, Word16) -> Maybe Label
-labelForRegAtInstruction lbls (inst, reg) = do
-  regMap <- M.lookup inst lbls
-  M.lookup reg regMap
-
 
 -- | A phi node is trivial if it merges two or more distinct values
 -- (besides itself).  Unique operands and then remove self references.
@@ -585,7 +590,10 @@ trivialPhiValue phi = do
 appendPhiOperand :: Label -> Label -> SSALabeller ()
 appendPhiOperand phi operand = modify appendOperand
   where
-    appendOperand s = s { phiOperands = M.insertWith S.union phi (S.singleton operand) (phiOperands s) }
+    appendOperand s =
+      s { phiOperands = M.insertWith S.union phi (S.singleton operand) (phiOperands s)
+        , valueUsers = M.insertWith S.union phi (S.singleton (PhiUse operand)) (valueUsers s)
+        }
 
 -- Block predecessors.  These are some monadic wrappers around the
 -- real functions.  They just extract the BasicBlocks object from the
