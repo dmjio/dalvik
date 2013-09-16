@@ -105,7 +105,7 @@ data LabelState =
                -- definitions that affect the phi node by the time
                -- they are filled.  Once those blocks are filled, the
                -- incomplete phis will be filled in.
-             , valueUsers :: Map Label (Set Use) -- (Instruction, Word16))
+             , valueUsers :: Map Label (Set Use)
                -- ^ Record the users of each value.  This index is
                -- necessary for phi simplification.  When a trivial
                -- phi node is found, all uses of that phi node need to
