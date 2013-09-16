@@ -1,3 +1,16 @@
+-- | Split an 'Instruction' stream into basic blocks.
+--
+-- This is a support module for the SSA labelling module.
+--
+-- The instruction stream does not make basic blocks manifest.  Blocks
+-- end at terminator instructions, but the beginnings of blocks are
+-- more complicated.  If an instruction is the target of a jump
+-- instruction, it begins a basic block.  Furthermore, implicit
+-- fallthroughs (e.g., from a conditional branch) also introduce new
+-- block beginnings.
+--
+-- This module attempts to abstract all of these details in a
+-- reasonable way.
 module Dalvik.SSA.BasicBlocks (
   BasicBlocks,
   BlockNumber,
@@ -22,10 +35,14 @@ import qualified Data.Vector as V
 
 import Dalvik.Instruction
 
+-- | Unique (within a method) basic block identifiers
 type BlockNumber = Int
 
+-- | An opaque abstraction of basic blocks for the low-level Dalvik IR (Dalvik.Instruction)
 data BasicBlocks =
   BasicBlocks { bbBlocks :: Vector (BlockNumber, Vector Instruction)
+                -- ^ The actual Basic Blocks.  These are *slices* out
+                -- of the original Instruction vector.
               , bbFromInstruction :: Vector BlockNumber
                 -- ^ One entry per instruction, the reverse mapping
               , bbPredecessors :: Vector [BlockNumber]
@@ -38,6 +55,7 @@ data BasicBlocks =
               }
   deriving (Eq, Ord, Show)
 
+-- | Extract the basic blocks into a more directly-usable form.
 basicBlocksAsList :: BasicBlocks -> [(BlockNumber, Vector Instruction)]
 basicBlocksAsList = V.toList . bbBlocks
 
@@ -59,14 +77,18 @@ findBasicBlocks ivec =
     blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
     collectEnds (_, e) _ = IS.insert e
 
-
+-- | Test if the instruction at the given index into the instruction
+-- stream ends a basic block.  This covers both explicit block ends
+-- (due to terminator instructions) *and* implicit block ends.  An
+-- implicit block end arises when the next instruction is the target
+-- of a jump (and thus must be the first instruction in a new basic
+-- block).
 instructionEndsBlock :: BasicBlocks -> Int -> Bool
 instructionEndsBlock bbs ix = IS.member ix $ bbBlockEnds bbs
 
 -- | Get the block number for an instruction
 instructionBlockNumber :: BasicBlocks -> Int -> Maybe BlockNumber
 instructionBlockNumber bbs = (bbFromInstruction bbs V.!?)
-
 
 -- | Get the basic block ID for the instruction at the given index.
 basicBlockForInstruction :: BasicBlocks -> Int -> BlockNumber
