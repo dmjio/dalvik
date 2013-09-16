@@ -128,7 +128,10 @@ data LabelEnv =
              -- ^ Information about basic blocks in the instruction
              -- stream
            , envRegisterAssignment :: Map Word16 Label
+             -- ^ The map of argument registers to their labels
            , envInstructionIndices :: Map Instruction Int
+             -- ^ A reverse map from instructions to their integer
+             -- indices into the instruction stream
            }
 
 
