@@ -62,9 +62,6 @@ import Text.Printf
 import Dalvik.Instruction
 import Dalvik.SSA.BasicBlocks
 
-import Debug.Trace
-debug = flip trace
-
 data Label = SimpleLabel Int64
            | PhiLabel BlockNumber [BlockNumber] Int64
            | ArgumentLabel String Int64
@@ -132,7 +129,7 @@ data LabelState =
 
 sealBlock :: BlockNumber -> SSALabeller ()
 sealBlock block = do
-  iphis <- gets incompletePhis `debug` ("Sealing block " ++ show block)
+  iphis <- gets incompletePhis
   let blockPhis = maybe [] M.toList $ M.lookup block iphis
   forM_ blockPhis $ \(reg, l) -> do
     addPhiOperands reg block l
@@ -263,10 +260,10 @@ labelAndFillInstruction i@(ix, _) = do
       -- if all predecessors are filled, then seal (unless already sealed)
       succs <- basicBlockSuccessorsM bnum
       succs' <- filterM (liftM not . blockIsSealed) succs
-      forM_ (succs' `debug` ("At the end of block " ++ show bnum ++ ", trying to seal " ++ show succs')) $ \ss -> do
+      forM_ succs' $ \ss -> do
         canSealS <- canSealBlock ss
         case canSealS of
-          False -> return () `debug` ("  Cannot seal " ++ show ss)
+          False -> return ()
           True -> sealBlock ss
 
 canSealBlock :: BlockNumber -> SSALabeller Bool
