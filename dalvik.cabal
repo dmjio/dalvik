@@ -39,7 +39,8 @@ Library
                      Dalvik.SSA
                      Dalvik.SSA.Labelling
                      Dalvik.Types
-    Other-Modules: Dalvik.SSA.Types
+    Other-Modules: Dalvik.SSA.Types,
+                   Dalvik.SSA.BasicBlocks
     GHC-Options: -Wall -O1
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
 
