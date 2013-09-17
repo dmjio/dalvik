@@ -3,6 +3,16 @@ public class Test {
         return i + l;
     }
 
+    public static void staticNop() {}
+
+    public static void takeDouble(int x, double d, char c) {}
+
+    public void nop(){}
+
+    public void echoNop() {
+        System.out.println(this);
+    }
+
     public Object stringID(String s) {
         return s;
     }

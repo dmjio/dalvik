@@ -35,23 +35,36 @@ labelFunctionValues ci =
 -- | Map argument names for a method to the initial register for that
 -- argument.
 --
-methodRegisterAssignment :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe String, Word16)]
+methodRegisterAssignment :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe BS.ByteString, Word16)]
 methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing) = Nothing
-methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
+methodRegisterAssignment df meth@(DT.EncodedMethod mId _ (Just code)) = do
   DT.Method cid pid nameId <- getMethod df mId
-  DT.Proto    _   _ params <- getProto df pid
+  DT.Proto    _   _ paramIDs <- getProto df pid
+
+  clName <- getTypeName df cid
 
   -- This mapM will result in Nothing if /any/ of the types are
   -- unavailable, that's going to make debugging tricky.
-  paramNames <- mapM (getTypeName df) params
-  return $ snd $ foldr findOffset (codeRegs code, []) (reverse paramNames)
+  params <- mapM (getTypeName df) paramIDs
+
+  return $ reverse $ snd $ accumOffsets (addThis clName $ findNames params)
     where
-      findOffset :: BS.ByteString ->
-                    (Word16, [(Maybe String, Word16)]) ->
-                    (Word16, [(Maybe String, Word16)])
-      findOffset tname (offset, acc) = let
+      accumOffsets params = foldr findOffset (codeRegs code, []) params
+
+      findNames :: [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
+      findNames ps = map (\p -> (Nothing, p)) ps
+
+      addThis :: BS.ByteString -> [(Maybe BS.ByteString, BS.ByteString)] ->
+                                  [(Maybe BS.ByteString, BS.ByteString)]
+      addThis cName ps | isStatic meth = ps
+                       | otherwise     = (Just "this", cName):ps
+
+      findOffset :: (Maybe BS.ByteString, BS.ByteString) ->
+                    (Word16, [(Maybe BS.ByteString, Word16)]) ->
+                    (Word16, [(Maybe BS.ByteString, Word16)])
+      findOffset (mName, tname) (offset, acc) = let
         regCount = registers tname
-        in (offset - regCount, acc ++ [(Nothing, offset)])
+        in (offset - regCount, acc ++ [(mName, offset - regCount)])
 
       registers :: BS.ByteString -> Word16
       registers name | name == "J" = 2 -- longs take two registers.
