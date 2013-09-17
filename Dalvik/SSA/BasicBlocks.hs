@@ -14,6 +14,8 @@
 module Dalvik.SSA.BasicBlocks (
   BasicBlocks,
   BlockNumber,
+  TypeName,
+  ExceptionRange(..),
   basicBlockForInstruction,
   basicBlockPredecessors,
   basicBlockSuccessors,
@@ -23,6 +25,7 @@ module Dalvik.SSA.BasicBlocks (
   instructionEndsBlock
   ) where
 
+import qualified Data.ByteString as BS
 import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
 import qualified Data.List as L
@@ -32,8 +35,21 @@ import Data.Maybe ( fromMaybe, isJust, mapMaybe )
 import qualified Data.Set as S
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
+import Data.Word ( Word32, Word16 )
 
 import Dalvik.Instruction
+
+-- | Types of Dalvik Type names
+type TypeName = BS.ByteString
+
+-- | Descriptions of exception handlers within a method.  Each of the
+-- Word32 fields is an offset into the instruction stream (0-indexed).
+data ExceptionRange =
+  ExceptionRange { erOffset :: Word32
+                 , erCount :: Word16
+                 , erCatch :: [(BS.ByteString, Word32)]
+                 , erCatchAll :: Maybe Word32
+                 }
 
 -- | Unique (within a method) basic block identifiers
 type BlockNumber = Int

@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Dalvik.Instruction
   ( decodeInstructions
   , insnUnitCount
@@ -17,14 +18,14 @@ module Dalvik.Instruction
   , DecodeError
   ) where
 
-import Control.Applicative()
+import Control.Applicative ()
+import Control.Failure
 import Control.Monad
 import Data.Array
 import Data.Bits
 import Data.Function
 import Data.Int
 import Data.Word
-import Text.Printf
 
 import Dalvik.Types
 
@@ -246,14 +247,11 @@ splitWord16' :: Word16 -> (Word4, Word4, Word4, Word4)
 splitWord16' w = (fst4 b1, snd4 b1, fst4 b2, snd4 b2)
   where (b1, b2) = splitWord16 w
 
-type DecodeError = String -- TODO: replace with structured type
+prematureEnd :: (Failure DecodeError f) => Word8 -> Word16 -> f v
+prematureEnd op ix = failure $ PrematureEnd op ix
 
-prematureEnd :: Word8 -> Word16 -> DecodeError
-prematureEnd =
-  printf "Premature end of data stream at opcode %02x (%04x)"
-
-invalidOp :: Word8 -> DecodeError
-invalidOp op = "Invalid opcode: " ++ show op
+invalidOp :: (Failure DecodeError f) => Word8 -> f v
+invalidOp op = failure $ InvalidOpcode op
 
 {- As named in the Dalvik VM Instruction Formats document. -}
 data IFormatParser
@@ -637,7 +635,7 @@ signExt32 w =
 iparser :: Word8 -> IFormatParser
 iparser = (!) iparseTable
 
-decodeInstructions :: [Word16] -> Either DecodeError [Instruction]
+decodeInstructions :: (Failure DecodeError f) => [Word16] -> f [Instruction]
 decodeInstructions [] = return []
 decodeInstructions (0x0100 : sz : k : k' : ws) =
   liftM (PackedSwitchData key ts :) $ decodeInstructions ws'
@@ -684,14 +682,14 @@ decodeInstructions (w : ws) = liftM2 (:) insn (decodeInstructions ws'')
         (IF35c  fn, w1 : w2 : ws') ->
           if b <= 5
             then (return $ fn w1 (take (fromIntegral b) [d, e, f, g, a]), ws')
-            else (fail "invalid B value for IF35c encoding", ws')
+            else (failure $ InvalidBForIF35cEncoding b, ws') -- fail "invalid B value for IF35c encoding", ws')
           where (g, f, e, d) = splitWord16' w2
         (IF3rc  fn, w1 : w2 : ws') ->
           (return $ fn w1 [w2..((w2 + fromIntegral aa) - 1)],  ws')
         (IF51l  fn, w1 : w2 : w3 : w4 : ws') ->
           (return $ fn aa (combine16' w4 w3 w2 w1), ws')
-        (InvalidOp, _) -> (fail $ invalidOp op, ws)
-        _ -> (fail $ prematureEnd op w, ws)
+        (InvalidOp, _) -> (invalidOp op, ws)
+        _ -> (prematureEnd op w, ws)
 
 {-
 encodeInstructions :: [Instruction] -> [Word16]

@@ -36,6 +36,7 @@ module Dalvik.SSA.Labelling (
   -- * Data Types
   Label(..),
   Labelling(..),
+  ExceptionRange(..),
   labelInstructions,
   -- * Testing
   prettyLabelling,

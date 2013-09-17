@@ -1,12 +1,49 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Dalvik.Types where
 
+import Control.Failure
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import Data.Int
 import Data.Map (Map)
 import Data.Word
+import Text.Printf
 
 import Dalvik.AccessFlags
+
+data DecodeError = PrematureEnd Word8 Word16
+                 | InvalidOpcode Word8
+                 | InvalidBForIF35cEncoding Word8
+                 | NoStringAtIndex StringId
+                 | NoTypeAtIndex TypeId
+                 | NoFieldAtIndex FieldId
+                 | NoMethodAtIndex MethodId
+                 | NoProtoAtIndex ProtoId
+                 | NoClassAtIndex TypeId
+                 | NoCodeForMethod MethodId
+                 deriving (Eq, Ord, Show)
+
+decodeErrorAsString :: DecodeError -> String
+decodeErrorAsString (PrematureEnd opcode w) =
+  printf "Premature end of data stream at opcode %02x (%04x)" opcode w
+decodeErrorAsString (InvalidOpcode op) =
+  "Invalid opcode " ++ show op
+decodeErrorAsString (InvalidBForIF35cEncoding b) =
+  printf "Invalid b value (%d) for IF35c encoding" b
+decodeErrorAsString (NoStringAtIndex i) =
+  printf "No string at index %d" i
+decodeErrorAsString (NoTypeAtIndex i) =
+  printf "No type at index %d" i
+decodeErrorAsString (NoFieldAtIndex i) =
+  printf "No field at index %d" i
+decodeErrorAsString (NoMethodAtIndex i) =
+  printf "No method at index %d" i
+decodeErrorAsString (NoProtoAtIndex i) =
+  printf "No prototype at index %d" i
+decodeErrorAsString (NoClassAtIndex i) =
+  printf "No class at index %d" i
+decodeErrorAsString (NoCodeForMethod mId) =
+  printf "No code for method %d" mId
 
 data DexHeader =
   DexHeader
@@ -212,24 +249,29 @@ data LocalInfo
 
 {- Utility functions -}
 
-getStr :: DexFile -> StringId -> Maybe BS.ByteString
-getStr dex i = Map.lookup i (dexStrings dex)
+getStr :: (Failure DecodeError f) => DexFile -> StringId -> f BS.ByteString
+getStr dex i =
+  maybe (failure (NoStringAtIndex i)) return $ Map.lookup i (dexStrings dex)
 
-getTypeName :: DexFile -> TypeId -> Maybe BS.ByteString
+getTypeName :: (Failure DecodeError f) => DexFile -> TypeId -> f BS.ByteString
 getTypeName dex i =
-  getStr dex =<< Map.lookup i (dexTypeNames dex)
+  maybe (failure (NoTypeAtIndex i)) (getStr dex) $ Map.lookup i (dexTypeNames dex)
 
-getField :: DexFile -> FieldId -> Maybe Field
-getField dex i = Map.lookup i (dexFields dex)
+getField :: (Failure DecodeError f) => DexFile -> FieldId -> f Field
+getField dex i =
+  maybe (failure (NoFieldAtIndex i)) return $ Map.lookup i (dexFields dex)
 
-getMethod :: DexFile -> MethodId -> Maybe Method
-getMethod dex i = Map.lookup i (dexMethods dex)
+getMethod :: (Failure DecodeError f) => DexFile -> MethodId -> f Method
+getMethod dex i =
+  maybe (failure (NoMethodAtIndex i)) return $ Map.lookup i (dexMethods dex)
 
-getProto :: DexFile -> ProtoId -> Maybe Proto
-getProto dex i = Map.lookup i (dexProtos dex)
+getProto :: (Failure DecodeError f) => DexFile -> ProtoId -> f Proto
+getProto dex i =
+  maybe (failure (NoProtoAtIndex i)) return $ Map.lookup i (dexProtos dex)
 
-getClass :: DexFile -> TypeId -> Maybe Class
-getClass dex i = Map.lookup i (dexClasses dex)
+getClass :: (Failure DecodeError f) => DexFile -> TypeId -> f Class
+getClass dex i =
+  maybe (failure (NoClassAtIndex i)) return $ Map.lookup i (dexClasses dex)
 
 findString :: DexFile -> BS.ByteString -> Maybe StringId
 findString dex t =

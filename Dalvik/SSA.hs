@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Dalvik.SSA where
 
+import Control.Failure
 import qualified Data.ByteString as BS
 import Data.Word (Word16)
 
@@ -25,18 +27,23 @@ translateClass c =
             -- , classVirtualMethods = undefined
             }
 
-labelFunctionValues :: DT.CodeItem -> Either DecodeError Labelling
-labelFunctionValues ci =
-  case I.decodeInstructions (codeInsns ci) of
-    Left e -> Left e
-    Right insts -> Right $ labelInstructions undefined insts
+labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labelling
+labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
+labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
+  insts <- I.decodeInstructions (codeInsns codeItem)
+  regMap <- methodRegisterAssignment dx em
+  return $ labelInstructions regMap insts
 
+
+methodExceptionRanges :: DT.DexFile -> EncodedMethod -> [ExceptionRange]
+methodExceptionRanges _ _ = []
 
 -- | Map argument names for a method to the initial register for that
 -- argument.
 --
-methodRegisterAssignment :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe String, Word16)]
-methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing) = Nothing
+-- Note: argument names are available in the DebugInfo of CodeItem
+methodRegisterAssignment :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe String, Word16)]
+methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
   DT.Method cid pid nameId <- getMethod df mId
   DT.Proto    _   _ params <- getProto df pid
