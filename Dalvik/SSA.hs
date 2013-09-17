@@ -32,32 +32,40 @@ labelFunctionValues ci =
     Right insts -> Right $ labelInstructions undefined insts
 
 
+-- | extract the parameter list from an encoded method.  This returns
+-- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
+-- and including the initial `this` parameter, if the method is an
+-- instance method (non-static)
+getParamList :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe BS.ByteString, BS.ByteString)]
+getParamList df meth | isStatic meth = explicitParams df meth
+                     | otherwise     = do
+                        DT.Method cid _ _ <- getMethod df $ methId meth
+                        clName <- getTypeName df cid
+                        exParams <- explicitParams df meth
+                        return ((Just "this", clName):exParams)
+  where
+    explicitParams dexFile (DT.EncodedMethod mId _ _) = do
+      DT.Method _ pid _ <- getMethod dexFile mId
+      DT.Proto  _   _ paramIDs <- getProto df pid
+
+      -- This mapM will result in Nothing if /any/ of the types are
+      -- unavailable, that's going to make debugging tricky.
+      params <- mapM (getTypeName dexFile) paramIDs
+      return $ findNames params
+
+    findNames :: [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
+    findNames ps = map (\p -> (Nothing, p)) ps
+
 -- | Map argument names for a method to the initial register for that
 -- argument.
 --
 methodRegisterAssignment :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe BS.ByteString, Word16)]
-methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing) = Nothing
-methodRegisterAssignment df meth@(DT.EncodedMethod mId _ (Just code)) = do
-  DT.Method cid pid nameId <- getMethod df mId
-  DT.Proto    _   _ paramIDs <- getProto df pid
-
-  clName <- getTypeName df cid
-
-  -- This mapM will result in Nothing if /any/ of the types are
-  -- unavailable, that's going to make debugging tricky.
-  params <- mapM (getTypeName df) paramIDs
-
-  return $ reverse $ snd $ accumOffsets (addThis clName $ findNames params)
+methodRegisterAssignment _  (DT.EncodedMethod _ _ Nothing)     = Nothing
+methodRegisterAssignment df meth@(DT.EncodedMethod _ _ (Just code)) = do
+  params <- getParamList df meth
+  return $ reverse $ snd $ accumOffsets params
     where
       accumOffsets params = foldr findOffset (codeRegs code, []) params
-
-      findNames :: [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
-      findNames ps = map (\p -> (Nothing, p)) ps
-
-      addThis :: BS.ByteString -> [(Maybe BS.ByteString, BS.ByteString)] ->
-                                  [(Maybe BS.ByteString, BS.ByteString)]
-      addThis cName ps | isStatic meth = ps
-                       | otherwise     = (Just "this", cName):ps
 
       findOffset :: (Maybe BS.ByteString, BS.ByteString) ->
                     (Word16, [(Maybe BS.ByteString, Word16)]) ->
