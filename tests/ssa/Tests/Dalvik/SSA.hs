@@ -115,6 +115,7 @@ findEncMethodTest getDex (clas, method, sig, file) =
       Just _  -> return ()
 
 toStr :: String -> String -> String -> String
+toStr []      m sig = printf "%s%s" m sig
 toStr c@(_:_) m sig | last c /= ';' = printf "%s%s%s" c m sig
                     | otherwise     = let
                       pkgName = (init c) ++ "."
