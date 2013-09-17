@@ -9,6 +9,7 @@ import Dalvik.SSA (methodRegisterAssignment, getParamList)
 import Tests.Dalvik.DexLoaders (readAsDex, getEncodedMethod)
 
 import System.FilePath ((</>))
+import Text.Printf (printf)
 
 import Test.Framework as T
 import Test.Framework.Providers.HUnit as T
@@ -16,7 +17,6 @@ import Test.HUnit (Assertion, assertFailure, (@=?))
 
 javaInputs :: FilePath
 javaInputs = "./tests/testfiles/javaInputs"
-
 
 tests :: Test
 tests = T.testGroup "SSA tests" $ [
@@ -114,7 +114,10 @@ findEncMethodTest (clas, method, sig, file) =
       Just _  -> return ()
 
 toStr :: String -> String -> String -> String
-toStr c m sig = c ++ m ++ "(" ++ sig ++ ")"
+toStr c@(_:_) m sig | last c /= ';' = printf "%s%s%s" c m sig
+                    | otherwise     = let
+                      pkgName = (init c) ++ "."
+                      in printf "%s%s%s" pkgName m sig
 
 testWithDexFile :: String -> FilePath -> (DT.DexFile -> Assertion) -> Test
 testWithDexFile descr file fn = T.testCase descr $ do
