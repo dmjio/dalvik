@@ -65,6 +65,8 @@ methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
                      | name == "D" = 2 -- doubles take two registers.
                      | otherwise   = 1 -- everything else fits in one.
 
+
+
 {- Note [Translation]
 
 Before building up the SSA-based IR, we label every Value with its

@@ -13,10 +13,10 @@ import Dalvik.SSA.Labelling
 
 import qualified Tests.Dalvik.SSA as TSSA
 
-argMap :: [(String, Word16)]
-argMap = [ ("arg1", 99)
-         , ("arg2", 100)
-         , ("arg3", 101)
+argMap :: [(Maybe String, Word16)]
+argMap = [ (Just "arg1", 99)
+         , (Just "arg2", 100)
+         , (Just "arg3", 101)
          ]
 
 showProgram :: [Instruction] -> IO ()

@@ -180,16 +180,26 @@ emptyLabelState argRegs =
 
 -- | Label a stream of raw Dalvik instructions with SSA numbers,
 -- adding phi nodes at the beginning of appropriate basic blocks.
-labelInstructions :: [(String, Word16)]
+--
+-- If an argument has no name, it will be assigned a generic one that
+-- cannot conflict with the real arguments.
+labelInstructions :: [(Maybe String, Word16)]
                      -- ^ A mapping of argument names to the register numbers
                      -> [Instruction]
                      -- ^ The instruction stream for the method
                      -> Labelling
 labelInstructions argRegs is = fst $ evalRWS label' e0 s0
   where
-    s0 = emptyLabelState argRegs
-    e0 = emptyEnv argRegs ivec
+    s0 = emptyLabelState argRegs'
+    e0 = emptyEnv argRegs' ivec
     ivec = V.fromList is
+    argNameSource :: Int
+    argNameSource = 0
+    argRegs' = snd $ foldr nameAnonArgs (argNameSource, []) argRegs
+    nameAnonArgs (name, reg) (ix, m) =
+      case name of
+        Just name' -> (ix, (name', reg) : m)
+        Nothing -> (ix + 1, ("%arg" ++ show ix, reg) : m)
 
 -- | An environment to carry state for the labelling algorithm
 type SSALabeller = RWS LabelEnv () LabelState
