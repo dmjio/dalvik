@@ -27,8 +27,8 @@ main = do
   mapM_ showProgram [p1, p2, p3, p4, p5, p6, p7]
   T.defaultMain $ [
      T.testGroup "basic-tests" [
-       T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 5))
-       , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 3))
+       T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 8))
+       , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 6))
        , T.testCase "return-moved-argument" (checkReturnValue p3 (ArgumentLabel "arg1" 0))
        , T.testCase "trivial-branch" (checkReturnValue p4 (PhiLabel 2 [0, 1] 8))
        , T.testCase "simple-loop" (checkReturnValue p5 (PhiLabel 0 [1] 3))
