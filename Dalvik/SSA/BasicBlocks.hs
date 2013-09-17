@@ -28,6 +28,8 @@ module Dalvik.SSA.BasicBlocks (
 import qualified Data.ByteString as BS
 import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
+import Data.IntervalMap.Strict ( IntervalMap )
+import qualified Data.IntervalMap.Strict as IM
 import qualified Data.List as L
 import Data.Map ( Map )
 import qualified Data.Map as M
@@ -75,6 +77,10 @@ data BasicBlocks =
 basicBlocksAsList :: BasicBlocks -> [(BlockNumber, Vector Instruction)]
 basicBlocksAsList = V.toList . bbBlocks
 
+type Handlers = IntervalMap Int ExceptionRange
+handlersFor :: Handlers -> Int -> [ExceptionRange]
+handlersFor h = map snd . IM.containing h
+
 -- | Examine the instruction stream and break it into basic blocks.
 -- This includes control flow information (block predecessors and
 -- successors).
@@ -87,11 +93,16 @@ findBasicBlocks ivec ers =
               , bbBlockEnds = blockEnds
               }
   where
-    (preds, succs) = buildPredecessors ivec bvec bmapVec blockEnds
-    (bvec, bnumMap) = splitIntoBlocks ivec
+    (preds, succs) = buildPredecessors ivec handlers bvec bmapVec blockEnds
+    (bvec, bnumMap) = splitIntoBlocks ivec handlers
     bmapVec = buildInstructionBlockMap bnumMap
     blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
     collectEnds (_, e) _ = IS.insert e
+    handlers = foldr addHandler IM.empty ers
+    addHandler r m =
+      let s = fromIntegral $ erOffset r
+          e = s + fromIntegral (erCount r)
+      in IM.insert (IM.ClosedInterval s e) r m
 
 -- | Test if the instruction at the given index into the instruction
 -- stream ends a basic block.  This covers both explicit block ends
@@ -125,11 +136,12 @@ basicBlockSuccessors bbs bid =
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
 buildPredecessors :: Vector Instruction
-                     -> Vector (BlockNumber, Vector Instruction)
-                     -> Vector BlockNumber
-                     -> IntSet
-                     -> (Vector [BlockNumber], Vector [BlockNumber])
-buildPredecessors ivec bvec bmap blockEnds =
+                  -> Handlers
+                  -> Vector (BlockNumber, Vector Instruction)
+                  -> Vector BlockNumber
+                  -> IntSet
+                  -> (Vector [BlockNumber], Vector [BlockNumber])
+buildPredecessors ivec handlers bvec bmap blockEnds =
   (V.generate (V.length bvec) getPreds,
    V.generate (V.length bvec) getSuccs)
   where
@@ -140,7 +152,7 @@ buildPredecessors ivec bvec bmap blockEnds =
       -- @inst@ is a fallthrough instruction that implicitly ends a block,
       -- so we need to make an entry for it.  We don't make an entry for the
       -- last instruction in the function.
-      | not (isTerminator ivec ix inst) &&
+      | not (isTerminator ivec handlers ix inst) &&
         IS.member ix blockEnds &&
         ix < V.length ivec - 1 =
         let target = ix + 1
@@ -149,7 +161,7 @@ buildPredecessors ivec bvec bmap blockEnds =
         in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
             M.insertWith S.union termBlock (S.singleton targetBlock) sm)
       | otherwise =
-        case terminatorAbsoluteTargets ivec ix inst of
+        case terminatorAbsoluteTargets ivec handlers ix inst of
           Nothing -> m
           Just targets ->
             let Just termBlock = bmap V.!? ix
@@ -170,17 +182,18 @@ buildInstructionBlockMap =
 -- Scan through the instruction vector and end a block if either: 1) @ix@ is a terminator
 -- or 2) @ix + 1@ starts a block.
 splitIntoBlocks :: Vector Instruction
-                   -> (Vector (BlockNumber, Vector Instruction), Map (Int, Int) BlockNumber)
-splitIntoBlocks ivec = (V.indexed (V.fromList (reverse blocks)), blockRanges)
+                -> Handlers
+                -> (Vector (BlockNumber, Vector Instruction), Map (Int, Int) BlockNumber)
+splitIntoBlocks ivec handlers = (V.indexed (V.fromList (reverse blocks)), blockRanges)
   where
     (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec
-    blockBeginnings = V.ifoldl' (addTargetIndex ivec) (IS.singleton 0) ivec
+    blockBeginnings = V.ifoldl' (addTargetIndex ivec handlers) (IS.singleton 0) ivec
     splitInstrs :: ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
                    -> Int
                    -> Instruction
                    -> ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
     splitInstrs acc@(bs, ranges, blockStarts) ix inst
-      | isTerminator ivec ix inst || (ix + 1) `IS.member` blockStarts =
+      | isTerminator ivec handlers ix inst || (ix + 1) `IS.member` blockStarts =
         let len = ix - blockStart + 1
         in (V.slice blockStart len ivec : bs,
             M.insert (blockStart, ix) bnum ranges,
@@ -199,9 +212,9 @@ splitIntoBlocks ivec = (V.indexed (V.fromList (reverse blocks)), blockRanges)
 -- Note that conditional branch instructions actually have two
 -- targets: the explicit one and the implicit fallthrough target.
 -- The fallthrough needs to begin a new block, too.
-addTargetIndex :: Vector Instruction -> IntSet -> Int -> Instruction -> IntSet
-addTargetIndex ivec acc ix inst =
-  case terminatorAbsoluteTargets ivec ix inst of
+addTargetIndex :: Vector Instruction -> Handlers -> IntSet -> Int -> Instruction -> IntSet
+addTargetIndex ivec handlers acc ix inst =
+  case terminatorAbsoluteTargets ivec handlers ix inst of
     Nothing -> acc
     Just targets -> L.foldl' (flip IS.insert) acc targets
 
@@ -212,8 +225,8 @@ addTargetIndex ivec acc ix inst =
 -- FIXME: Invoke *can* be a terminator if it is in a try block.  We do
 -- need to know that here, technically.  Actually, any invoke or instruction
 -- touching a reference can get an edge to an exception handler...
-terminatorAbsoluteTargets :: Vector Instruction -> Int -> Instruction -> Maybe [Int]
-terminatorAbsoluteTargets ivec ix inst =
+terminatorAbsoluteTargets :: Vector Instruction -> Handlers -> Int -> Instruction -> Maybe [Int]
+terminatorAbsoluteTargets ivec handlers ix inst =
   case inst of
     Goto i8 -> Just [fromIntegral i8 + ix]
     Goto16 i16 -> Just [fromIntegral i16 + ix]
@@ -228,15 +241,44 @@ terminatorAbsoluteTargets ivec ix inst =
     IfZero _ _ off -> Just [ix + 1, fromIntegral off + ix]
     ReturnVoid -> Just []
     Return _ _ -> Just []
-    Throw _ -> Just []
-    _ -> Nothing -- FIXME: Take additional information about exception tables
+    -- Throw is always a terminator.  It may or may not have targets
+    -- within the function.  We can also refine these if we *know* the
+    -- concrete type of the exception thrown.
+    Throw _ -> Just $ relevantHandlersInScope handlers ix inst
+    -- For all other instructions, we need to do a more thorough lookup.
+    -- See Note [Exceptional Control Flow] for details.
+    _ ->
+      case relevantHandlersInScope handlers ix inst of
+        [] -> Nothing
+        hs -> Just hs
 
-isTerminator :: Vector Instruction -> Int -> Instruction -> Bool
-isTerminator ivec ix inst =
-  isJust $ terminatorAbsoluteTargets ivec ix inst
+relevantHandlersInScope :: Handlers -> Int -> Instruction -> [Int]
+relevantHandlersInScope handlers ix inst = []
+  where
+    hs = handlersFor handlers ix
+
+isTerminator :: Vector Instruction -> Handlers -> Int -> Instruction -> Bool
+isTerminator ivec handlers ix inst =
+  isJust $ terminatorAbsoluteTargets ivec handlers ix inst
 
 {- Note [Exceptional Control Flow]
 
+1) Discover try nesting
 
+2) Write a function, nearestHandler :: Int -> Maybe ExceptionRange
+
+   Returns Nothing if the instruction is not guarded.  A variant of
+   this would be to just note the active handler chain at every
+   instruction.  That is probably better
+
+3) If the nearest handler can handle a NullPointerException, each
+instruction that can dereference a pointer gets an edge to the NPE
+handler.  Similarly for the IndexOutOfBounds exceptions.  ArithmeticException after division...
+
+Invokes can transfer execution to any type of handler.  We might be
+able to do a respectable job of narrowing things down by examining the
+throws clause of a method and routing more precise handlers later.
+
+Once execution is in a catch block, everything should be fine.
 
 -}

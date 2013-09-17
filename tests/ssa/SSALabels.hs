@@ -20,7 +20,7 @@ argMap = [ (Just "arg1", 99)
          ]
 
 showProgram :: [Instruction] -> IO ()
-showProgram = putStrLn . (++ "\n\n") . prettyLabelling . labelInstructions argMap
+showProgram = putStrLn . (++ "\n\n") . prettyLabelling . labelInstructions argMap []
 
 main :: IO ()
 main = do
@@ -53,7 +53,7 @@ checkReturnValue p expected = fromMaybe (T.assertFailure "No return instruction 
       T.assertEqual "Unexpected label mismatch" expected label
     _ -> return $ T.assertFailure "More than one (or no) register mapped for return"
   where
-    l = labelInstructions argMap p
+    l = labelInstructions argMap [] p
     instMaps = M.toList (labellingReadRegs l)
 
 p1 :: [Instruction]
