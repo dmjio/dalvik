@@ -1,9 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TupleSections #-}
 module Dalvik.SSA where
 
 import Control.Failure
+import Control.Monad ( liftM )
 import qualified Data.ByteString as BS
+import qualified Data.Vector as V
 import Data.Word (Word16)
 
 import Dalvik.Instruction as I
@@ -32,11 +35,27 @@ labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
   insts <- I.decodeInstructions (codeInsns codeItem)
   regMap <- methodRegisterAssignment dx em
+  ers <- methodExceptionRanges dx em
   return $ labelInstructions regMap insts
 
-
-methodExceptionRanges :: DT.DexFile -> EncodedMethod -> [ExceptionRange]
-methodExceptionRanges _ _ = []
+methodExceptionRanges :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [ExceptionRange]
+methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
+methodExceptionRanges dx (DT.EncodedMethod mId _ (Just codeItem)) = do
+  mapM toExceptionRange (codeTryItems codeItem)
+  where
+    catches = V.fromList $ codeHandlers codeItem
+    toExceptionRange tryItem = do
+      let handlerOff = tryHandlerOff tryItem
+      -- The fromIntegral here is not lossy: Word16 to Int
+      case catches V.!? fromIntegral handlerOff of
+        Nothing -> failure $ NoHandlerAtIndex handlerOff
+        Just ch -> do
+          typeNames <- mapM (\(tix, off) -> liftM (, off) (getTypeName dx tix)) (chHandlers ch)
+          return ExceptionRange { erOffset = tryStartAddr tryItem
+                                , erCount = tryInsnCount tryItem
+                                , erCatch = undefined
+                                , erCatchAll = chAllAddr ch
+                                }
 
 -- | Map argument names for a method to the initial register for that
 -- argument.

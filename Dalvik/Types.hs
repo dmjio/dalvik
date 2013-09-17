@@ -21,6 +21,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | NoProtoAtIndex ProtoId
                  | NoClassAtIndex TypeId
                  | NoCodeForMethod MethodId
+                 | NoHandlerAtIndex Word16
                  deriving (Eq, Ord, Show)
 
 decodeErrorAsString :: DecodeError -> String
@@ -44,6 +45,8 @@ decodeErrorAsString (NoClassAtIndex i) =
   printf "No class at index %d" i
 decodeErrorAsString (NoCodeForMethod mId) =
   printf "No code for method %d" mId
+decodeErrorAsString (NoHandlerAtIndex i) =
+  printf "No exception handling block at index %d" i
 
 data DexHeader =
   DexHeader
