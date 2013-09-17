@@ -30,8 +30,10 @@ main = do
        T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 5))
        , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 3))
        , T.testCase "return-moved-argument" (checkReturnValue p3 (ArgumentLabel "arg1" 0))
-       , T.testCase "trivial-branch" (checkReturnValue p4 (PhiLabel 2 [] 5))
-       , T.testCase "simple-loop" (checkReturnValue p5 (PhiLabel 0 [] 4))
+       , T.testCase "trivial-branch" (checkReturnValue p4 (PhiLabel 2 [0, 1] 8))
+       , T.testCase "simple-loop" (checkReturnValue p5 (PhiLabel 0 [1] 3))
+       , T.testCase "loop2-dead-code" (checkReturnValue p6 (ArgumentLabel "arg1" 0))
+       , T.testCase "loop3" (checkReturnValue p7 (PhiLabel 1 [0, 2] 7))
        ]
     , TSSA.tests
     ]

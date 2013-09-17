@@ -2,18 +2,17 @@
 -- | This module implements SSA value numbering over the low-level Dalvik IR
 --
 -- The algorithm used is from Braun et al
--- (http://www.cdl.uni-saarland.de/papers/bbhlmz13cc.pdf).  The
+-- (<http://www.cdl.uni-saarland.de/papers/bbhlmz13cc.pdf>).  The
 -- labelling maps each operand of a low-level Dalvik instruction to
--- the SSA number of that operand.
---
--- Note that SSA numbers are only required for *instructions*.
--- Constants are, well, constant, and can be handled directly during
--- translation.
+-- the SSA number of that operand.  Note that SSA numbers are only
+-- required for *instructions*.  Constants are, well, constant, and
+-- can be handled directly during translation.
 --
 -- Translation to the SSA IR requires knot tying.  Many instructions
--- can be ignored.  Instructions with a destination register get assigned
--- the number placed on their destination (in fact, they create a new value
--- by virtue of having that destination).
+-- can be ignored (moves, data pseudo-registers).  Instructions with a
+-- destination register get assigned the number placed on their
+-- destination (in fact, they create a new value by virtue of having
+-- that destination).
 --
 -- > newinstance r2 Double
 --
@@ -28,6 +27,7 @@
 -- >   br (r1 < 100) loop
 --
 -- Should translate into something like
+--
 -- > loop:
 -- >   r4 <- phi(r3, r1)
 -- >   r3 <- binop add r4 r2
@@ -42,7 +42,7 @@ module Dalvik.SSA.Labelling (
   generatedLabelsAreUnique
   ) where
 
-import Control.Monad ( filterM, forM_, liftM )
+import Control.Monad ( filterM, forM_, liftM, void )
 import Control.Monad.Trans.RWS.Strict
 import Data.Int ( Int64 )
 import Data.IntSet ( IntSet )
@@ -62,27 +62,12 @@ import Text.Printf
 import Dalvik.Instruction
 import Dalvik.SSA.BasicBlocks
 
+-- | Types of label.  Arguments and Phi nodes have special labels
+-- carrying extra information.
 data Label = SimpleLabel Int64
            | PhiLabel BlockNumber [BlockNumber] Int64
            | ArgumentLabel String Int64
            deriving (Eq, Ord, Show)
-
-freshLabel :: SSALabeller Label
-freshLabel = do
-  s <- get
-  put s { labelCounter = labelCounter s + 1 }
-  return $ SimpleLabel (labelCounter s)
-
-freshPhi :: BlockNumber -> SSALabeller Label
-freshPhi bn = do
-  preds <- basicBlockPredecessorsM bn
-  s <- get
-  let lid = labelCounter s
-      l = PhiLabel bn preds lid
-  put s { labelCounter = lid + 1
-        , phiOperands = M.insert l S.empty (phiOperands s)
-        }
-  return l
 
 -- | A labelling assigns an SSA number/Label to a register at *each*
 -- 'Instruction'.
@@ -95,54 +80,51 @@ data Labelling =
             }
   deriving (Eq, Ord, Show)
 
--- | Returns @True@ if all of the labels assigned to instructions
--- are unique.
-generatedLabelsAreUnique :: Labelling -> Bool
-generatedLabelsAreUnique =
-  snd . foldr checkRepeats (S.empty, True) . M.toList . labellingWriteRegs
-  where
-    checkRepeats (_, l) (marked, foundRepeat)
-      | S.member l marked = (marked, False)
-      | otherwise = (S.insert l marked, foundRepeat)
-
--- Blocks need to end after branches/switches/invokes/throws
-
+-- | The mutable state we are modifying while labelling.  This mainly
+-- models the register state and phi operands.
 data LabelState =
   LabelState { currentDefinition :: Map Word16 (Map BlockNumber Label)
                -- ^ We track the current definition of each register at
                -- each block.
              , instructionLabels :: Map Instruction (Map Word16 Label)
-               -- ^ This is separate from
-               -- @currentDefinition@ because that
-               -- field is mutated.
+               -- ^ This is separate from @currentDefinition@ because
+               -- that field is mutated.
              , instructionResultLabels :: Map Instruction Label
                -- ^ Store the label of instructions that produce
                -- a result separately from the normal map.  This is only
                -- really required because of the compound instructions
                -- 'IBinopAssign' and 'FBinopAssign'
              , phiOperands :: Map Label (Set Label)
+               -- ^ Operands of each phi node.  They are stored
+               -- separately to make them easier to update (since they
+               -- do need to be updated in several cases).
              , incompletePhis :: Map BlockNumber (Map Word16 Label)
+               -- ^ These are the phi nodes in each block that cannot
+               -- be resolved yet because there are unfilled
+               -- predecessor blocks.  Unfilled predecessors could add
+               -- definitions that affect the phi node by the time
+               -- they are filled.  Once those blocks are filled, the
+               -- incomplete phis will be filled in.
+             , valueUsers :: Map Label (Set Use) -- (Instruction, Word16))
+               -- ^ Record the users of each value.  This index is
+               -- necessary for phi simplification.  When a trivial
+               -- phi node is found, all uses of that phi node need to
+               -- be replaced by a simpler phi node or another value.
+               -- These users will be used to modify @instructionLabels@.
              , filledBlocks :: IntSet
+               -- ^ A block is filled if all of its instructions have been
+               -- labelled.
              , sealedBlocks :: IntSet
+               -- ^ A block is sealed if all of its predecessors are
+               -- filled.  Phi node operands are only computed for
+               -- sealed blocks (so that all operands are available).
              , labelCounter :: Int64
+               -- ^ A source of label unique IDs
              }
 
-sealBlock :: BlockNumber -> SSALabeller ()
-sealBlock block = do
-  iphis <- gets incompletePhis
-  let blockPhis = maybe [] M.toList $ M.lookup block iphis
-  forM_ blockPhis $ \(reg, l) -> do
-    addPhiOperands reg block l
-  modify makeSealed
-  where
-    makeSealed s = s { sealedBlocks = IS.insert block (sealedBlocks s) }
-
-addIncompletePhi :: Word16 -> BlockNumber -> Label -> SSALabeller ()
-addIncompletePhi reg block l = modify addP
-  where
-    addP s = s { incompletePhis =
-                    M.insertWith M.union block (M.singleton reg l) (incompletePhis s)
-               }
+data Use = NormalUse Instruction Word16
+         | PhiUse Label
+         deriving (Eq, Ord, Show)
 
 data LabelEnv =
   LabelEnv { envInstructionStream :: Vector Instruction
@@ -150,19 +132,26 @@ data LabelEnv =
              -- ^ Information about basic blocks in the instruction
              -- stream
            , envRegisterAssignment :: Map Word16 Label
+             -- ^ The map of argument registers to their labels
+           , envInstructionIndices :: Map Instruction Int
+             -- ^ A reverse map from instructions to their integer
+             -- indices into the instruction stream
            }
 
 
 
--- Builds up an implicit CFG, only recording block predecessors.
+-- | Create a new empty SSA labelling environment.  This includes
+-- computing CFG information.
 emptyEnv :: [(String, Word16)] -> Vector Instruction -> LabelEnv
 emptyEnv argRegs ivec =
   LabelEnv { envInstructionStream = ivec
            , envBasicBlocks = findBasicBlocks ivec
            , envRegisterAssignment =
              fst $ L.foldl' allocateArgLabel (M.empty, 0) argRegs
+           , envInstructionIndices = V.ifoldl' addIndex M.empty ivec
            }
   where
+    addIndex m ix inst = M.insert inst ix m
     allocateArgLabel (m, lno) (name, reg) =
       (M.insert reg (ArgumentLabel name lno) m, lno + 1)
 
@@ -178,6 +167,7 @@ emptyLabelState argRegs =
              , instructionResultLabels = M.empty
              , phiOperands = M.empty
              , incompletePhis = M.empty
+             , valueUsers = M.empty
              , filledBlocks = IS.empty
              , sealedBlocks = IS.empty
              , labelCounter = fromIntegral $ length argRegs
@@ -187,18 +177,8 @@ emptyLabelState argRegs =
       let l = ArgumentLabel name lno
       in (M.insertWith M.union reg (M.singleton 0 l) m, lno + 1)
 
-blockIsSealed :: BlockNumber -> SSALabeller Bool
-blockIsSealed bname = do
-  sealed <- gets sealedBlocks
-  return $ IS.member bname sealed
-
--- | Build a vector of Instructions for fast indexing from branch
--- instructions.  The argument/register mapping should be resolved
--- outside of this function - it only cares about which registers
--- are occupied by arguments.
---
--- While wide arguments take two registers, the input mapping need
--- only record the *first* register occupied.
+-- | Label a stream of raw Dalvik instructions with SSA numbers,
+-- adding phi nodes at the beginning of appropriate basic blocks.
 labelInstructions :: [(String, Word16)]
                      -- ^ A mapping of argument names to the register numbers
                      -> [Instruction]
@@ -210,12 +190,31 @@ labelInstructions argRegs is = fst $ evalRWS label' e0 s0
     e0 = emptyEnv argRegs ivec
     ivec = V.fromList is
 
+-- | An environment to carry state for the labelling algorithm
+type SSALabeller = RWS LabelEnv () LabelState
 
+-- | Driver for labelling
 label' :: SSALabeller Labelling
 label' = do
   ivec <- asks envInstructionStream
-  addPhisForArgsInEntry
+  argRegs <- asks envRegisterAssignment
+
+  -- For each argument to the function, add phantom Phi nodes in the
+  -- entry block.  These are not needed in all cases - when they are
+  -- not necessary, they will later be removed by
+  -- 'tryRemoveTrivialPhi'.  They are required because, without them,
+  -- registers containing arguments always appear to have a mapping to
+  -- that argument in 'readRegister'.  In cases where there is a loop
+  -- backedge to the entry block, this is not actually the case (a phi
+  -- is required).
+  forM_ (M.toList argRegs) $ \(regNo, _) -> do
+    makeIncomplete regNo 0
+
+  -- This is the actual labelling step
   mapM_ labelAndFillInstruction $ V.toList $ V.indexed ivec
+
+  -- Now pull out all of the information we need to save to use the
+  -- labelling.
   s <- get
   bbs <- asks envBasicBlocks
   return $ Labelling { labellingReadRegs = instructionLabels s
@@ -224,14 +223,6 @@ label' = do
                      , labellingBasicBlocks = bbs
                      , labellingInstructions = ivec
                      }
-
-addPhisForArgsInEntry :: SSALabeller ()
-addPhisForArgsInEntry = do
-  argRegs <- asks envRegisterAssignment
-  forM_ (M.toList argRegs) $ \(regNo, _) -> do
-    makeIncomplete regNo 0
-
-type SSALabeller = RWS LabelEnv () LabelState
 
 -- | Label instructions and, if they end a block, mark the block as filled.
 --
@@ -265,6 +256,37 @@ labelAndFillInstruction i@(ix, _) = do
           False -> return ()
           True -> sealBlock ss
 
+-- | Algorithm 4 (section 2.3) from the SSA algorithm.  This is called
+-- once all of the predecessors of the block are filled.  This
+-- computes the phi operands for incomplete phis.
+sealBlock :: BlockNumber -> SSALabeller ()
+sealBlock block = do
+  iphis <- gets incompletePhis
+  let blockPhis = maybe [] M.toList $ M.lookup block iphis
+  forM_ blockPhis $ \(reg, l) -> do
+    addPhiOperands reg block l
+  modify makeSealed
+  where
+    makeSealed s = s { sealedBlocks = IS.insert block (sealedBlocks s) }
+
+
+-- | Check if the given block is sealed (i.e., all of its predecessors
+-- are filled).
+blockIsSealed :: BlockNumber -> SSALabeller Bool
+blockIsSealed bname = do
+  sealed <- gets sealedBlocks
+  return $ IS.member bname sealed
+
+-- | Add an empty phi node as a placeholder.  The operands will be
+-- filled in once the block is sealed.
+addIncompletePhi :: Word16 -> BlockNumber -> Label -> SSALabeller ()
+addIncompletePhi reg block l = modify addP
+  where
+    addP s = s { incompletePhis =
+                    M.insertWith M.union block (M.singleton reg l) (incompletePhis s)
+               }
+
+-- | Check if we can seal a block (we can if all predecessors are filled).
 canSealBlock :: BlockNumber -> SSALabeller Bool
 canSealBlock bid = do
   ps <- basicBlockPredecessorsM bid
@@ -346,11 +368,15 @@ labelInstruction (ix, inst) = do
     SparseSwitchData _ _ -> return ()
     ArrayData _ _ _ -> return ()
 
+-- | Looks up the mapping for this register at this instruction (from
+-- the mutable @currentDefinition@) and record the label mapping for
+-- this instruction.
 recordReadRegister :: (FromRegister a) => Instruction -> BlockNumber -> a -> SSALabeller ()
 recordReadRegister inst instBlock srcReg = do
   lbl <- readRegister srcReg instBlock
   recordAssignment inst srcReg lbl
 
+-- | Create a label for this value, associated with the destination register.
 recordWriteRegister :: (FromRegister a) => Instruction -> BlockNumber -> a -> SSALabeller ()
 recordWriteRegister inst instBlock dstReg = do
   lbl <- writeRegister dstReg instBlock
@@ -360,17 +386,39 @@ recordWriteRegister inst instBlock dstReg = do
       let lbls = instructionResultLabels s
       in s { instructionResultLabels = M.insert inst lbl lbls }
 
+-- | At this instruction, associate the new given 'Label' with the
+-- named register.  Also add an entry for the reverse mapping (Label
+-- is used by this instruction/reg).
 recordAssignment :: (FromRegister a)
                     => Instruction
                     -> a
                     -> Label
                     -> SSALabeller ()
 recordAssignment inst (fromRegister -> reg) lbl =
-  modify addAssignment
-  where
-    addAssignment s =
-      let lbls = instructionLabels s
-      in s { instructionLabels = M.insertWith M.union inst (M.singleton reg lbl) lbls }
+  modify $ \s ->
+  let lbls = instructionLabels s
+      users = valueUsers s
+  in s { instructionLabels = M.insertWith M.union inst (M.singleton reg lbl) lbls
+       , valueUsers = M.insertWith S.union lbl (S.singleton (NormalUse inst reg)) users
+       }
+
+freshLabel :: SSALabeller Label
+freshLabel = do
+  s <- get
+  put s { labelCounter = labelCounter s + 1 }
+  return $ SimpleLabel (labelCounter s)
+
+freshPhi :: BlockNumber -> SSALabeller Label
+freshPhi bn = do
+  preds <- basicBlockPredecessorsM bn
+  s <- get
+  let lid = labelCounter s
+      l = PhiLabel bn preds lid
+  put s { labelCounter = lid + 1
+        , phiOperands = M.insert l S.empty (phiOperands s)
+        }
+  return l
+
 
 -- | Used for instructions that write to a register.  These always
 -- define a new value.  From the paper, this is:
@@ -383,6 +431,8 @@ writeRegister (fromRegister -> reg) block = do
   writeRegisterLabel reg block l
   return l
 
+-- | Write a register with the provided label, instead of allocating a
+-- fresh one.
 writeRegisterLabel :: (FromRegister a) => a -> BlockNumber -> Label -> SSALabeller ()
 writeRegisterLabel (fromRegister -> reg) block l = do
   s <- get
@@ -394,10 +444,6 @@ writeRegisterLabel (fromRegister -> reg) block l = do
 -- local definition (due to local variable numbering, i.e., a write in
 -- the current block), return that.  Otherwise, check for a global
 -- variable numbering.
---
--- FIXME: Priming the assignment state with the argument registers
--- means that here, we never do the recursive lookup on arguments (and
--- we need to, in case the arguments are re-defined later).
 readRegister :: (FromRegister a) => a -> BlockNumber -> SSALabeller Label
 readRegister (fromRegister -> reg) block = do
   s <- get
@@ -431,33 +477,28 @@ makeIncomplete r b = do
   writeRegisterLabel r b p
   return p
 
+-- | global value numbering, with some recursive calls.  The empty phi
+-- is inserted to prevent infinite recursion.
 globalNumbering :: Word16 -> BlockNumber -> SSALabeller Label
 globalNumbering r b = do
   preds <- basicBlockPredecessorsM b
-  l <- case (preds {- , b == 0 -}) of
-    ([singlePred] {-, False-}) -> readRegister r singlePred -- and @block /= 0@
-    -- ([], True) -> do
-    --   let Just lbl = M.lookup r argLabels
-    --   return lbl
-    (_ {- , isB0 -}) -> do
-      -- If @block == 0@, then we need to add an extra phi operand
-      -- here for the argument assignment, if applicable.
+  l <- case preds of
+    [singlePred] -> readRegister r singlePred
+    _ -> do
       p <- freshPhi b
       writeRegisterLabel r b p
-      -- case isB0 of
-      --   False -> return ()
-      --   True ->
-      --     let Just lbl = M.lookup r argLabels
-      --     in appendPhiOperand p lbl
       addPhiOperands r b p
   writeRegisterLabel r b l
   return l
 
+-- | Check if a basic block is filled
 isFilled :: BlockNumber -> SSALabeller Bool
 isFilled b = do
   f <- gets filledBlocks
   return $ IS.member b f
 
+-- | Look backwards along control flow edges to find incoming phi
+-- values.  These are the operands to the phi node.
 addPhiOperands :: Word16 -> BlockNumber -> Label -> SSALabeller Label
 addPhiOperands reg block phi = do
   let PhiLabel _ preds _ = phi
@@ -476,13 +517,83 @@ addPhiOperands reg block phi = do
         Just lbl -> appendPhiOperand phi lbl
   tryRemoveTrivialPhi phi
 
+-- | Remove any trivial phi nodes.  The algorithm is a bit aggressive
+-- with phi nodes.  This step makes sure we have the minimal number of
+-- phi nodes.  A phi node is trivial if it has only one operand
+-- (besides itself).  Removing a phi node requires finding all of its
+-- uses and replacing them with the trivial (singular) value.
 tryRemoveTrivialPhi :: Label -> SSALabeller Label
-tryRemoveTrivialPhi = return
+tryRemoveTrivialPhi phi = do
+  triv <- trivialPhiValue phi
+  case triv of
+    Nothing -> return phi
+    Just tval -> do
+      useMap <- gets valueUsers
+      -- Note that this list of value users does not include other phi nodes.
+      -- This is not a critical problem because we replace phi nodes that are
+      -- phi operands separately in 'replacePhiBy'.
+      let allUsers = maybe [] S.toList $ M.lookup phi useMap
+          users = filter (isNotThisPhi phi) allUsers
+      replacePhiBy users phi tval
+
+      -- Clear out the old operands to mark this phi node as dead.
+      -- This will be important to note during translation (and for
+      -- pretty printing).
+      modify $ \s -> s { phiOperands = M.insert phi S.empty (phiOperands s) }
+
+      -- Check each user
+      forM_ users $ \u ->
+        case u of
+          PhiUse phi' -> void $ tryRemoveTrivialPhi phi'
+          _ -> return ()
+      return tval
+  where
+    isNotThisPhi :: Label -> Use -> Bool
+    isNotThisPhi _ (NormalUse _ _) = False
+    isNotThisPhi p (PhiUse l) = p == l
+
+-- | Replace all of the given uses by the new label provided.
+--
+-- FIXME: This could be made more efficient.  If the new label,
+-- @trivialValue@, isn't an argument, then it should be sufficient to
+-- use writeRegisterLabel for each use.
+replacePhiBy :: [Use] -> Label -> Label -> SSALabeller ()
+replacePhiBy uses oldPhi trivialValue = do
+  modify $ \s -> s { phiOperands = M.map (S.map replacePhiUses) (phiOperands s)
+                   , currentDefinition = fmap (fmap replacePhiUses) (currentDefinition s)
+                   }
+  -- Note that we do nothing right now in the phi use case.  This is
+  -- because we have handled phis in the above modify call.  That is
+  -- heavy handed - if we ever make that more efficient, we might need
+  -- to change the PhiUse case here.
+  forM_ uses $ \u ->
+    case u of
+      NormalUse inst reg -> recordAssignment inst reg trivialValue
+      PhiUse _ -> return ()
+  where
+    replacePhiUses u = if oldPhi == u  then trivialValue else u
+
+-- | A phi node is trivial if it merges two or more distinct values
+-- (besides itself).  Unique operands and then remove self references.
+-- If there is only one label left, return Just that.
+trivialPhiValue :: Label -> SSALabeller (Maybe Label)
+trivialPhiValue phi = do
+  operandMap <- gets phiOperands
+  case M.lookup phi operandMap of
+    Just ops ->
+      let withoutSelf = S.filter (/=phi) ops
+      in case S.toList withoutSelf of
+        [trivial] -> return (Just trivial)
+        _ -> return Nothing
+    Nothing -> return Nothing
 
 appendPhiOperand :: Label -> Label -> SSALabeller ()
 appendPhiOperand phi operand = modify appendOperand
   where
-    appendOperand s = s { phiOperands = M.insertWith S.union phi (S.singleton operand) (phiOperands s) }
+    appendOperand s =
+      s { phiOperands = M.insertWith S.union phi (S.singleton operand) (phiOperands s)
+        , valueUsers = M.insertWith S.union phi (S.singleton (PhiUse operand)) (valueUsers s)
+        }
 
 -- Block predecessors.  These are some monadic wrappers around the
 -- real functions.  They just extract the BasicBlocks object from the
@@ -526,6 +637,8 @@ phiForBlock bid l =
     PhiLabel phiBlock _ _ -> phiBlock == bid
     _ -> False
 
+-- | A simple pretty printer for computed SSA labels.  This is
+-- basically for debugging.
 prettyLabelling :: Labelling -> String
 prettyLabelling l =
   render $ PP.vcat $ map prettyBlock $ basicBlocksAsList bbs
@@ -536,16 +649,15 @@ prettyLabelling l =
       let header = PP.text ";; " <> PP.int bid <> PP.text (show (basicBlockPredecessors bbs bid))
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
-                                | (PhiLabel _ _ phiL, (S.toList -> vals)) <- blockPhis
+                                | (PhiLabel _ _ phiL, (S.toList -> vals)) <- blockPhis,
+                                  not (null vals)
                                 ]
           body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ V.toList insts)
       in header $+$ PP.nest 2 body
     branchTargets i = fromMaybe "??" $ do
       ix <- V.elemIndex i ivec
-  --    ts <- terminatorAbsoluteTargets ivec ix i
       srcBlock <- instructionBlockNumber bbs ix
       let targetBlocks = basicBlockSuccessors bbs srcBlock
---      targetBlocks <- mapM (instructionBlockNumber bbs) ts
       return $ L.intercalate ", " (map show targetBlocks)
     prettyInst i =
       case i of
@@ -605,3 +717,15 @@ prettyLabelling l =
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ _ lnum -> return (show lnum)
             ArgumentLabel s _ -> return s
+
+-- Testing property
+
+-- | Returns @True@ if all of the labels assigned to instructions
+-- are unique.
+generatedLabelsAreUnique :: Labelling -> Bool
+generatedLabelsAreUnique =
+  snd . foldr checkRepeats (S.empty, True) . M.toList . labellingWriteRegs
+  where
+    checkRepeats (_, l) (marked, foundRepeat)
+      | S.member l marked = (marked, False)
+      | otherwise = (S.insert l marked, foundRepeat)
