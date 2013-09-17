@@ -36,21 +36,22 @@ labelFunctionValues ci =
 -- argument.
 --
 methodRegisterAssignment :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe String, Word16)]
-methodRegisterAssignment df (DT.EncodedMethod mId _ _) = do
+methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing) = Nothing
+methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
   DT.Method cid pid nameId <- getMethod df mId
   DT.Proto    _   _ params <- getProto df pid
 
   -- This mapM will result in Nothing if /any/ of the types are
   -- unavailable, that's going to make debugging tricky.
   paramNames <- mapM (getTypeName df) params
-  return $ snd $ foldr findOffset (0, []) paramNames
+  return $ snd $ foldr findOffset (codeRegs code, []) (reverse paramNames)
     where
       findOffset :: BS.ByteString ->
                     (Word16, [(Maybe String, Word16)]) ->
                     (Word16, [(Maybe String, Word16)])
       findOffset tname (offset, acc) = let
         regCount = registers tname
-        in (offset + regCount, acc ++ [(Nothing, offset)])
+        in (offset - regCount, acc ++ [(Nothing, offset)])
 
       registers :: BS.ByteString -> Word16
       registers name | name == "J" = 2 -- longs take two registers.
