@@ -4,7 +4,7 @@ module Tests.Dalvik.SSA where
 import qualified Data.ByteString as BS
 import Data.Word (Word16)
 import qualified Dalvik.Types as DT
-import Dalvik.SSA (methodRegisterAssignment)
+import Dalvik.SSA (methodRegisterAssignment, getParamList)
 
 import Tests.Dalvik.DexLoaders (readAsDex, getEncodedMethod)
 
@@ -20,7 +20,25 @@ javaInputs = "./tests/testfiles/javaInputs"
 
 tests :: Test
 tests = T.testGroup "SSA tests" $ [
-         T.testGroup "Method Register Assignment" $ map methRegTests
+
+         T.testGroup "Method Register Assignment" $ map getParamListTests
+              [ ( "LTest;", "intLongAdd", "(IJ)J" -- static method.
+                , javaInputs </> "Test.java"
+                , Just [(Nothing,"I"), (Nothing,"J")] )
+
+              , ( "LTest;", "staticNop", "()V"  -- static method, no params.
+                , javaInputs </> "Test.java"
+                , Just [] )
+
+              , ( "LTest;", "nop", "()V"
+                , javaInputs </> "Test.java"
+                , Just [(Just "this", "LTest;")] )
+
+              , ( "LTest;", "stringID", "(Ljava/lang/String;)Ljava/lang/Object;"
+                , javaInputs </> "Test.java"
+                , Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")] )
+              ]
+         , T.testGroup "Method Register Assignment" $ map methRegTests
               [ ( "LTest;", "intLongAdd", "(IJ)J" -- static method.
                 , javaInputs </> "Test.java"
                 , Just [(Nothing,2), (Nothing,3)] )
@@ -73,6 +91,13 @@ tests = T.testGroup "SSA tests" $ [
                 , javaInputs </> "Test.java")
               ]
         ]
+
+getParamListTests :: (String, String, String, FilePath, Maybe [(Maybe BS.ByteString, BS.ByteString)]) -> Test
+getParamListTests (clas, method, sig, file, oracle) =
+  testWithDexFile ("getParamList: " ++ toStr clas method sig) file $ \dexFile ->
+    case getEncodedMethod dexFile clas method sig of
+      Nothing -> assertFailure ("Could not find method: "++toStr clas method sig)
+      Just  m -> oracle @=? getParamList dexFile m
 
 methRegTests :: (String, String, String, FilePath, Maybe [(Maybe BS.ByteString, Word16)]) -> Test
 methRegTests (clas, method, sig, file, oracle) =

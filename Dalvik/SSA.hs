@@ -36,6 +36,14 @@ labelFunctionValues ci =
 -- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
 -- and including the initial `this` parameter, if the method is an
 -- instance method (non-static)
+--
+-- For example, when given the following method:
+-- > public Object stringID(String s) {
+-- >        return s;
+-- > }
+--
+-- this method would return:
+-- > Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")]
 getParamList :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe BS.ByteString, BS.ByteString)]
 getParamList df meth | isStatic meth = explicitParams df meth
                      | otherwise     = do
