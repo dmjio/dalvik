@@ -11,6 +11,8 @@ import Test.HUnit as T
 import Dalvik.Instruction as I
 import Dalvik.SSA.Labelling
 
+import qualified Tests.Dalvik.SSA as TSSA
+
 argMap :: [(String, Word16)]
 argMap = [ ("arg1", 99)
          , ("arg2", 100)
@@ -24,15 +26,16 @@ main :: IO ()
 main = do
   mapM_ showProgram [p1, p2, p3, p4, p5, p6, p7]
   T.defaultMain $ [
-    T.testGroup "basic-tests" [
-       T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 8))
-       , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 6))
+     T.testGroup "basic-tests" [
+       T.testCase "addition-sequence" (checkReturnValue p1 (SimpleLabel 5))
+       , T.testCase "move-sequence" (checkReturnValue p2 (SimpleLabel 3))
        , T.testCase "return-moved-argument" (checkReturnValue p3 (ArgumentLabel "arg1" 0))
        , T.testCase "trivial-branch" (checkReturnValue p4 (PhiLabel 2 [0, 1] 8))
        , T.testCase "simple-loop" (checkReturnValue p5 (PhiLabel 0 [1] 3))
        , T.testCase "loop2-dead-code" (checkReturnValue p6 (ArgumentLabel "arg1" 0))
        , T.testCase "loop3" (checkReturnValue p7 (PhiLabel 1 [0, 2] 7))
        ]
+    , TSSA.tests
     ]
 
 isReturn :: Instruction -> Bool

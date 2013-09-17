@@ -26,7 +26,12 @@ Library
                     pretty,
                     transformers,
                     vector,
-                    zip-conduit
+                    zip-conduit,
+-- needed for test code (test dependencies aren't available in the repl)
+                    temporary,
+                    process,
+                    filepath,
+                    directory
 
     Hs-Source-Dirs: .
     Exposed-Modules: Dalvik.AccessFlags
@@ -70,4 +75,9 @@ test-suite SSALabels
                  HUnit,
                  test-framework,
                  test-framework-hunit,
-                 dalvik == 0.1
+                 dalvik == 0.1,
+                 temporary,
+                 process,
+                 filepath,
+                 directory,
+                 bytestring
