@@ -43,6 +43,14 @@ methodExceptionRanges _ _ = []
 -- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
 -- and including the initial `this` parameter, if the method is an
 -- instance method (non-static)
+--
+-- For example, when given the following method:
+-- > public Object stringID(String s) {
+-- >        return s;
+-- > }
+--
+-- this method would return:
+-- > Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")]
 getParamList :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe BS.ByteString, BS.ByteString)]
 getParamList df meth | isStatic meth = explicitParams df meth
                      | otherwise     = do
