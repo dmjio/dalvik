@@ -193,7 +193,7 @@ labelInstructions :: [(Maybe String, Word16)]
 labelInstructions argRegs ers is = fst $ evalRWS label' e0 s0
   where
     s0 = emptyLabelState argRegs'
-    e0 = emptyEnv argRegs' ivec ers
+    e0 = emptyEnv argRegs' ers ivec
     ivec = V.fromList is
     argNameSource :: Int
     argNameSource = 0
