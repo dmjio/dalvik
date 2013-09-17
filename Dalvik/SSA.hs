@@ -25,16 +25,19 @@ translateClass c =
             -- , classVirtualMethods = undefined
             }
 
-labelFunctionValues :: DT.CodeItem -> Either DecodeError Labelling
-labelFunctionValues ci =
-  case I.decodeInstructions (codeInsns ci) of
-    Left e -> Left e
-    Right insts -> Right $ labelInstructions undefined insts
+labelMethod :: DT.DexFile -> DT.EncodedMethod -> Either DecodeError Labelling
+labelMethod dx (DT.EncodedMethod _ _ Nothing) = Left "No code for method"
+labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
+  insts <- I.decodeInstructions (codeInsns codeItem)
+  case methodRegisterAssignment dx em of
+    Just regMap -> return $ labelInstructions regMap insts
+    Nothing -> Left "No register map"
 
 
 -- | Map argument names for a method to the initial register for that
 -- argument.
 --
+-- Note: argument names are available in the DebugInfo of CodeItem
 methodRegisterAssignment :: DT.DexFile -> EncodedMethod -> Maybe [(Maybe String, Word16)]
 methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing) = Nothing
 methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
@@ -57,6 +60,8 @@ methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
       registers name | name == "J" = 2 -- longs take two registers.
                      | name == "D" = 2 -- doubles take two registers.
                      | otherwise   = 1 -- everything else fits in one.
+
+
 
 {- Note [Translation]
 
