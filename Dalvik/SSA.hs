@@ -38,6 +38,9 @@ labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
   ers <- methodExceptionRanges dx em
   return $ labelInstructions regMap ers insts
 
+-- | Parse the try/catch description tables for this 'EncodedMethod'
+-- from the DexFile.  The tables are reduced to summaries
+-- ('ExceptionRange') that are easier to work with.
 methodExceptionRanges :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [ExceptionRange]
 methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 methodExceptionRanges dx (DT.EncodedMethod mId _ (Just codeItem)) = do

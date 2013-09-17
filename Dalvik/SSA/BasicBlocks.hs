@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- | Split an 'Instruction' stream into basic blocks.
 --
 -- This is a support module for the SSA labelling module.
@@ -250,12 +251,72 @@ terminatorAbsoluteTargets ivec handlers ix inst =
     _ ->
       case relevantHandlersInScope handlers ix inst of
         [] -> Nothing
-        hs -> Just hs
+        hs -> Just $ S.toList $ S.fromList hs
 
+-- | Traverse handlers that are in scope from innermost to outermost.
+-- If any matches the exception type thrown by this instruction, take
+-- that as a handler for the exception.
 relevantHandlersInScope :: Handlers -> Int -> Instruction -> [Int]
-relevantHandlersInScope handlers ix inst = []
+relevantHandlersInScope handlers ix inst =
+  case relevantExceptions of
+    NoExceptions -> []
+    -- Note, this could be improved.  There might be some degree of
+    -- subsumption between nested try/catch blocks.
+    AllHandlers -> concatMap allTargetsIn hs
+    SomeHandlers exns -> map fromIntegral $ concatMap closestHandler exns
   where
+    closestHandler exns = foldr (matchingHandlerFor exns) [] hs
+    matchingHandlerFor exns h acc =
+      case L.find ((`elem` exns) . fst) (erCatch h) of
+        Nothing -> maybe acc (:acc) (erCatchAll h)
+        Just (_, off) -> maybe (off : acc) (:off:acc) (erCatchAll h)
+    allTargetsIn r =
+      let allHs = map snd (erCatch r)
+      in map fromIntegral $ maybe allHs (:allHs) (erCatchAll r)
     hs = handlersFor handlers ix
+    -- For this instruction, relevantExceptions are the types of exceptions
+    -- that this instruction can generate.
+    relevantExceptions = case inst of
+      IBinop Div _ _ _ _ -> SomeHandlers [divZero]
+      IBinop Rem _ _ _ _ -> SomeHandlers [divZero]
+      IBinopAssign Div _ _ _ -> SomeHandlers [divZero]
+      IBinopAssign Rem _ _ _ -> SomeHandlers [divZero]
+      BinopLit8 Div _ _ _ -> SomeHandlers [divZero]
+      BinopLit8 Rem _ _ _ -> SomeHandlers [divZero]
+      BinopLit16 Div _ _ _ -> SomeHandlers [divZero]
+      BinopLit16 Rem _ _ _ -> SomeHandlers [divZero]
+      Invoke _ _ _ _ -> AllHandlers
+      InstanceFieldOp _ _ _ _ -> SomeHandlers [nullPtr]
+      ArrayOp (Get _) _ _ _ -> SomeHandlers [anyArray, nullPtr]
+      ArrayOp (Put _) _ _ _ -> SomeHandlers [anyArray, arrayWrite, nullPtr]
+      -- with a CHA, we could know precisely in many cases... otherwise all
+      Throw _ -> AllHandlers
+      FillArrayData _ _ -> SomeHandlers [nullPtr]
+      NewArray _ _ _ -> SomeHandlers [newArray]
+      ArrayLength _ _ -> SomeHandlers [nullPtr]
+      CheckCast _ _ -> SomeHandlers [classCast]
+      MonitorEnter _ -> SomeHandlers [nullPtr]
+      MonitorExit _ -> SomeHandlers [nullPtr]
+      _ -> NoExceptions
+    -- Note that each of these lists is explicitly sorted with the
+    -- most specific error types first.  Matching must be performed
+    -- that way to find the handler that will actually be executed.
+    -- Order within the HandlerType/SomeHandlers constructor is not
+    -- important.
+    anyRuntime = [ "Ljava.lang.RuntimeException;"
+                 , "Ljava.lang.Exception;"
+                 , "Ljava.lang.Throwable;"
+                 ]
+    divZero = "Ljava.lang.ArithmeticException;" : anyRuntime
+    nullPtr = "Ljava.lang.NullPointerException;" : anyRuntime
+    anyArray = "Ljava.lang.ArrayIndexOutOfBoundsException;" : "Ljava.lang.IndexOutOfBoundsException;" : anyRuntime
+    arrayWrite = "Ljava.lang.ArrayStoreException;" : anyRuntime
+    newArray = "Ljava.lang.NegativeArraySizeException;" : anyRuntime
+    classCast = "Ljava.lang.ClassCastException;" : anyRuntime
+
+data HandlerType = AllHandlers
+                 | NoExceptions
+                 | SomeHandlers [[BS.ByteString]]
 
 isTerminator :: Vector Instruction -> Handlers -> Int -> Instruction -> Bool
 isTerminator ivec handlers ix inst =
