@@ -1,5 +1,6 @@
 module Tests.Dalvik.DexLoaders where
 
+import Control.Concurrent (modifyMVar, newMVar)
 import Control.Monad ( guard )
 import Data.ByteString ()
 import qualified Data.List as L
@@ -19,6 +20,18 @@ import Dalvik.Types as DT
 
 import Dalvik.Parser (loadDexIO)
 
+memoIO :: Ord a => (a -> IO b) -> IO (a -> IO b)
+memoIO f = do
+  ref <- newMVar M.empty
+  return (memoIO' ref f)
+  where
+    memoIO' ref f a = modifyMVar ref $ \m -> do
+      case M.lookup a m of
+        Just v -> return (m, v)
+        Nothing -> do
+          v <- f a
+          return (M.insert a v m, v)
+
 getEncodedMethod :: DexFile -> String -> String -> String -> Maybe EncodedMethod
 getEncodedMethod dx className methodName typeSig = do
   let classes = M.elems $ dexClasses dx
@@ -35,6 +48,8 @@ getEncodedMethod dx className methodName typeSig = do
       pstrs <- mapM (getTypeName dx) (protoParams p)
       let msig = mconcat [ fromString "(", mconcat pstrs, fromString ")", rstr ]
       return $ fromString typeSig == msig
+
+type DexReader = FilePath -> IO (Either String DT.DexFile)
 
 -- | Read a file (.java, .class, or .jar) as a dex file by performing
 -- the required pre-processing to generate a dex file and load it with
