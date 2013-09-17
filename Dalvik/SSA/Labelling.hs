@@ -143,10 +143,10 @@ data LabelEnv =
 
 -- | Create a new empty SSA labelling environment.  This includes
 -- computing CFG information.
-emptyEnv :: [(String, Word16)] -> Vector Instruction -> LabelEnv
-emptyEnv argRegs ivec =
+emptyEnv :: [(String, Word16)] -> [ExceptionRange] -> Vector Instruction -> LabelEnv
+emptyEnv argRegs ers ivec =
   LabelEnv { envInstructionStream = ivec
-           , envBasicBlocks = findBasicBlocks ivec
+           , envBasicBlocks = findBasicBlocks ivec ers
            , envRegisterAssignment =
              fst $ L.foldl' allocateArgLabel (M.empty, 0) argRegs
            , envInstructionIndices = V.ifoldl' addIndex M.empty ivec
@@ -185,13 +185,15 @@ emptyLabelState argRegs =
 -- cannot conflict with the real arguments.
 labelInstructions :: [(Maybe String, Word16)]
                      -- ^ A mapping of argument names to the register numbers
+                     -> [ExceptionRange]
+                     -- ^ Information about exception handlers in the method
                      -> [Instruction]
                      -- ^ The instruction stream for the method
                      -> Labelling
-labelInstructions argRegs is = fst $ evalRWS label' e0 s0
+labelInstructions argRegs ers is = fst $ evalRWS label' e0 s0
   where
     s0 = emptyLabelState argRegs'
-    e0 = emptyEnv argRegs' ivec
+    e0 = emptyEnv argRegs' ivec ers
     ivec = V.fromList is
     argNameSource :: Int
     argNameSource = 0

@@ -36,7 +36,7 @@ labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
   insts <- I.decodeInstructions (codeInsns codeItem)
   regMap <- methodRegisterAssignment dx em
   ers <- methodExceptionRanges dx em
-  return $ labelInstructions regMap insts
+  return $ labelInstructions regMap ers insts
 
 methodExceptionRanges :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [ExceptionRange]
 methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId

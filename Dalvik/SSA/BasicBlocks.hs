@@ -78,8 +78,8 @@ basicBlocksAsList = V.toList . bbBlocks
 -- | Examine the instruction stream and break it into basic blocks.
 -- This includes control flow information (block predecessors and
 -- successors).
-findBasicBlocks :: Vector Instruction -> BasicBlocks
-findBasicBlocks ivec =
+findBasicBlocks :: Vector Instruction -> [ExceptionRange] -> BasicBlocks
+findBasicBlocks ivec ers =
   BasicBlocks { bbBlocks = bvec
               , bbFromInstruction = bmapVec
               , bbPredecessors = preds
@@ -234,3 +234,9 @@ terminatorAbsoluteTargets ivec ix inst =
 isTerminator :: Vector Instruction -> Int -> Instruction -> Bool
 isTerminator ivec ix inst =
   isJust $ terminatorAbsoluteTargets ivec ix inst
+
+{- Note [Exceptional Control Flow]
+
+
+
+-}
