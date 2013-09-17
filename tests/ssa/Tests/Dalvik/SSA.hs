@@ -24,19 +24,19 @@ tests = T.testGroup "SSA tests" $ [
                 , Just [(Nothing,3), (Nothing,2)] )
               ]
         , T.testGroup "getEncodedMethod" $ map findEncMethodTest
-              [ ( "LTest;", "intLongAdd", "JIJ"
+              [ ( "LTest;", "intLongAdd", "(IJ)J"
                 , javaInputs </> "Test.java" )
 
-              , ( "LTest;", "stringId", "Ljava/lang/Object;Ljava/lang/String;"
+              , ( "LTest;", "stringID", "(Ljava/lang/String;)Ljava/lang/Object;"
                 , javaInputs </> "Test.java")
 
-              , ( "LTest;", "voidFn", "VLjava/lang/String;LTest;"
+              , ( "LTest;", "voidFn", "(Ljava/lang/String;LTest;)V"
                 , javaInputs </> "Test.java")
 
-              , ( "LTest$InnerTest;", "voidFn", "VLjava/lang/String;LTest;"
+              , ( "LTest$InnerTest;", "voidFn", "(Ljava/lang/String;LTest;)V"
                 , javaInputs </> "Test.java")
 
-              , ( "LTest$InnerTest;", "innerClassParam", "VLTest$InnerTest;"
+              , ( "LTest$InnerTest;", "innerClassParam", "(LTest$InnerTest;)V"
                 , javaInputs </> "Test.java")
               ]
         ]

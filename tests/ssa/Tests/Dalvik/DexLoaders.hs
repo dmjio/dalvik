@@ -5,6 +5,7 @@ import Data.ByteString ()
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
+import Data.Monoid
 import Data.String ( fromString )
 
 import System.Cmd (rawSystem)
@@ -30,8 +31,10 @@ getEncodedMethod dx className methodName typeSig = do
       mname <- getStr dx (methNameId m)
       guard (mname == fromString methodName)
       p <- getProto dx (methProtoId m)
-      shortDesc <- getStr dx (protoShortDesc p)
-      return $ fromString typeSig == shortDesc
+      rstr <- getTypeName dx (protoRet p)
+      pstrs <- mapM (getTypeName dx) (protoParams p)
+      let msig = mconcat [ fromString "(", mconcat pstrs, fromString ")", rstr ]
+      return $ fromString typeSig == msig
 
 -- | Read a file (.java, .class, or .jar) as a dex file by performing
 -- the required pre-processing to generate a dex file and load it with
