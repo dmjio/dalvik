@@ -48,8 +48,6 @@ methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
   DT.Method cid pid nameId <- getMethod df mId
   DT.Proto    _   _ params <- getProto df pid
 
-  -- This mapM will result in Nothing if /any/ of the types are
-  -- unavailable, that's going to make debugging tricky.
   paramNames <- mapM (getTypeName df) params
   return $ snd $ foldr findOffset (codeRegs code, []) (reverse paramNames)
     where
