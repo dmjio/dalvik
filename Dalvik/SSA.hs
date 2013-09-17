@@ -57,25 +57,47 @@ methodExceptionRanges dx (DT.EncodedMethod mId _ (Just codeItem)) = do
                                 , erCatchAll = chAllAddr ch
                                 }
 
+-- | extract the parameter list from an encoded method.  This returns
+-- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
+-- and including the initial `this` parameter, if the method is an
+-- instance method (non-static)
+getParamList :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe BS.ByteString, BS.ByteString)]
+getParamList df meth | isStatic meth = explicitParams df meth
+                     | otherwise     = do
+                        DT.Method cid _ _ <- getMethod df $ methId meth
+                        clName <- getTypeName df cid
+                        exParams <- explicitParams df meth
+                        return ((Just "this", clName):exParams)
+  where
+    explicitParams dexFile (DT.EncodedMethod mId _ _) = do
+      DT.Method _ pid _ <- getMethod dexFile mId
+      DT.Proto  _   _ paramIDs <- getProto df pid
+
+      -- This mapM will result in Nothing if /any/ of the types are
+      -- unavailable, that's going to make debugging tricky.
+      params <- mapM (getTypeName dexFile) paramIDs
+      return $ findNames params
+
+    findNames :: [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
+    findNames ps = map (\p -> (Nothing, p)) ps
+
 -- | Map argument names for a method to the initial register for that
 -- argument.
 --
--- Note: argument names are available in the DebugInfo of CodeItem
-methodRegisterAssignment :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe String, Word16)]
-methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
-methodRegisterAssignment df (DT.EncodedMethod mId _ (Just code)) = do
-  DT.Method cid pid nameId <- getMethod df mId
-  DT.Proto    _   _ params <- getProto df pid
-
-  paramNames <- mapM (getTypeName df) params
-  return $ snd $ foldr findOffset (codeRegs code, []) (reverse paramNames)
+methodRegisterAssignment :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe BS.ByteString, Word16)]
+methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing)     = failure $ NoCodeForMethod mId
+methodRegisterAssignment df meth@(DT.EncodedMethod _ _ (Just code)) = do
+  params <- getParamList df meth
+  return $ reverse $ snd $ accumOffsets params
     where
-      findOffset :: BS.ByteString ->
-                    (Word16, [(Maybe String, Word16)]) ->
-                    (Word16, [(Maybe String, Word16)])
-      findOffset tname (offset, acc) = let
+      accumOffsets params = foldr findOffset (codeRegs code, []) params
+
+      findOffset :: (Maybe BS.ByteString, BS.ByteString) ->
+                    (Word16, [(Maybe BS.ByteString, Word16)]) ->
+                    (Word16, [(Maybe BS.ByteString, Word16)])
+      findOffset (mName, tname) (offset, acc) = let
         regCount = registers tname
-        in (offset - regCount, acc ++ [(Nothing, offset)])
+        in (offset - regCount, acc ++ [(mName, offset - regCount)])
 
       registers :: BS.ByteString -> Word16
       registers name | name == "J" = 2 -- longs take two registers.

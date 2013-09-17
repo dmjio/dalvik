@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 -- | This module implements SSA value numbering over the low-level Dalvik IR
 --
@@ -45,15 +46,18 @@ module Dalvik.SSA.Labelling (
 
 import Control.Monad ( filterM, forM_, liftM, void )
 import Control.Monad.Trans.RWS.Strict
+import qualified Data.ByteString as BS
 import Data.Int ( Int64 )
 import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
+import Data.Monoid
 import qualified Data.List as L
 import Data.Set ( Set )
 import qualified Data.Set as S
+import Data.String ( fromString )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word ( Word8, Word16 )
@@ -67,7 +71,7 @@ import Dalvik.SSA.BasicBlocks
 -- carrying extra information.
 data Label = SimpleLabel Int64
            | PhiLabel BlockNumber [BlockNumber] Int64
-           | ArgumentLabel String Int64
+           | ArgumentLabel BS.ByteString Int64
            deriving (Eq, Ord, Show)
 
 -- | A labelling assigns an SSA number/Label to a register at *each*
@@ -143,7 +147,7 @@ data LabelEnv =
 
 -- | Create a new empty SSA labelling environment.  This includes
 -- computing CFG information.
-emptyEnv :: [(String, Word16)] -> [ExceptionRange] -> Vector Instruction -> LabelEnv
+emptyEnv :: [(BS.ByteString, Word16)] -> [ExceptionRange] -> Vector Instruction -> LabelEnv
 emptyEnv argRegs ers ivec =
   LabelEnv { envInstructionStream = ivec
            , envBasicBlocks = findBasicBlocks ivec ers
@@ -161,7 +165,7 @@ emptyEnv argRegs ers ivec =
 -- registers.  Wide arguments take two registers, but we only need to
 -- worry about the first register in the pair (since the second is
 -- never explicitly accessed).
-emptyLabelState :: [(String, Word16)] -> LabelState
+emptyLabelState :: [(BS.ByteString, Word16)] -> LabelState
 emptyLabelState argRegs =
   LabelState { currentDefinition = fst $ L.foldl' addArgDef (M.empty, 0) argRegs
              , instructionLabels = M.empty
@@ -183,7 +187,7 @@ emptyLabelState argRegs =
 --
 -- If an argument has no name, it will be assigned a generic one that
 -- cannot conflict with the real arguments.
-labelInstructions :: [(Maybe String, Word16)]
+labelInstructions :: [(Maybe BS.ByteString, Word16)]
                      -- ^ A mapping of argument names to the register numbers
                      -> [ExceptionRange]
                      -- ^ Information about exception handlers in the method
@@ -201,7 +205,7 @@ labelInstructions argRegs ers is = fst $ evalRWS label' e0 s0
     nameAnonArgs (name, reg) (ix, m) =
       case name of
         Just name' -> (ix, (name', reg) : m)
-        Nothing -> (ix + 1, ("%arg" ++ show ix, reg) : m)
+        Nothing -> (ix + 1, ("%arg" `mappend` fromString (show ix), reg) : m)
 
 -- | An environment to carry state for the labelling algorithm
 type SSALabeller = RWS LabelEnv () LabelState
@@ -659,7 +663,7 @@ prettyLabelling l =
     bbs = labellingBasicBlocks l
     ivec = labellingInstructions l
     prettyBlock (bid, insts) =
-      let header = PP.text ";; " <> PP.int bid <> PP.text (show (basicBlockPredecessors bbs bid))
+      let header = PP.text ";; " PP.<> PP.int bid PP.<> PP.text (show (basicBlockPredecessors bbs bid))
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
                                 | (PhiLabel _ _ phiL, (S.toList -> vals)) <- blockPhis,
@@ -723,13 +727,13 @@ prettyLabelling l =
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ _ lnum -> return (show lnum)
-            ArgumentLabel s _ -> return s
+            ArgumentLabel s _ -> return (show s)
         wLabelId _reg = fromMaybe "??" $ do
           lab <- M.lookup i (labellingWriteRegs l)
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ _ lnum -> return (show lnum)
-            ArgumentLabel s _ -> return s
+            ArgumentLabel s _ -> return (show s)
 
 -- Testing property
 

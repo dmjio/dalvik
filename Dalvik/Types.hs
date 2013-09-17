@@ -282,3 +282,6 @@ findString dex t =
     [(sid, _)] -> Just sid
     _ -> Nothing
   where isThis (_, t') = t == t'
+
+isStatic :: EncodedMethod -> Bool
+isStatic (EncodedMethod _ flags _) = hasAccessFlag ACC_STATIC flags

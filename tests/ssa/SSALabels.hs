@@ -1,5 +1,7 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main ( main ) where
 
+import qualified Data.ByteString as BS
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
@@ -13,7 +15,7 @@ import Dalvik.SSA.Labelling
 
 import qualified Tests.Dalvik.SSA as TSSA
 
-argMap :: [(Maybe String, Word16)]
+argMap :: [(Maybe BS.ByteString, Word16)]
 argMap = [ (Just "arg1", 99)
          , (Just "arg2", 100)
          , (Just "arg3", 101)
