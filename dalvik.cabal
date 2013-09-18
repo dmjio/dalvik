@@ -44,7 +44,7 @@ Library
                      Dalvik.Parser
                      Dalvik.Printer
                      Dalvik.SSA
-                     Dalvik.SSA.Labelling
+                     Dalvik.SSA.Labeling
                      Dalvik.Types
     Other-Modules: Dalvik.SSA.Types,
                    Dalvik.SSA.BasicBlocks
