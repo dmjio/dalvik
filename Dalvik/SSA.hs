@@ -56,7 +56,7 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
           typeNames <- mapM (\(tix, off) -> liftM (, off) (getTypeName dx tix)) (chHandlers ch)
           return ExceptionRange { erOffset = tryStartAddr tryItem
                                 , erCount = tryInsnCount tryItem
-                                , erCatch = undefined
+                                , erCatch = typeNames
                                 , erCatchAll = chAllAddr ch
                                 }
 
