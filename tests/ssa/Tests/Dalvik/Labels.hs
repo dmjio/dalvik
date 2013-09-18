@@ -25,12 +25,18 @@ tests :: Test
 tests = T.buildTest $ do
   getDex <- memoIO readAsDex
   return $ T.testGroup "SSA Label tests" $ map (getLabelTests getDex)
-    [ ("LLabelTests;", "localCopies", "(II)I"
-      , javaInputs </> "LabelTests.java"
-      , ArgumentLabel "%arg1" 1)
-    , ("LLabelTests;", "simpleBranch", "(II)I"
-      , javaInputs </> "LabelTests.java"
-      , PhiLabel 1 [0,2] 7)
+    [ ("LLabelTests;", "localCopies", "(II)I",
+       javaInputs </> "LabelTests.java",
+       ArgumentLabel "%arg1" 1)
+    , ("LLabelTests;", "simpleBranch", "(II)I",
+       javaInputs </> "LabelTests.java",
+       PhiLabel 1 [0,2] 7)
+    , ("LLabelTests;", "simpleLoop", "(II)I",
+       javaInputs </> "LabelTests.java",
+       PhiLabel 1 [0,2] 8)
+    , ("LLabelTests;", "loopNopBody", "(II)I",
+       javaInputs </> "LabelTests.java",
+       ArgumentLabel "%arg1" 1)
     ]
 
 isReturn :: Instruction -> Bool

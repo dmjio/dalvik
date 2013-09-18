@@ -16,4 +16,24 @@ class LabelTests {
 
     return z;
   }
+
+  public int simpleLoop(int x1, int x2) {
+    int z = x1;
+    while(x2 > 0) {
+      z = z + x1;
+      --x2;
+    }
+
+    return z;
+  }
+
+  public int loopNopBody(int x1, int x2) {
+    int z = x1;
+    while(x2 > 0) {
+      z = z + x1;
+      -- x2;
+    }
+
+    return x1;
+  }
 }
