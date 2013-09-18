@@ -356,16 +356,16 @@ relevantHandlersInScope handlers ix inst =
     -- that way to find the handler that will actually be executed.
     -- Order within the HandlerType/SomeHandlers constructor is not
     -- important.
-    anyRuntime = [ "Ljava.lang.RuntimeException;"
-                 , "Ljava.lang.Exception;"
-                 , "Ljava.lang.Throwable;"
+    anyRuntime = [ "Ljava/lang/RuntimeException;"
+                 , "Ljava/lang/Exception;"
+                 , "Ljava/lang/Throwable;"
                  ]
-    divZero = "Ljava.lang.ArithmeticException;" : anyRuntime
-    nullPtr = "Ljava.lang.NullPointerException;" : anyRuntime
-    anyArray = "Ljava.lang.ArrayIndexOutOfBoundsException;" : "Ljava.lang.IndexOutOfBoundsException;" : anyRuntime
-    arrayWrite = "Ljava.lang.ArrayStoreException;" : anyRuntime
-    newArray = "Ljava.lang.NegativeArraySizeException;" : anyRuntime
-    classCast = "Ljava.lang.ClassCastException;" : anyRuntime
+    divZero = "Ljava/lang/ArithmeticException;" : anyRuntime
+    nullPtr = "Ljava/lang/NullPointerException;" : anyRuntime
+    anyArray = "Ljava/lang/ArrayIndexOutOfBoundsException;" : "Ljava/lang/IndexOutOfBoundsException;" : anyRuntime
+    arrayWrite = "Ljava/lang/ArrayStoreException;" : anyRuntime
+    newArray = "Ljava/lang/NegativeArraySizeException;" : anyRuntime
+    classCast = "Ljava/lang/ClassCastException;" : anyRuntime
 
 data HandlerType = AllHandlers
                  | NoExceptions
