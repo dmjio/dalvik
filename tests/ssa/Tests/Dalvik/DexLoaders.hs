@@ -23,9 +23,9 @@ import Dalvik.Parser (loadDexIO)
 memoIO :: Ord a => (a -> IO b) -> IO (a -> IO b)
 memoIO f = do
   ref <- newMVar M.empty
-  return (memoIO' ref f)
+  return (memoIO' ref)
   where
-    memoIO' ref f a = modifyMVar ref $ \m -> do
+    memoIO' ref a = modifyMVar ref $ \m -> do
       case M.lookup a m of
         Just v -> return (m, v)
         Nothing -> do
