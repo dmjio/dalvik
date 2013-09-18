@@ -33,7 +33,7 @@
 -- >   r4 <- phi(r3, r1)
 -- >   r3 <- binop add r4 r2
 -- >   br (r4 < 100) loop
-module Dalvik.SSA.Labelling (
+module Dalvik.SSA.Labeling (
   -- * Data Types
   Label(..),
   Labelling(..),
