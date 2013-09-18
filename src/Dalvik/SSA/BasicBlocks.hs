@@ -42,6 +42,9 @@ import Data.Word ( Word32, Word16 )
 
 import Dalvik.Instruction
 
+import Debug.Trace
+debug = flip trace
+
 -- | Types of Dalvik Type names
 type TypeName = BS.ByteString
 
@@ -113,8 +116,8 @@ makeEnv ivec ers =
     revMap acc ix off = M.insert off ix acc
     addHandler r m =
       let s = resolveOffsetFrom env0 0 $ fromIntegral $ erOffset r
-          e = (resolveOffsetFrom env0 s $ fromIntegral $ erCount r) -- Might need to subtract 1 here, according to the dex spec
-      in IM.insert (IM.ClosedInterval s e) r m
+          e = resolveOffsetFrom env0 s $ fromIntegral $ erCount r -- - 1
+      in IM.insert (IM.ClosedInterval s e) r m `debug` ("EH: " ++ show s ++ " to " ++ show e ++ " // " ++ show (erCount r))
 
 resolveOffsetFrom :: BBEnv
                   -> Int -- ^ Index of the branch instruction
@@ -224,7 +227,7 @@ buildInstructionBlockMap =
 splitIntoBlocks :: BBEnv
                 -> (Vector (BlockNumber, Vector Instruction),
                     Map (Int, Int) BlockNumber)
-splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges)
+splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges) `debug` show blockBeginnings
   where
     ivec = envInstVec env
     (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec
@@ -285,19 +288,19 @@ terminatorAbsoluteTargets env ix inst =
     -- Throw is always a terminator.  It may or may not have targets
     -- within the function.  We can also refine these if we *know* the
     -- concrete type of the exception thrown.
-    Throw _ -> Just $ relevantHandlersInScope (envExceptionHandlers env) ix inst
+    Throw _ -> Just $ relevantHandlersInScope env ix inst
     -- For all other instructions, we need to do a more thorough lookup.
     -- See Note [Exceptional Control Flow] for details.
     _ ->
-      case relevantHandlersInScope (envExceptionHandlers env) ix inst of
-        [] -> Nothing
-        hs -> Just $ S.toList $ S.fromList hs
+      case relevantHandlersInScope env ix inst of
+        [] -> Nothing `debug` ("No handlers in scope for " ++ show inst)
+        hs -> Just $ S.toList $ S.fromList hs `debug` ("Handlers in scope: " ++ show hs)
 
 -- | Traverse handlers that are in scope from innermost to outermost.
 -- If any matches the exception type thrown by this instruction, take
 -- that as a handler for the exception.
-relevantHandlersInScope :: Handlers -> Int -> Instruction -> [Int]
-relevantHandlersInScope handlers ix inst =
+relevantHandlersInScope :: BBEnv -> Int -> Instruction -> [Int]
+relevantHandlersInScope env ix inst =
   case relevantExceptions of
     NoExceptions -> []
     -- Note, this could be improved.  There might be some degree of
@@ -310,8 +313,11 @@ relevantHandlersInScope handlers ix inst =
     -- We want to find a handler for *each* possible exception.  We
     -- only need to take the first we encounter.  Rethrows are handled
     -- by the logic for the throw instruction.
-    SomeHandlers exns -> map fromIntegral $ concatMap closestHandler exns
+    SomeHandlers exns ->
+      let theseHandlers = map fromIntegral $ concatMap closestHandler exns
+      in theseHandlers `debug` show theseHandlers
   where
+    handlers = envExceptionHandlers env
     -- FIXME: This should be an early-terminating fold.  It has to
     -- collect all 'finally' blocks from non-matching handlers, but it
     -- can stop once it finds the first actual handler (and associated
@@ -319,13 +325,19 @@ relevantHandlersInScope handlers ix inst =
     --
     --  foldr (\x r n -> if x > 10 then n else r (x:n)) id [0..] []
     closestHandler exns = foldr (matchingHandlerFor exns) id hs []
+    addCatchAll h acc =
+      case erCatchAll h of
+        Nothing -> acc
+        Just off -> resolveOffsetFrom env 0 (fromIntegral off) : acc
     matchingHandlerFor exns h rest acc =
       case L.find ((`elem` exns) . fst) (erCatch h) of
-        Nothing -> rest $ maybe acc (:acc) (erCatchAll h)
-        Just (_, off) -> maybe (off : acc) (:off:acc) (erCatchAll h)
+        Nothing -> rest $ addCatchAll h acc
+        Just (_, off) ->
+          let acc' = resolveOffsetFrom env 0 (fromIntegral off) : acc
+          in addCatchAll h acc'
     allTargetsIn r =
       let allHs = map snd (erCatch r)
-      in map fromIntegral $ maybe allHs (:allHs) (erCatchAll r)
+      in map (fromIntegral . resolveOffsetFrom env 0 . fromIntegral) $ maybe allHs (:allHs) (erCatchAll r)
     hs = handlersFor handlers ix
     -- For this instruction, relevantExceptions are the types of exceptions
     -- that this instruction can generate.
