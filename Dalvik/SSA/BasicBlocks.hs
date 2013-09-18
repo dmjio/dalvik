@@ -42,6 +42,9 @@ import Data.Word ( Word32, Word16 )
 
 import Dalvik.Instruction
 
+import Debug.Trace
+debug = flip trace
+
 -- | Types of Dalvik Type names
 type TypeName = BS.ByteString
 
@@ -187,7 +190,7 @@ splitIntoBlocks :: Vector Instruction
                 -> (Vector (BlockNumber, Vector Instruction), Map (Int, Int) BlockNumber)
 splitIntoBlocks ivec handlers = (V.indexed (V.fromList (reverse blocks)), blockRanges)
   where
-    (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec
+    (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec `debug` show blockBeginnings
     blockBeginnings = V.ifoldl' (addTargetIndex ivec handlers) (IS.singleton 0) ivec
     splitInstrs :: ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
                    -> Int
@@ -217,14 +220,14 @@ addTargetIndex :: Vector Instruction -> Handlers -> IntSet -> Int -> Instruction
 addTargetIndex ivec handlers acc ix inst =
   case terminatorAbsoluteTargets ivec handlers ix inst of
     Nothing -> acc
-    Just targets -> L.foldl' (flip IS.insert) acc targets
+    Just targets -> L.foldl' (flip IS.insert) acc targets `debug` show targets
 
 -- | Find the absolute target indices (into the instruction vector) for each
 -- block terminator instruction.  The conditional branches have explicit
 -- targets, but can also allow execution to fall through.
 terminatorAbsoluteTargets :: Vector Instruction -> Handlers -> Int -> Instruction -> Maybe [Int]
 terminatorAbsoluteTargets ivec handlers ix inst =
-  case inst of
+  case inst `debug` show inst of
     Goto i8 -> Just [fromIntegral i8 + ix]
     Goto16 i16 -> Just [fromIntegral i16 + ix]
     Goto32 i32 -> Just [fromIntegral i32 + ix]
@@ -234,8 +237,8 @@ terminatorAbsoluteTargets ivec handlers ix inst =
     SparseSwitch _ tableOff ->
       let Just (SparseSwitchData _ offs) = ivec V.!? (fromIntegral tableOff + ix)
       in Just (ix + 1 : [fromIntegral o + ix | o <- offs])
-    If _ _ _ off -> Just [ix + 1, fromIntegral off + ix]
-    IfZero _ _ off -> Just [ix + 1, fromIntegral off + ix]
+    If _ _ _ off -> Just [ix + 1, fromIntegral off)]
+    IfZero _ _ off -> Just [ix + 1, fromIntegral off]
     ReturnVoid -> Just []
     Return _ _ -> Just []
     -- Throw is always a terminator.  It may or may not have targets

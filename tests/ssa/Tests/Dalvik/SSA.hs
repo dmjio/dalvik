@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Tests.Dalvik.SSA where
+module Tests.Dalvik.SSA ( tests ) where
 
 import qualified Data.ByteString as BS
 import Data.Word (Word16)

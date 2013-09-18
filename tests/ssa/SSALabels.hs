@@ -14,6 +14,7 @@ import Dalvik.Instruction as I
 import Dalvik.SSA.Labelling
 
 import qualified Tests.Dalvik.SSA as TSSA
+import qualified Tests.Dalvik.Labels as LSSA
 
 argMap :: [(Maybe BS.ByteString, Word16)]
 argMap = [ (Just "arg1", 99)
@@ -38,6 +39,7 @@ main = do
        , T.testCase "loop3" (checkReturnValue p7 (PhiLabel 1 [0, 2] 7))
        ]
     , TSSA.tests
+    , LSSA.tests
     ]
 
 isReturn :: Instruction -> Bool
