@@ -11,7 +11,7 @@ import Data.Word (Word16)
 
 import Dalvik.Instruction as I
 import Dalvik.Types as DT
-import Dalvik.SSA.Labelling
+import Dalvik.SSA.Labeling
 import Dalvik.SSA.Types as SSA
 
 toSSA :: DT.DexFile -> SSA.DexFile
