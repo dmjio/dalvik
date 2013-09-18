@@ -43,7 +43,7 @@ labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
 -- ('ExceptionRange') that are easier to work with.
 methodExceptionRanges :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [ExceptionRange]
 methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
-methodExceptionRanges dx (DT.EncodedMethod mId _ (Just codeItem)) = do
+methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
   mapM toExceptionRange (codeTryItems codeItem)
   where
     catches = V.fromList $ codeHandlers codeItem
