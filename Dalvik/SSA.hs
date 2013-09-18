@@ -64,6 +64,14 @@ methodExceptionRanges dx (DT.EncodedMethod mId _ (Just codeItem)) = do
 -- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
 -- and including the initial `this` parameter, if the method is an
 -- instance method (non-static)
+--
+-- For example, when given the following method:
+-- > public Object stringID(String s) {
+-- >        return s;
+-- > }
+--
+-- this method would return:
+-- > Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")]
 getParamList :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe BS.ByteString, BS.ByteString)]
 getParamList df meth | isStatic meth = explicitParams df meth
                      | otherwise     = do
@@ -76,8 +84,6 @@ getParamList df meth | isStatic meth = explicitParams df meth
       DT.Method _ pid _ <- getMethod dexFile mId
       DT.Proto  _   _ paramIDs <- getProto df pid
 
-      -- This mapM will result in Nothing if /any/ of the types are
-      -- unavailable, that's going to make debugging tricky.
       params <- mapM (getTypeName dexFile) paramIDs
       return $ findNames params
 
@@ -91,7 +97,7 @@ methodRegisterAssignment :: (Failure DecodeError f) => DT.DexFile -> EncodedMeth
 methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing)     = failure $ NoCodeForMethod mId
 methodRegisterAssignment df meth@(DT.EncodedMethod _ _ (Just code)) = do
   params <- getParamList df meth
-  return $ reverse $ snd $ accumOffsets params
+  return $ snd $ accumOffsets params
     where
       accumOffsets params = foldr findOffset (codeRegs code, []) params
 
@@ -100,7 +106,7 @@ methodRegisterAssignment df meth@(DT.EncodedMethod _ _ (Just code)) = do
                     (Word16, [(Maybe BS.ByteString, Word16)])
       findOffset (mName, tname) (offset, acc) = let
         regCount = registers tname
-        in (offset - regCount, acc ++ [(mName, offset - regCount)])
+        in (offset - regCount, (mName, offset - regCount):acc)
 
       registers :: BS.ByteString -> Word16
       registers name | name == "J" = 2 -- longs take two registers.
