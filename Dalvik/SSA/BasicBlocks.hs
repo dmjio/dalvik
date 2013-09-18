@@ -222,10 +222,6 @@ addTargetIndex ivec handlers acc ix inst =
 -- | Find the absolute target indices (into the instruction vector) for each
 -- block terminator instruction.  The conditional branches have explicit
 -- targets, but can also allow execution to fall through.
---
--- FIXME: Invoke *can* be a terminator if it is in a try block.  We do
--- need to know that here, technically.  Actually, any invoke or instruction
--- touching a reference can get an edge to an exception handler...
 terminatorAbsoluteTargets :: Vector Instruction -> Handlers -> Int -> Instruction -> Maybe [Int]
 terminatorAbsoluteTargets ivec handlers ix inst =
   case inst of
@@ -263,12 +259,25 @@ relevantHandlersInScope handlers ix inst =
     -- Note, this could be improved.  There might be some degree of
     -- subsumption between nested try/catch blocks.
     AllHandlers -> concatMap allTargetsIn hs
+    -- Each element of @exns@ is one primitive exception.  These are
+    -- lists of the exception and its superclasses.  A handler for a
+    -- superclass can also handle the exception at element 0.
+    --
+    -- We want to find a handler for *each* possible exception.  We
+    -- only need to take the first we encounter.  Rethrows are handled
+    -- by the logic for the throw instruction.
     SomeHandlers exns -> map fromIntegral $ concatMap closestHandler exns
   where
-    closestHandler exns = foldr (matchingHandlerFor exns) [] hs
-    matchingHandlerFor exns h acc =
+    -- FIXME: This should be an early-terminating fold.  It has to
+    -- collect all 'finally' blocks from non-matching handlers, but it
+    -- can stop once it finds the first actual handler (and associated
+    -- finally).
+    --
+    --  foldr (\x r n -> if x > 10 then n else r (x:n)) id [0..] []
+    closestHandler exns = foldr (matchingHandlerFor exns) id hs []
+    matchingHandlerFor exns h rest acc =
       case L.find ((`elem` exns) . fst) (erCatch h) of
-        Nothing -> maybe acc (:acc) (erCatchAll h)
+        Nothing -> rest $ maybe acc (:acc) (erCatchAll h)
         Just (_, off) -> maybe (off : acc) (:off:acc) (erCatchAll h)
     allTargetsIn r =
       let allHs = map snd (erCatch r)
