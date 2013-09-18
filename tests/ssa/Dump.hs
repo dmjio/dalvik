@@ -2,7 +2,7 @@ module Main ( main ) where
 
 import qualified Dalvik.Types as DT
 import Dalvik.SSA ( labelMethod )
-import Dalvik.SSA.Labelling
+import Dalvik.SSA.Labeling
 
 import Tests.Dalvik.DexLoaders ( readAsDex, getEncodedMethod )
 
