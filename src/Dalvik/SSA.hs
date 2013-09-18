@@ -48,17 +48,30 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
   where
     catches = V.fromList $ codeHandlers codeItem
     toExceptionRange tryItem = do
-      let handlerOff = tryHandlerOff tryItem
-      -- The fromIntegral here is not lossy: Word16 to Int
-      case catches V.!? fromIntegral handlerOff of
-        Nothing -> failure $ NoHandlerAtIndex handlerOff
-        Just ch -> do
+      let hOffset = fromIntegral $ tryHandlerOff tryItem
+      case V.findIndex ((==hOffset) . chHandlerOff) catches of
+        Nothing ->failure $ NoHandlerAtOffset hOffset
+        Just cix -> do
+          let Just ch = catches V.!? cix
           typeNames <- mapM (\(tix, off) -> liftM (, off) (getTypeName dx tix)) (chHandlers ch)
           return ExceptionRange { erOffset = tryStartAddr tryItem
                                 , erCount = tryInsnCount tryItem
                                 , erCatch = typeNames
                                 , erCatchAll = chAllAddr ch
                                 }
+
+      --     in 
+      -- let Just handlerIdx = 
+      -- -- The fromIntegral here is not lossy: Word16 to Int
+      -- case catches V.!? fromIntegral handlerOff of
+      --   Nothing -> failure $ NoHandlerAtIndex handlerOff
+      --   Just ch -> do
+      --     typeNames <- mapM (\(tix, off) -> liftM (, off) (getTypeName dx tix)) (chHandlers ch)
+      --     return ExceptionRange { erOffset = tryStartAddr tryItem
+      --                           , erCount = tryInsnCount tryItem
+      --                           , erCatch = typeNames
+      --                           , erCatchAll = chAllAddr ch
+      --                           }
 
 -- | extract the parameter list from an encoded method.  This returns
 -- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
