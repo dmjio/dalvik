@@ -30,7 +30,7 @@ tests = T.buildTest $ do
       , ArgumentLabel "%arg1" 1)
     , ("LLabelTests;", "simpleBranch", "(II)I"
       , javaInputs </> "LabelTests.java"
-      , PhiLabel 3 [1,2] 4)
+      , PhiLabel 1 [0,2] 7)
     ]
 
 isReturn :: Instruction -> Bool

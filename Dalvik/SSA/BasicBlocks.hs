@@ -42,9 +42,6 @@ import Data.Word ( Word32, Word16 )
 
 import Dalvik.Instruction
 
-import Debug.Trace
-debug = flip trace
-
 -- | Types of Dalvik Type names
 type TypeName = BS.ByteString
 
@@ -85,6 +82,49 @@ type Handlers = IntervalMap Int ExceptionRange
 handlersFor :: Handlers -> Int -> [ExceptionRange]
 handlersFor h = map snd . IM.containing h
 
+data BBEnv =
+  BBEnv { envInstVec :: Vector Instruction
+        , envShortOffset :: Vector Int
+          -- ^ This vector has one entry per Instruction in the
+          -- instruction vector.  The entry is the original offset
+          -- into the ushort array that the instructions were decoded
+          -- from for that instruction.
+        , envShortToInstIndex :: Map Int Int
+          -- ^ Map each instruction's 'short offset' (position in the
+          -- original data stream) to the Instruction.  Given the
+          -- absolute position ('short offset') of a branch
+          -- Instruction, retrieve the index into 'bbInstVec' of the
+          -- target Instruction by looking it up here.
+        , envExceptionHandlers :: Handlers
+        }
+
+makeEnv :: Vector Instruction -> [ExceptionRange] -> BBEnv
+makeEnv ivec ers =
+  env0 { envExceptionHandlers = foldr addHandler IM.empty ers }
+  where
+    env0 = BBEnv { envInstVec = ivec
+                 , envShortOffset = shortOffsets
+                 , envShortToInstIndex = shortIndex
+                 , envExceptionHandlers = IM.empty
+                 }
+    shortIndex = V.ifoldl' revMap M.empty shortOffsets
+    shortOffsets = V.prescanl' instructionUnits 0 ivec
+    instructionUnits acc inst = acc + insnUnitCount inst
+    revMap acc ix off = M.insert off ix acc
+    addHandler r m =
+      let s = resolveOffsetFrom env0 0 $ fromIntegral $ erOffset r
+          e = (resolveOffsetFrom env0 s $ fromIntegral $ erCount r - 1) -- Might need to subtract 1 here, according to the dex spec
+      in IM.insert (IM.ClosedInterval s e) r m
+
+resolveOffsetFrom :: BBEnv
+                  -> Int -- ^ Index of the branch instruction
+                  -> Int -- ^ Offset
+                  -> Int -- ^ Target instruction index
+resolveOffsetFrom env src off = ix
+  where
+    Just srcShortOff = envShortOffset env V.!? src
+    Just ix = M.lookup (srcShortOff + off) (envShortToInstIndex env)
+
 -- | Examine the instruction stream and break it into basic blocks.
 -- This includes control flow information (block predecessors and
 -- successors).
@@ -97,16 +137,12 @@ findBasicBlocks ivec ers =
               , bbBlockEnds = blockEnds
               }
   where
-    (preds, succs) = buildPredecessors ivec handlers bvec bmapVec blockEnds
-    (bvec, bnumMap) = splitIntoBlocks ivec handlers
+    env = makeEnv ivec ers
+    (preds, succs) = buildPredecessors env bvec bmapVec blockEnds
+    (bvec, bnumMap) = splitIntoBlocks env
     bmapVec = buildInstructionBlockMap bnumMap
     blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
     collectEnds (_, e) _ = IS.insert e
-    handlers = foldr addHandler IM.empty ers
-    addHandler r m =
-      let s = fromIntegral $ erOffset r
-          e = s + fromIntegral (erCount r)
-      in IM.insert (IM.ClosedInterval s e) r m
 
 -- | Test if the instruction at the given index into the instruction
 -- stream ends a basic block.  This covers both explicit block ends
@@ -139,16 +175,16 @@ basicBlockSuccessors bbs bid =
 
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
-buildPredecessors :: Vector Instruction
-                  -> Handlers
+buildPredecessors :: BBEnv
                   -> Vector (BlockNumber, Vector Instruction)
                   -> Vector BlockNumber
                   -> IntSet
                   -> (Vector [BlockNumber], Vector [BlockNumber])
-buildPredecessors ivec handlers bvec bmap blockEnds =
+buildPredecessors env bvec bmap blockEnds =
   (V.generate (V.length bvec) getPreds,
    V.generate (V.length bvec) getSuccs)
   where
+    ivec = envInstVec env
     getPreds ix = S.toList $ fromMaybe S.empty $ M.lookup ix predMap
     getSuccs ix = S.toList $ fromMaybe S.empty $ M.lookup ix succMap
     (predMap, succMap) = V.ifoldl' addTermSuccs (M.empty, M.empty) ivec
@@ -156,7 +192,7 @@ buildPredecessors ivec handlers bvec bmap blockEnds =
       -- @inst@ is a fallthrough instruction that implicitly ends a block,
       -- so we need to make an entry for it.  We don't make an entry for the
       -- last instruction in the function.
-      | not (isTerminator ivec handlers ix inst) &&
+      | not (isTerminator env ix inst) &&
         IS.member ix blockEnds &&
         ix < V.length ivec - 1 =
         let target = ix + 1
@@ -165,7 +201,7 @@ buildPredecessors ivec handlers bvec bmap blockEnds =
         in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
             M.insertWith S.union termBlock (S.singleton targetBlock) sm)
       | otherwise =
-        case terminatorAbsoluteTargets ivec handlers ix inst of
+        case terminatorAbsoluteTargets env ix inst of
           Nothing -> m
           Just targets ->
             let Just termBlock = bmap V.!? ix
@@ -185,19 +221,20 @@ buildInstructionBlockMap =
 
 -- Scan through the instruction vector and end a block if either: 1) @ix@ is a terminator
 -- or 2) @ix + 1@ starts a block.
-splitIntoBlocks :: Vector Instruction
-                -> Handlers
-                -> (Vector (BlockNumber, Vector Instruction), Map (Int, Int) BlockNumber)
-splitIntoBlocks ivec handlers = (V.indexed (V.fromList (reverse blocks)), blockRanges)
+splitIntoBlocks :: BBEnv
+                -> (Vector (BlockNumber, Vector Instruction),
+                    Map (Int, Int) BlockNumber)
+splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges)
   where
-    (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec `debug` show blockBeginnings
-    blockBeginnings = V.ifoldl' (addTargetIndex ivec handlers) (IS.singleton 0) ivec
+    ivec = envInstVec env
+    (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec
+    blockBeginnings = V.ifoldl' (addTargetIndex env) (IS.singleton 0) ivec
     splitInstrs :: ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
                    -> Int
                    -> Instruction
                    -> ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
     splitInstrs acc@(bs, ranges, blockStarts) ix inst
-      | isTerminator ivec handlers ix inst || (ix + 1) `IS.member` blockStarts =
+      | isTerminator env ix inst || (ix + 1) `IS.member` blockStarts =
         let len = ix - blockStart + 1
         in (V.slice blockStart len ivec : bs,
             M.insert (blockStart, ix) bnum ranges,
@@ -216,39 +253,43 @@ splitIntoBlocks ivec handlers = (V.indexed (V.fromList (reverse blocks)), blockR
 -- Note that conditional branch instructions actually have two
 -- targets: the explicit one and the implicit fallthrough target.
 -- The fallthrough needs to begin a new block, too.
-addTargetIndex :: Vector Instruction -> Handlers -> IntSet -> Int -> Instruction -> IntSet
-addTargetIndex ivec handlers acc ix inst =
-  case terminatorAbsoluteTargets ivec handlers ix inst of
+addTargetIndex :: BBEnv -> IntSet -> Int -> Instruction -> IntSet
+addTargetIndex env acc ix inst =
+  case terminatorAbsoluteTargets env ix inst of
     Nothing -> acc
-    Just targets -> L.foldl' (flip IS.insert) acc targets `debug` show targets
+    Just targets -> L.foldl' (flip IS.insert) acc targets
 
 -- | Find the absolute target indices (into the instruction vector) for each
 -- block terminator instruction.  The conditional branches have explicit
 -- targets, but can also allow execution to fall through.
-terminatorAbsoluteTargets :: Vector Instruction -> Handlers -> Int -> Instruction -> Maybe [Int]
-terminatorAbsoluteTargets ivec handlers ix inst =
-  case inst `debug` show inst of
-    Goto i8 -> Just [fromIntegral i8 + ix]
-    Goto16 i16 -> Just [fromIntegral i16 + ix]
-    Goto32 i32 -> Just [fromIntegral i32 + ix]
+terminatorAbsoluteTargets :: BBEnv -> Int -> Instruction -> Maybe [Int]
+terminatorAbsoluteTargets env ix inst =
+  case inst of
+    Goto i8 -> Just [resolveOffsetFrom env ix (fromIntegral i8)]
+    Goto16 i16 -> Just [resolveOffsetFrom env ix (fromIntegral i16)]
+    Goto32 i32 -> Just [resolveOffsetFrom env ix (fromIntegral i32)]
     PackedSwitch _ tableOff ->
-      let Just (PackedSwitchData _ offs) = ivec V.!? (fromIntegral tableOff + ix)
-      in Just (ix + 1 : [fromIntegral o + ix | o <- offs])
+      let tableVecOff = resolveOffsetFrom env ix (fromIntegral tableOff)
+          ivec = envInstVec env
+          Just (PackedSwitchData _ offs) = ivec V.!? tableVecOff
+      in Just (ix + 1 : [resolveOffsetFrom env ix (fromIntegral o) | o <- offs])
     SparseSwitch _ tableOff ->
-      let Just (SparseSwitchData _ offs) = ivec V.!? (fromIntegral tableOff + ix)
-      in Just (ix + 1 : [fromIntegral o + ix | o <- offs])
-    If _ _ _ off -> Just [ix + 1, fromIntegral off)]
-    IfZero _ _ off -> Just [ix + 1, fromIntegral off]
+      let tableVecOff = resolveOffsetFrom env ix (fromIntegral tableOff)
+          ivec = envInstVec env
+          Just (SparseSwitchData _ offs) = ivec V.!? tableVecOff
+      in Just (ix + 1 : [resolveOffsetFrom env ix (fromIntegral o) | o <- offs])
+    If _ _ _ off -> Just [ix + 1, resolveOffsetFrom env ix (fromIntegral off)]
+    IfZero _ _ off -> Just [ix + 1, resolveOffsetFrom env ix (fromIntegral off)]
     ReturnVoid -> Just []
     Return _ _ -> Just []
     -- Throw is always a terminator.  It may or may not have targets
     -- within the function.  We can also refine these if we *know* the
     -- concrete type of the exception thrown.
-    Throw _ -> Just $ relevantHandlersInScope handlers ix inst
+    Throw _ -> Just $ relevantHandlersInScope (envExceptionHandlers env) ix inst
     -- For all other instructions, we need to do a more thorough lookup.
     -- See Note [Exceptional Control Flow] for details.
     _ ->
-      case relevantHandlersInScope handlers ix inst of
+      case relevantHandlersInScope (envExceptionHandlers env) ix inst of
         [] -> Nothing
         hs -> Just $ S.toList $ S.fromList hs
 
@@ -330,9 +371,9 @@ data HandlerType = AllHandlers
                  | NoExceptions
                  | SomeHandlers [[BS.ByteString]]
 
-isTerminator :: Vector Instruction -> Handlers -> Int -> Instruction -> Bool
-isTerminator ivec handlers ix inst =
-  isJust $ terminatorAbsoluteTargets ivec handlers ix inst
+isTerminator :: BBEnv -> Int -> Instruction -> Bool
+isTerminator env ix inst =
+  isJust $ terminatorAbsoluteTargets env ix inst
 
 {- Note [Exceptional Control Flow]
 
