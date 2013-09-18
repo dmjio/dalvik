@@ -37,6 +37,9 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "loopNopBody", "(II)I",
        javaInputs </> "LabelTests.java",
        ArgumentLabel "%arg1" 1)
+    , ("LLabelTests;", "uncaughtNPE", "(Ljava/lang/String;)I",
+       javaInputs </> "LabelTests.java",
+       SimpleLabel 4)
     ]
 
 isReturn :: Instruction -> Bool

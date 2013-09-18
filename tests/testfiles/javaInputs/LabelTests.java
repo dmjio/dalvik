@@ -36,4 +36,22 @@ class LabelTests {
 
     return x1;
   }
+
+  public int uncaughtNPE(String s) {
+    int x;
+    x = s.length();
+    return x;
+  }
+
+  public int simpleNPECatchNPE(String s) {
+    int x;
+    try {
+      x = s.length();
+    }
+    catch(NullPointerException ex) {
+      x = 0;
+    }
+
+    return x;
+  }
 }
