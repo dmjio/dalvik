@@ -32,21 +32,6 @@ translateClass c =
             -- , classVirtualMethods = undefined
             }
 
-data CHA = CHA (Map BS.ByteString BS.ByteString)
-         deriving (Eq, Ord, Show)
-
-classHierarchyAnalysis :: (Failure DecodeError f) => DT.DexFile -> f CHA
-classHierarchyAnalysis dex = do
-  liftM CHA $ foldM addClassParent M.empty $ M.toList (DT.dexClasses dex)
-  where
-    addClassParent m (tyId, klass) = do
-      cname <- getTypeName dex tyId
-      case cname == "Ljava/lang/Object;" of
-        True -> return m
-        False -> do
-          superName <- getTypeName dex (classSuperId klass)
-          return $ M.insert cname superName m
-
 labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
 labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
