@@ -235,7 +235,7 @@ splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges)
                    -> ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
     splitInstrs acc@(bs, ranges, blockStarts) ix inst
       | isTerminator env ix inst || (ix + 1) `IS.member` blockStarts =
-        let len = ix - blockStart + 1 -- FIXME: If a terminator also starts a block, we probably have a problem here
+        let len = ix - blockStart + 1
         in (V.slice blockStart len ivec : bs,
             M.insert (blockStart, ix) bnum ranges,
             blockStarts')
