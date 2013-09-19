@@ -4,10 +4,8 @@
 module Dalvik.SSA where
 
 import Control.Failure
-import Control.Monad ( foldM, liftM )
+import Control.Monad ( liftM )
 import qualified Data.ByteString as BS
-import Data.Map ( Map )
-import qualified Data.Map as M
 import qualified Data.Vector as V
 import Data.Word (Word16)
 
