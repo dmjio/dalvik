@@ -40,6 +40,7 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "simpleNPEOnlyFirstHandler", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
     , ("LLabelTests;", "simpleNPEWithHandlerAndFinally", "([Ljava/lang/String;)I", SimpleLabel 4)
     , ("LLabelTests;", "divideNoCatch", "(II)I", SimpleLabel 6)
+    , ("LLabelTests;", "arithNoDivision", "(II)I", SimpleLabel 9)
     , ("LLabelTests;", "safeDivideWithCatch", "(II)I", PhiLabel 2 [1,4,5] 7)
     , ("LLabelTests;", "divisionCatchArithEx", "(II)I", PhiLabel 1 [0,2] 7)
     , ("LLabelTests;", "divisionCatchRuntimeEx", "(II)I", PhiLabel 1 [0,2] 7)
@@ -53,8 +54,20 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
     , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 4)
     , ("LLabelTests;", "invokeToAllHandlers", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4,5,6,7,8] 5)
+    , ("LLabelTests;", "returnThisFieldNoHandler", "()I", SimpleLabel 2)
+      -- Note that, ideally, we could use a bit more static analysis to make this
+      -- test fail in a good way (since @this@ can never be NULL).
+    , ("LLabelTests;", "returnThisFieldHandler", "()I", PhiLabel 1 [0,2] 3)
+    , ("LLabelTests;", "returnOtherFieldNoHandler", "(LLabelTests;)I", SimpleLabel 4)
+    , ("LLabelTests;", "returnOtherFieldHandler", "(LLabelTests;)I", PhiLabel 1 [0,2] 5)
+    , ("LLabelTests;", "arrayReadNoHandler", "([II)I", SimpleLabel 6)
+    , ("LLabelTests;", "arrayReadHandler", "([II)I", PhiLabel 1 [0,2] 7)
+    , ("LLabelTests;", "arrayReadHandlerThrowable", "([II)I", PhiLabel 1 [0,2] 7)
+    , ("LLabelTests;", "arrayWriteNoHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", ArgumentLabel "%arg0" 3)
+    , ("LLabelTests;", "arrayWriteHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", PhiLabel 1 [0,2,3] 8)
     ]
-
+-- FIXME: Add an extra oracle parameter, a list of phi incoming
+-- values.  It is only checked if the label is a matching phi label.
 isReturn :: Labeling -> Int -> Bool
 isReturn l ix =
   case labelingInstructionAt l ix of

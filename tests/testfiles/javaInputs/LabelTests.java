@@ -1,4 +1,7 @@
 class LabelTests {
+  private int field1;
+  private int field2;
+  
   public int localCopies(int x1, int x2) {
     int t1 = x1;
     int t2 = t1;
@@ -209,6 +212,22 @@ class LabelTests {
   }
 
   /**
+     This handler should be dead code
+  */
+  public int arithNoDivision(int x1, int x2) {
+    int z;
+
+    try {
+      z = x1 + x2 * 2 * x1 >> 5;
+    }
+    catch(ArithmeticException ex) {
+      z = 0;
+    }
+
+    return z;
+  }
+
+  /**
      Right now, will have an edge to the handler since we don't prove
      anything about x2 and zero.  In the future, we might want to do
      that and then this case would change (the returned phi would have
@@ -387,4 +406,84 @@ class LabelTests {
     }
     return z;
   }
+
+  public int returnThisFieldNoHandler() {
+    return field1;
+  }
+
+  public int returnThisFieldHandler() {
+    int x;
+    try {
+      x = field1;
+    }
+    catch(NullPointerException ex) {
+      x = 0;
+    }
+    return x;
+  }
+
+  public int returnOtherFieldNoHandler(LabelTests t) {
+    return t.field1;
+  }
+
+  public int returnOtherFieldHandler(LabelTests t) {
+    int x;
+    try {
+      x = t.field1;
+    }
+    catch(NullPointerException ex) {
+      x = 0;
+    }
+    return x;
+  }
+
+  public int arrayReadNoHandler(int[] is, int ix) {
+    return is[ix];
+  }
+
+  public int arrayReadHandler(int[] is, int ix) {
+    int x;
+    try {
+      x = is[ix];
+    }
+    catch(ArrayIndexOutOfBoundsException ex) {
+      x = 0;
+    }
+
+    return x;
+  }
+
+  public int arrayReadHandlerThrowable(int[] is, int ix) {
+    int x;
+    try {
+      x = is[ix];
+    }
+    catch(Throwable ex) {
+      x = 0;
+    }
+
+    return x;
+  }
+
+  public int arrayWriteNoHandler(Object[] os, Object o, int ix) {
+    os[ix] = o;
+    return ix;
+  }
+
+  public int arrayWriteHandler(Object[] os, Object o, int ix) {
+    int x;
+    try {
+      os[ix] = o;
+      x = ix;
+    }
+    catch(ArrayStoreException ex) {
+      x = 1;
+    }
+    catch(NullPointerException ex) {
+      x = 2;
+    }
+    return x;
+  }
+
+
 }
