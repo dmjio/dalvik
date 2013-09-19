@@ -38,7 +38,7 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "simpleNPECatchThrowable", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
     , ("LLabelTests;", "simpleNPECatchArithEx", "([Ljava/lang/String;)I", SimpleLabel 4)
     , ("LLabelTests;", "simpleNPEOnlyFirstHandler", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
-    , ("LLabelTests;", "simpleNPEWithHandlerAndFinally", "([Ljava/lang/String;)I", PhiLabel 1 [0,3] 6)
+    , ("LLabelTests;", "simpleNPEWithHandlerAndFinally", "([Ljava/lang/String;)I", SimpleLabel 4)
     , ("LLabelTests;", "divideNoCatch", "(II)I", SimpleLabel 6)
     , ("LLabelTests;", "safeDivideWithCatch", "(II)I", PhiLabel 2 [1,4,5] 7)
     , ("LLabelTests;", "divisionCatchArithEx", "(II)I", PhiLabel 1 [0,2] 7)
@@ -54,15 +54,15 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 4)
     ]
 
-isReturn :: Instruction -> Bool
-isReturn i =
-  case i of
-    Return _ _ -> True
+isReturn :: Labeling -> Int -> Bool
+isReturn l ix =
+  case labelingInstructionAt l ix of
+    Just (Return _ _) -> True
     _ -> False
 
 checkReturnValue :: Labeling -> Label -> T.Assertion
 checkReturnValue l expected = fromMaybe (T.assertFailure "No return instruction found") $ do
-  (_, m) <- L.find (isReturn . fst) instMaps
+  (_, m) <- L.find (isReturn l . fst) instMaps
   case M.toList m of
     [(_, label) ] -> return $ do
       T.assertBool "Non-unique value label" (generatedLabelsAreUnique l)

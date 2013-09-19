@@ -182,7 +182,7 @@ class LabelTests {
 
     return x;
   }
-  
+
   public int simpleNPEWithHandlerAndFinally(String[] s) {
     int x;
     try {
@@ -197,7 +197,7 @@ class LabelTests {
 
     return x;
   }
-  
+
   /**
      Returns a simple label since there are no handlers.
    */

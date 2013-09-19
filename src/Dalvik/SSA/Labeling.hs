@@ -39,6 +39,7 @@ module Dalvik.SSA.Labeling (
   Labeling(..),
   ExceptionRange(..),
   labelInstructions,
+  labelingInstructionAt,
   -- * Testing
   prettyLabeling,
   generatedLabelsAreUnique
@@ -76,18 +77,15 @@ data Label = SimpleLabel Int64
 
 -- | A labeling assigns an SSA number/Label to a register at *each*
 -- 'Instruction'.
---
--- FIXME: Using Instructions as map keys here doesn't necessarily work.
--- Since instructions don't have identity, we can have collisions here.
--- We need to consistently tag each Instruction with its index.
 data Labeling =
-  Labeling { labelingReadRegs :: Map Instruction (Map Word16 Label)
-            , labelingWriteRegs :: Map Instruction Label
-            , labelingPhis :: Map Label (Set Label)
-            , labelingBasicBlocks :: BasicBlocks
-            , labelingInstructions :: Vector Instruction
-            }
+  Labeling { labelingReadRegs :: Map Int (Map Word16 Label)
+           , labelingWriteRegs :: Map Int Label
+           , labelingPhis :: Map Label (Set Label)
+           , labelingBasicBlocks :: BasicBlocks
+           , labelingInstructions :: Vector Instruction
+           }
   deriving (Eq, Ord, Show)
+
 
 -- | The mutable state we are modifying while labeling.  This mainly
 -- models the register state and phi operands.
@@ -95,10 +93,10 @@ data LabelState =
   LabelState { currentDefinition :: Map Word16 (Map BlockNumber Label)
                -- ^ We track the current definition of each register at
                -- each block.
-             , instructionLabels :: Map Instruction (Map Word16 Label)
+             , instructionLabels :: Map Int (Map Word16 Label)
                -- ^ This is separate from @currentDefinition@ because
                -- that field is mutated.
-             , instructionResultLabels :: Map Instruction Label
+             , instructionResultLabels :: Map Int Label
                -- ^ Store the label of instructions that produce
                -- a result separately from the normal map.  This is only
                -- really required because of the compound instructions
@@ -131,7 +129,7 @@ data LabelState =
                -- ^ A source of label unique IDs
              }
 
-data Use = NormalUse Instruction Word16
+data Use = NormalUse Int Instruction Word16
          | PhiUse Label
          deriving (Eq, Ord, Show)
 
@@ -142,9 +140,6 @@ data LabelEnv =
              -- stream
            , envRegisterAssignment :: Map Word16 Label
              -- ^ The map of argument registers to their labels
-           , envInstructionIndices :: Map Instruction Int
-             -- ^ A reverse map from instructions to their integer
-             -- indices into the instruction stream
            }
 
 
@@ -157,10 +152,8 @@ emptyEnv argRegs ers ivec =
            , envBasicBlocks = findBasicBlocks ivec ers
            , envRegisterAssignment =
              fst $ L.foldl' allocateArgLabel (M.empty, 0) argRegs
-           , envInstructionIndices = V.ifoldl' addIndex M.empty ivec
            }
   where
-    addIndex m ix inst = M.insert inst ix m
     allocateArgLabel (m, lno) (name, reg) =
       (M.insert reg (ArgumentLabel name lno) m, lno + 1)
 
@@ -185,6 +178,10 @@ emptyLabelState argRegs =
     addArgDef (m, lno) (name, reg) =
       let l = ArgumentLabel name lno
       in (M.insertWith M.union reg (M.singleton 0 l) m, lno + 1)
+
+
+labelingInstructionAt :: Labeling -> Int -> Maybe Instruction
+labelingInstructionAt l = (labelingInstructions l V.!?)
 
 -- | Label a stream of raw Dalvik instructions with SSA numbers,
 -- adding phi nodes at the beginning of appropriate basic blocks.
@@ -325,9 +322,9 @@ labelInstruction (ix, inst) = do
   bbs <- asks envBasicBlocks
   let instBlock = basicBlockForInstruction bbs ix
   let rr :: (FromRegister a) => a -> SSALabeller ()
-      rr = recordReadRegister inst instBlock
+      rr = recordReadRegister ix inst instBlock
       rw :: (FromRegister a) => a -> SSALabeller ()
-      rw = recordWriteRegister inst instBlock
+      rw = recordWriteRegister ix instBlock
       rrs :: (FromRegister a) => [a] -> SSALabeller ()
       rrs = mapM_ rr
   case inst of
@@ -342,9 +339,9 @@ labelInstruction (ix, inst) = do
     -- an entry in the instructionResultLabels table.
     Move _ dst src -> do
       l <- readRegister src instBlock
-      recordAssignment inst src l
+      recordAssignment ix inst src l
       writeRegisterLabel dst instBlock l
-      recordAssignment inst dst l
+      recordAssignment ix inst dst l
 
     -- This is a pseudo-move that takes an item off of the stack
     -- (following a call or other special instruction) and stuffs it
@@ -395,35 +392,36 @@ labelInstruction (ix, inst) = do
 -- | Looks up the mapping for this register at this instruction (from
 -- the mutable @currentDefinition@) and record the label mapping for
 -- this instruction.
-recordReadRegister :: (FromRegister a) => Instruction -> BlockNumber -> a -> SSALabeller ()
-recordReadRegister inst instBlock srcReg = do
+recordReadRegister :: (FromRegister a) => Int -> Instruction -> BlockNumber -> a -> SSALabeller ()
+recordReadRegister ix inst instBlock srcReg = do
   lbl <- readRegister srcReg instBlock
-  recordAssignment inst srcReg lbl
+  recordAssignment ix inst srcReg lbl
 
 -- | Create a label for this value, associated with the destination register.
-recordWriteRegister :: (FromRegister a) => Instruction -> BlockNumber -> a -> SSALabeller ()
-recordWriteRegister inst instBlock dstReg = do
+recordWriteRegister :: (FromRegister a) => Int -> BlockNumber -> a -> SSALabeller ()
+recordWriteRegister ix instBlock dstReg = do
   lbl <- writeRegister dstReg instBlock
   modify (addAssignment lbl)
   where
     addAssignment lbl s =
       let lbls = instructionResultLabels s
-      in s { instructionResultLabels = M.insert inst lbl lbls }
+      in s { instructionResultLabels = M.insert ix lbl lbls }
 
 -- | At this instruction, associate the new given 'Label' with the
 -- named register.  Also add an entry for the reverse mapping (Label
 -- is used by this instruction/reg).
 recordAssignment :: (FromRegister a)
-                    => Instruction
+                    => Int
+                    -> Instruction
                     -> a
                     -> Label
                     -> SSALabeller ()
-recordAssignment inst (fromRegister -> reg) lbl =
+recordAssignment ix inst (fromRegister -> reg) lbl =
   modify $ \s ->
   let lbls = instructionLabels s
       users = valueUsers s
-  in s { instructionLabels = M.insertWith M.union inst (M.singleton reg lbl) lbls
-       , valueUsers = M.insertWith S.union lbl (S.singleton (NormalUse inst reg)) users
+  in s { instructionLabels = M.insertWith M.union ix (M.singleton reg lbl) lbls
+       , valueUsers = M.insertWith S.union lbl (S.singleton (NormalUse ix inst reg)) users
        }
 
 freshLabel :: SSALabeller Label
@@ -592,7 +590,7 @@ replacePhiBy uses oldPhi trivialValue = do
   -- to change the PhiUse case here.
   forM_ uses $ \u ->
     case u of
-      NormalUse inst reg -> recordAssignment inst reg trivialValue
+      NormalUse ix inst reg -> recordAssignment ix inst reg trivialValue
       PhiUse _ -> return ()
   where
     replacePhiUses u = if oldPhi == u  then trivialValue else u
@@ -616,7 +614,7 @@ appendPhiOperand phi operand = modify appendOperand
   where
     appendOperand s =
       s { phiOperands = M.insertWith S.union phi (S.singleton operand) (phiOperands s)
-        , valueUsers = M.insertWith S.union phi (S.singleton (PhiUse operand)) (valueUsers s)
+        , valueUsers = M.insertWith S.union operand (S.singleton (PhiUse phi)) (valueUsers s)
         }
 
 -- Block predecessors.  These are some monadic wrappers around the
@@ -665,25 +663,25 @@ phiForBlock bid l =
 -- basically for debugging.
 prettyLabeling :: Labeling -> String
 prettyLabeling l =
-  render $ PP.vcat $ map prettyBlock $ basicBlocksAsList bbs
+  render $ PP.vcat $ snd $ L.mapAccumL prettyBlock 0 $ basicBlocksAsList bbs
   where
     bbs = labelingBasicBlocks l
     ivec = labelingInstructions l
-    prettyBlock (bid, insts) =
+    prettyBlock blockOff (bid, insts) =
       let header = PP.text ";; " PP.<> PP.int bid PP.<> PP.text (show (basicBlockPredecessors bbs bid))
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labelingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
                                 | (PhiLabel _ _ phiL, (S.toList -> vals)) <- blockPhis,
                                   not (null vals)
                                 ]
-          body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ V.toList insts)
-      in header $+$ PP.nest 2 body
+          body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ zip [blockOff..] $ V.toList insts)
+      in (blockOff + V.length insts, header $+$ PP.nest 2 body)
     branchTargets i = fromMaybe "??" $ do
       ix <- V.elemIndex i ivec
       srcBlock <- instructionBlockNumber bbs ix
       let targetBlocks = basicBlockSuccessors bbs srcBlock
       return $ L.intercalate ", " (map show targetBlocks)
-    prettyInst i =
+    prettyInst (ix, i) =
       case i of
         Nop -> PP.text ";; nop"
         Move t r1 r2 -> PP.text $ printf ";; move %s %s %s" (show t) (show r1) (show r2)
@@ -729,14 +727,14 @@ prettyLabeling l =
         If op src1 src2 _ -> PP.text $ printf "if %s $%s $%s %s" (show op) (rLabelId src1) (rLabelId src2) (branchTargets i)
       where
         rLabelId reg = fromMaybe "??" $ do
-          regMap <- M.lookup i (labelingReadRegs l)
+          regMap <- M.lookup ix (labelingReadRegs l)
           lab <- M.lookup (fromRegister reg) regMap
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ _ lnum -> return (show lnum)
             ArgumentLabel s _ -> return (show s)
         wLabelId _reg = fromMaybe "??" $ do
-          lab <- M.lookup i (labelingWriteRegs l)
+          lab <- M.lookup ix (labelingWriteRegs l)
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ _ lnum -> return (show lnum)
