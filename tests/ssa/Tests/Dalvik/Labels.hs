@@ -60,7 +60,7 @@ isReturn i =
     Return _ _ -> True
     _ -> False
 
-checkReturnValue :: Labelling -> Label -> T.Assertion
+checkReturnValue :: Labeling -> Label -> T.Assertion
 checkReturnValue l expected = fromMaybe (T.assertFailure "No return instruction found") $ do
   (_, m) <- L.find (isReturn . fst) instMaps
   case M.toList m of
@@ -69,7 +69,7 @@ checkReturnValue l expected = fromMaybe (T.assertFailure "No return instruction 
       T.assertEqual "Unexpected label mismatch" expected label
     _ -> return $ T.assertFailure "More than one (or no) register mapped for return"
   where
-    instMaps = M.toList (labellingReadRegs l)
+    instMaps = M.toList (labelingReadRegs l)
 
 getLabelTests :: DexReader -> FilePath -> (String, String, String, Label) -> Test
 getLabelTests getDex file (klass, method, sig, oracle) =

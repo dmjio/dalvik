@@ -30,7 +30,7 @@ translateClass c =
             -- , classVirtualMethods = undefined
             }
 
-labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labelling
+labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
 labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
   insts <- I.decodeInstructions (codeInsns codeItem)

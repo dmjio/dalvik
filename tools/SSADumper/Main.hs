@@ -18,7 +18,7 @@ main = do
     Just m ->
       case labelMethod dexFile m of
         Left e -> error ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
-        Right lbls -> putStrLn (prettyLabelling lbls)
+        Right lbls -> putStrLn (prettyLabeling lbls)
 
 toStr :: String -> String -> String -> String
 toStr []      m sig = printf "%s%s" m sig

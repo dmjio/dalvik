@@ -4,7 +4,7 @@
 --
 -- The algorithm used is from Braun et al
 -- (<http://www.cdl.uni-saarland.de/papers/bbhlmz13cc.pdf>).  The
--- labelling maps each operand of a low-level Dalvik instruction to
+-- labeling maps each operand of a low-level Dalvik instruction to
 -- the SSA number of that operand.  Note that SSA numbers are only
 -- required for *instructions*.  Constants are, well, constant, and
 -- can be handled directly during translation.
@@ -36,11 +36,11 @@
 module Dalvik.SSA.Labeling (
   -- * Data Types
   Label(..),
-  Labelling(..),
+  Labeling(..),
   ExceptionRange(..),
   labelInstructions,
   -- * Testing
-  prettyLabelling,
+  prettyLabeling,
   generatedLabelsAreUnique
   ) where
 
@@ -74,18 +74,22 @@ data Label = SimpleLabel Int64
            | ArgumentLabel BS.ByteString Int64
            deriving (Eq, Ord, Show)
 
--- | A labelling assigns an SSA number/Label to a register at *each*
+-- | A labeling assigns an SSA number/Label to a register at *each*
 -- 'Instruction'.
-data Labelling =
-  Labelling { labellingReadRegs :: Map Instruction (Map Word16 Label)
-            , labellingWriteRegs :: Map Instruction Label
-            , labellingPhis :: Map Label (Set Label)
-            , labellingBasicBlocks :: BasicBlocks
-            , labellingInstructions :: Vector Instruction
+--
+-- FIXME: Using Instructions as map keys here doesn't necessarily work.
+-- Since instructions don't have identity, we can have collisions here.
+-- We need to consistently tag each Instruction with its index.
+data Labeling =
+  Labeling { labelingReadRegs :: Map Instruction (Map Word16 Label)
+            , labelingWriteRegs :: Map Instruction Label
+            , labelingPhis :: Map Label (Set Label)
+            , labelingBasicBlocks :: BasicBlocks
+            , labelingInstructions :: Vector Instruction
             }
   deriving (Eq, Ord, Show)
 
--- | The mutable state we are modifying while labelling.  This mainly
+-- | The mutable state we are modifying while labeling.  This mainly
 -- models the register state and phi operands.
 data LabelState =
   LabelState { currentDefinition :: Map Word16 (Map BlockNumber Label)
@@ -145,7 +149,7 @@ data LabelEnv =
 
 
 
--- | Create a new empty SSA labelling environment.  This includes
+-- | Create a new empty SSA labeling environment.  This includes
 -- computing CFG information.
 emptyEnv :: [(BS.ByteString, Word16)] -> [ExceptionRange] -> Vector Instruction -> LabelEnv
 emptyEnv argRegs ers ivec =
@@ -193,7 +197,7 @@ labelInstructions :: [(Maybe BS.ByteString, Word16)]
                      -- ^ Information about exception handlers in the method
                      -> [Instruction]
                      -- ^ The instruction stream for the method
-                     -> Labelling
+                     -> Labeling
 labelInstructions argRegs ers is = fst $ evalRWS label' e0 s0
   where
     s0 = emptyLabelState argRegs'
@@ -207,11 +211,11 @@ labelInstructions argRegs ers is = fst $ evalRWS label' e0 s0
         Just name' -> (ix, (name', reg) : m)
         Nothing -> (ix + 1, ("%arg" `mappend` fromString (show ix), reg) : m)
 
--- | An environment to carry state for the labelling algorithm
+-- | An environment to carry state for the labeling algorithm
 type SSALabeller = RWS LabelEnv () LabelState
 
--- | Driver for labelling
-label' :: SSALabeller Labelling
+-- | Driver for labeling
+label' :: SSALabeller Labeling
 label' = do
   ivec <- asks envInstructionStream
   argRegs <- asks envRegisterAssignment
@@ -227,18 +231,18 @@ label' = do
   forM_ (M.toList argRegs) $ \(regNo, _) -> do
     makeIncomplete regNo 0
 
-  -- This is the actual labelling step
+  -- This is the actual labeling step
   mapM_ labelAndFillInstruction $ V.toList $ V.indexed ivec
 
   -- Now pull out all of the information we need to save to use the
-  -- labelling.
+  -- labeling.
   s <- get
   bbs <- asks envBasicBlocks
-  return $ Labelling { labellingReadRegs = instructionLabels s
-                     , labellingWriteRegs = instructionResultLabels s
-                     , labellingPhis = phiOperands s
-                     , labellingBasicBlocks = bbs
-                     , labellingInstructions = ivec
+  return $ Labeling { labelingReadRegs = instructionLabels s
+                     , labelingWriteRegs = instructionResultLabels s
+                     , labelingPhis = phiOperands s
+                     , labelingBasicBlocks = bbs
+                     , labelingInstructions = ivec
                      }
 
 -- | Label instructions and, if they end a block, mark the block as filled.
@@ -659,15 +663,15 @@ phiForBlock bid l =
 
 -- | A simple pretty printer for computed SSA labels.  This is
 -- basically for debugging.
-prettyLabelling :: Labelling -> String
-prettyLabelling l =
+prettyLabeling :: Labeling -> String
+prettyLabeling l =
   render $ PP.vcat $ map prettyBlock $ basicBlocksAsList bbs
   where
-    bbs = labellingBasicBlocks l
-    ivec = labellingInstructions l
+    bbs = labelingBasicBlocks l
+    ivec = labelingInstructions l
     prettyBlock (bid, insts) =
       let header = PP.text ";; " PP.<> PP.int bid PP.<> PP.text (show (basicBlockPredecessors bbs bid))
-          blockPhis = filter (phiForBlock bid . fst) $ M.toList (labellingPhis l)
+          blockPhis = filter (phiForBlock bid . fst) $ M.toList (labelingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
                                 | (PhiLabel _ _ phiL, (S.toList -> vals)) <- blockPhis,
                                   not (null vals)
@@ -725,14 +729,14 @@ prettyLabelling l =
         If op src1 src2 _ -> PP.text $ printf "if %s $%s $%s %s" (show op) (rLabelId src1) (rLabelId src2) (branchTargets i)
       where
         rLabelId reg = fromMaybe "??" $ do
-          regMap <- M.lookup i (labellingReadRegs l)
+          regMap <- M.lookup i (labelingReadRegs l)
           lab <- M.lookup (fromRegister reg) regMap
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ _ lnum -> return (show lnum)
             ArgumentLabel s _ -> return (show s)
         wLabelId _reg = fromMaybe "??" $ do
-          lab <- M.lookup i (labellingWriteRegs l)
+          lab <- M.lookup i (labelingWriteRegs l)
           case lab of
             SimpleLabel lnum -> return (show lnum)
             PhiLabel _ _ lnum -> return (show lnum)
@@ -742,9 +746,9 @@ prettyLabelling l =
 
 -- | Returns @True@ if all of the labels assigned to instructions
 -- are unique.
-generatedLabelsAreUnique :: Labelling -> Bool
+generatedLabelsAreUnique :: Labeling -> Bool
 generatedLabelsAreUnique =
-  snd . foldr checkRepeats (S.empty, True) . M.toList . labellingWriteRegs
+  snd . foldr checkRepeats (S.empty, True) . M.toList . labelingWriteRegs
   where
     checkRepeats (_, l) (marked, foundRepeat)
       | S.member l marked = (marked, False)
