@@ -42,9 +42,6 @@ import Data.Word ( Word32, Word16 )
 
 import Dalvik.Instruction
 
-import Debug.Trace
-debug = flip trace
-
 -- | Types of Dalvik Type names
 type TypeName = BS.ByteString
 
@@ -117,7 +114,7 @@ makeEnv ivec ers =
     addHandler r m =
       let s = resolveOffsetFrom env0 0 $ fromIntegral $ erOffset r
           e = resolveOffsetFrom env0 s $ fromIntegral $ erCount r -- - 1
-      in IM.insert (IM.ClosedInterval s e) r m `debug` ("EH: " ++ show s ++ " to " ++ show e ++ " // " ++ show (erCount r))
+      in IM.insert (IM.ClosedInterval s e) r m
 
 resolveOffsetFrom :: BBEnv
                   -> Int -- ^ Index of the branch instruction
@@ -227,7 +224,7 @@ buildInstructionBlockMap =
 splitIntoBlocks :: BBEnv
                 -> (Vector (BlockNumber, Vector Instruction),
                     Map (Int, Int) BlockNumber)
-splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges) `debug` show blockBeginnings
+splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges)
   where
     ivec = envInstVec env
     (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec
@@ -238,7 +235,7 @@ splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges) `de
                    -> ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
     splitInstrs acc@(bs, ranges, blockStarts) ix inst
       | isTerminator env ix inst || (ix + 1) `IS.member` blockStarts =
-        let len = ix - blockStart + 1
+        let len = ix - blockStart + 1 -- FIXME: If a terminator also starts a block, we probably have a problem here
         in (V.slice blockStart len ivec : bs,
             M.insert (blockStart, ix) bnum ranges,
             blockStarts')
@@ -291,10 +288,14 @@ terminatorAbsoluteTargets env ix inst =
     Throw _ -> Just $ relevantHandlersInScope env ix inst
     -- For all other instructions, we need to do a more thorough lookup.
     -- See Note [Exceptional Control Flow] for details.
+    --
+    -- If there are handlers in scope, we don't always branch to them
+    -- - we can just fall through if there is no exception.  Include
+    -- the fallthrough instruction as a target.
     _ ->
       case relevantHandlersInScope env ix inst of
-        [] -> Nothing `debug` ("No handlers in scope for " ++ show inst)
-        hs -> Just $ S.toList $ S.fromList hs `debug` ("Handlers in scope: " ++ show hs)
+        [] -> Nothing
+        hs -> Just $ S.toList $ S.fromList $ (ix+1) : hs
 
 -- | Traverse handlers that are in scope from innermost to outermost.
 -- If any matches the exception type thrown by this instruction, take
@@ -313,9 +314,7 @@ relevantHandlersInScope env ix inst =
     -- We want to find a handler for *each* possible exception.  We
     -- only need to take the first we encounter.  Rethrows are handled
     -- by the logic for the throw instruction.
-    SomeHandlers exns ->
-      let theseHandlers = map fromIntegral $ concatMap closestHandler exns
-      in theseHandlers `debug` show theseHandlers
+    SomeHandlers exns -> map fromIntegral $ concatMap closestHandler exns
   where
     handlers = envExceptionHandlers env
     -- FIXME: This should be an early-terminating fold.  It has to
