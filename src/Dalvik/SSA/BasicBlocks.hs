@@ -40,6 +40,7 @@ import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word ( Word32, Word16 )
 
+import Dalvik.ClassHierarchy
 import Dalvik.Instruction
 
 -- | Types of Dalvik Type names
@@ -323,7 +324,7 @@ relevantHandlersInScope env ix inst =
     -- 'finally' blocks from non-matching handlers, but it can stop
     -- once it finds the first actual handler (and associated
     -- finally).
-    closestHandler exns = foldr (matchingHandlerFor exns) id hs []
+    closestHandler exns = foldr (matchingHandlerFor (map renderClassName exns)) id hs []
     addCatchAll h acc =
       case erCatchAll h of
         Nothing -> acc
@@ -373,20 +374,23 @@ relevantHandlersInScope env ix inst =
     -- that way to find the handler that will actually be executed.
     -- Order within the HandlerType/SomeHandlers constructor is not
     -- important.
-    anyRuntime = [ "Ljava/lang/RuntimeException;"
-                 , "Ljava/lang/Exception;"
-                 , "Ljava/lang/Throwable;"
+    anyRuntime = [ jl "RuntimeException"
+                 , jl "Exception"
+                 , jl "Throwable"
                  ]
-    divZero = "Ljava/lang/ArithmeticException;" : anyRuntime
-    nullPtr = "Ljava/lang/NullPointerException;" : anyRuntime
-    anyArray = "Ljava/lang/ArrayIndexOutOfBoundsException;" : "Ljava/lang/IndexOutOfBoundsException;" : anyRuntime
-    arrayWrite = "Ljava/lang/ArrayStoreException;" : anyRuntime
-    newArray = "Ljava/lang/NegativeArraySizeException;" : anyRuntime
-    classCast = "Ljava/lang/ClassCastException;" : anyRuntime
+    divZero = jl "ArithmeticException" : anyRuntime
+    nullPtr = jl "NullPointerException" : anyRuntime
+    anyArray = jl "ArrayIndexOutOfBoundsException" : jl "IndexOutOfBoundsException" : anyRuntime
+    arrayWrite = jl "ArrayStoreException" : anyRuntime
+    newArray = jl "NegativeArraySizeException" : anyRuntime
+    classCast = jl "ClassCastException" : anyRuntime
+
+jl :: BS.ByteString -> ClassName
+jl = qualifiedClassName ["java", "lang"]
 
 data HandlerType = AllHandlers
                  | NoExceptions
-                 | SomeHandlers [[BS.ByteString]]
+                 | SomeHandlers [[ClassName]]
 
 isTerminator :: BBEnv -> Int -> Instruction -> Bool
 isTerminator env ix inst =
