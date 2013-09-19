@@ -573,7 +573,7 @@ tryRemoveTrivialPhi phi = do
       return tval
   where
     isNotThisPhi :: Label -> Use -> Bool
-    isNotThisPhi _ (NormalUse _ _) = False
+    isNotThisPhi _ (NormalUse _ _ _) = True
     isNotThisPhi p (PhiUse l) = p == l
 
 -- | Replace all of the given uses by the new label provided.
