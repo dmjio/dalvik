@@ -301,7 +301,7 @@ class LabelTests {
     int z;
     try {
       String s = (String)o;
-      z = s.length();
+      z = 1;
     }
     catch(ClassCastException ex) {
       z = 0;
@@ -313,7 +313,7 @@ class LabelTests {
     int z;
     try {
       String s = (String)o;
-      z = s.length();
+      z = 1;
     }
     catch(RuntimeException ex) {
       z = 0;
@@ -325,7 +325,7 @@ class LabelTests {
     int z;
     try {
       String s = (String)o;
-      z = s.length();
+      z = 1;
     }
     catch(Exception ex) {
       z = 0;
@@ -337,7 +337,7 @@ class LabelTests {
     int z;
     try {
       String s = (String)o;
-      z = s.length();
+      z = 1;
     }
     catch(Throwable ex) {
       z = 0;

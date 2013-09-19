@@ -47,10 +47,10 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "divisionCatchThrowable", "(II)I", PhiLabel 1 [0,2] 7)
     , ("LLabelTests;", "divisionCatchNPE", "(II)I", SimpleLabel 6)
     , ("LLabelTests;", "checkCastNoHandler", "(Ljava/lang/Object;)I", SimpleLabel 4)
-    , ("LLabelTests;", "checkCastHandleCCE", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4] 5)
-    , ("LLabelTests;", "checkCastHandleRuntimeException", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4] 5)
-    , ("LLabelTests;", "checkCastHandleException", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4] 5)
-    , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4] 5)
+    , ("LLabelTests;", "checkCastHandleCCE", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
+    , ("LLabelTests;", "checkCastHandleRuntimeException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
+    , ("LLabelTests;", "checkCastHandleException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
+    , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
     , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 4)
     ]
 
