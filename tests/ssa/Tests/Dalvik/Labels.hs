@@ -24,22 +24,17 @@ javaInputs = "./tests/testfiles/javaInputs"
 tests :: Test
 tests = T.buildTest $ do
   getDex <- memoIO readAsDex
-  return $ T.testGroup "SSA Label tests" $ map (getLabelTests getDex)
-    [ ("LLabelTests;", "localCopies", "(II)I",
-       javaInputs </> "LabelTests.java",
-       ArgumentLabel "%arg1" 1)
-    , ("LLabelTests;", "simpleBranch", "(II)I",
-       javaInputs </> "LabelTests.java",
-       PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "simpleLoop", "(II)I",
-       javaInputs </> "LabelTests.java",
-       PhiLabel 1 [0,2] 8)
-    , ("LLabelTests;", "loopNopBody", "(II)I",
-       javaInputs </> "LabelTests.java",
-       ArgumentLabel "%arg1" 1)
-    , ("LLabelTests;", "uncaughtNPE", "(Ljava/lang/String;)I",
-       javaInputs </> "LabelTests.java",
-       SimpleLabel 4)
+  return $ T.testGroup "SSA Label tests" $ map (getLabelTests getDex (javaInputs </> "LabelTests.java"))
+    [ ("LLabelTests;", "localCopies", "(II)I", ArgumentLabel "%arg1" 1)
+    , ("LLabelTests;", "simpleBranch", "(II)I", PhiLabel 1 [0,2] 7)
+    , ("LLabelTests;", "simpleLoop", "(II)I", PhiLabel 1 [0,2] 8)
+    , ("LLabelTests;", "loopNopBody", "(II)I", ArgumentLabel "%arg1" 1)
+    , ("LLabelTests;", "uncaughtNPE", "([Ljava/lang/String;)I", SimpleLabel 4)
+    , ("LLabelTests;", "simpleNPECatchNPE", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
+    , ("LLabelTests;", "simpleNPECatchRuntimeEx", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
+    , ("LLabelTests;", "simpleNPECatchException", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
+    , ("LLabelTests;", "simpleNPECatchThrowable", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
+    , ("LLabelTests;", "simpleNPECatchArithEx", "([Ljava/lang/String;)I", SimpleLabel 4)
     ]
 
 isReturn :: Instruction -> Bool
@@ -59,8 +54,8 @@ checkReturnValue l expected = fromMaybe (T.assertFailure "No return instruction 
   where
     instMaps = M.toList (labellingReadRegs l)
 
-getLabelTests :: DexReader -> (String, String, String, FilePath, Label) -> Test
-getLabelTests getDex (klass, method, sig, file, oracle) =
+getLabelTests :: DexReader -> FilePath -> (String, String, String, Label) -> Test
+getLabelTests getDex file (klass, method, sig, oracle) =
   testWithDexFile getDex ("getLabel: " ++ toStr klass method sig) file $ \dexFile ->
     case getEncodedMethod dexFile klass method sig of
       Nothing -> T.assertFailure ("Could not find method: " ++ toStr klass method sig)

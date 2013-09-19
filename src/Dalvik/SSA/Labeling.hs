@@ -249,29 +249,32 @@ label' = do
 labelAndFillInstruction :: (Int, Instruction) -> SSALabeller ()
 labelAndFillInstruction i@(ix, _) = do
   bbs <- asks envBasicBlocks
-  let Just bnum = instructionBlockNumber bbs ix
-  canSeal <- canSealBlock bnum
-  notSealed <- liftM not (blockIsSealed bnum)
-  case canSeal && notSealed of
-    True -> sealBlock bnum
-    False -> return ()
+  -- If an instruction doesn't have a block number, it is dead code.
+  case instructionBlockNumber bbs ix of
+    Nothing -> return ()
+    Just bnum -> do
+      canSeal <- canSealBlock bnum
+      notSealed <- liftM not (blockIsSealed bnum)
+      case canSeal && notSealed of
+        True -> sealBlock bnum
+        False -> return ()
 
-  labelInstruction i
-  case instructionEndsBlock bbs ix of
-    False -> return ()
-    True -> do
-      s <- get
-      put s { filledBlocks = IS.insert bnum (filledBlocks s) }
+      labelInstruction i
+      case instructionEndsBlock bbs ix of
+        False -> return ()
+        True -> do
+          s <- get
+          put s { filledBlocks = IS.insert bnum (filledBlocks s) }
 
-      -- Check this block and all of its successors.  For each one,
-      -- if all predecessors are filled, then seal (unless already sealed)
-      succs <- basicBlockSuccessorsM bnum
-      succs' <- filterM (liftM not . blockIsSealed) succs
-      forM_ succs' $ \ss -> do
-        canSealS <- canSealBlock ss
-        case canSealS of
-          False -> return ()
-          True -> sealBlock ss
+          -- Check this block and all of its successors.  For each one,
+          -- if all predecessors are filled, then seal (unless already sealed)
+          succs <- basicBlockSuccessorsM bnum
+          succs' <- filterM (liftM not . blockIsSealed) succs
+          forM_ succs' $ \ss -> do
+            canSealS <- canSealBlock ss
+            case canSealS of
+              False -> return ()
+              True -> sealBlock ss
 
 -- | Algorithm 4 (section 2.3) from the SSA algorithm.  This is called
 -- once all of the predecessors of the block are filled.  This

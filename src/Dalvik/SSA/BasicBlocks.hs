@@ -200,15 +200,13 @@ buildPredecessors env bvec bmap blockEnds =
             Just targetBlock = bmap V.!? target
         in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
             M.insertWith S.union termBlock (S.singleton targetBlock) sm)
-      | otherwise =
-        case terminatorAbsoluteTargets env ix inst of
-          Nothing -> m
-          Just targets ->
-            let Just termBlock = bmap V.!? ix
-                targetBlocks = mapMaybe (bmap V.!?) targets
-                addSuccsPreds (p, s) targetBlock = (M.insertWith S.union targetBlock (S.singleton termBlock) p,
-                                                    M.insertWith S.union termBlock (S.singleton targetBlock) s)
-            in L.foldl' addSuccsPreds m targetBlocks
+      | otherwise = fromMaybe m $ do
+          targets <- terminatorAbsoluteTargets env ix inst
+          termBlock <- bmap V.!? ix
+          let targetBlocks = mapMaybe (bmap V.!?) targets
+              addSuccsPreds (p, s) targetBlock = (M.insertWith S.union targetBlock (S.singleton termBlock) p,
+                                                  M.insertWith S.union termBlock (S.singleton targetBlock) s)
+          return $ L.foldl' addSuccsPreds m targetBlocks
 
 buildInstructionBlockMap :: Map (Int, Int) BlockNumber -> Vector BlockNumber
 buildInstructionBlockMap =
@@ -234,6 +232,10 @@ splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges)
                    -> Instruction
                    -> ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
     splitInstrs acc@(bs, ranges, blockStarts) ix inst
+    -- If we have no more block starts OR if the next block start is
+    -- after the current instruction, that means we are translating
+    -- dead code and it doesn't need to be turned into a block.
+      | IS.null blockStarts || blockStart > ix = acc
       | isTerminator env ix inst || (ix + 1) `IS.member` blockStarts =
         let len = ix - blockStart + 1
         in (V.slice blockStart len ivec : bs,
