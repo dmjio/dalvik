@@ -317,12 +317,10 @@ relevantHandlersInScope env ix inst =
     SomeHandlers exns -> map fromIntegral $ concatMap closestHandler exns
   where
     handlers = envExceptionHandlers env
-    -- FIXME: This should be an early-terminating fold.  It has to
-    -- collect all 'finally' blocks from non-matching handlers, but it
-    -- can stop once it finds the first actual handler (and associated
+    -- This is an early-terminating fold.  It has to collect all
+    -- 'finally' blocks from non-matching handlers, but it can stop
+    -- once it finds the first actual handler (and associated
     -- finally).
-    --
-    --  foldr (\x r n -> if x > 10 then n else r (x:n)) id [0..] []
     closestHandler exns = foldr (matchingHandlerFor exns) id hs []
     addCatchAll h acc =
       case erCatchAll h of
