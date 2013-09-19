@@ -604,6 +604,12 @@ trivialPhiValue phi = do
   case M.lookup phi operandMap of
     Just ops ->
       let withoutSelf = S.filter (/=phi) ops
+    -- FIXME: If the result of this is empty, the phi node is actually
+    -- undefined.  We want a special case for that so we can insert an
+    -- undefined instruction in the translation phase.  We can't
+    -- really introduce one of these in a syntactically valid Java
+    -- program, but the bytecode could probably contain
+    -- some... especially malicious bytecode.
       in case S.toList withoutSelf of
         [trivial] -> return (Just trivial)
         _ -> return Nothing
