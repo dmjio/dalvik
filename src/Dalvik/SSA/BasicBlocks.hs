@@ -385,6 +385,7 @@ relevantHandlersInScope env ix inst =
     newArray = jl "NegativeArraySizeException" : anyRuntime
     classCast = jl "ClassCastException" : anyRuntime
 
+-- | Add a java/lang namespace prefix to the given exception name.
 jl :: BS.ByteString -> ClassName
 jl = qualifiedClassName ["java", "lang"]
 

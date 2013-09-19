@@ -183,6 +183,9 @@ class LabelTests {
     return x;
   }
 
+  /**
+     Due to the finally block, this always returns zero (a SimpleLabel)
+   */
   public int simpleNPEWithHandlerAndFinally(String[] s) {
     int x;
     try {
