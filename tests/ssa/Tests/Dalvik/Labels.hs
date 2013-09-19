@@ -73,7 +73,7 @@ checkReturnValue l expected = fromMaybe (T.assertFailure "No return instruction 
 
 getLabelTests :: DexReader -> FilePath -> (String, String, String, Label) -> Test
 getLabelTests getDex file (klass, method, sig, oracle) =
-  testWithDexFile getDex ("getLabel: " ++ toStr klass method sig) file $ \dexFile ->
+  testWithDexFile getDex ("CheckReturn: " ++ toStr klass method sig) file $ \dexFile ->
     case getEncodedMethod dexFile klass method sig of
       Nothing -> T.assertFailure ("Could not find method: " ++ toStr klass method sig)
       Just m ->
