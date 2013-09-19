@@ -350,6 +350,12 @@ relevantHandlersInScope env ix inst =
       BinopLit16 Div _ _ _ -> SomeHandlers [divZero]
       BinopLit16 Rem _ _ _ -> SomeHandlers [divZero]
       Invoke _ _ _ _ -> AllHandlers
+      -- If we had an iterative or interleaved CFG construction, we
+      -- could prove that some instance field operations are on
+      -- 'this', which is never NULL.  Furthermore, we only need the
+      -- NPE edge after the first dereference of each reference (after
+      -- that, we know that it must not be NULL if control reaches, at
+      -- least within a basic block)
       InstanceFieldOp _ _ _ _ -> SomeHandlers [nullPtr]
       ArrayOp (Get _) _ _ _ -> SomeHandlers [anyArray, nullPtr]
       ArrayOp (Put _) _ _ _ -> SomeHandlers [anyArray, arrayWrite, nullPtr]
