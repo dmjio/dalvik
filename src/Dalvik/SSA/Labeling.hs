@@ -610,6 +610,9 @@ trivialPhiValue phi = do
     -- really introduce one of these in a syntactically valid Java
     -- program, but the bytecode could probably contain
     -- some... especially malicious bytecode.
+    --
+    -- That said, the bytecode verifier doesn't allow undefined
+    -- references to exist...
       in case S.toList withoutSelf of
         [trivial] -> return (Just trivial)
         _ -> return Nothing
