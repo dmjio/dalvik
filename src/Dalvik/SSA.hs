@@ -60,19 +60,6 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
                                 , erCatchAll = chAllAddr ch
                                 }
 
-      --     in 
-      -- let Just handlerIdx = 
-      -- -- The fromIntegral here is not lossy: Word16 to Int
-      -- case catches V.!? fromIntegral handlerOff of
-      --   Nothing -> failure $ NoHandlerAtIndex handlerOff
-      --   Just ch -> do
-      --     typeNames <- mapM (\(tix, off) -> liftM (, off) (getTypeName dx tix)) (chHandlers ch)
-      --     return ExceptionRange { erOffset = tryStartAddr tryItem
-      --                           , erCount = tryInsnCount tryItem
-      --                           , erCatch = typeNames
-      --                           , erCatchAll = chAllAddr ch
-      --                           }
-
 -- | extract the parameter list from an encoded method.  This returns
 -- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
 -- and including the initial `this` parameter, if the method is an
