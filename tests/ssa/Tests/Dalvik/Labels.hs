@@ -52,6 +52,7 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "checkCastHandleException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
     , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
     , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 4)
+    , ("LLabelTests;", "invokeToAllHandlers", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4,5,6,7,8] 5)
     ]
 
 isReturn :: Labeling -> Int -> Bool

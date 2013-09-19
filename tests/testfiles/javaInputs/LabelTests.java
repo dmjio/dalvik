@@ -359,4 +359,32 @@ class LabelTests {
     }
     return z;
   }
+
+  /**
+     Since this has an invoke, any exception could be thrown.  The phi
+     node should have as many values as there are handlers.
+   */
+  public int invokeToAllHandlers(Object o) {
+    int z;
+    try {
+      String s = (String)o;
+      z = s.length();
+    }
+    catch(UnsupportedOperationException ex) {
+      z = 1;
+    }
+    catch(NullPointerException ex) {
+      z = 2;
+    }
+    catch(RuntimeException ex) {
+      z = 3;
+    }
+    catch(Exception ex) {
+      z = 4;
+    }
+    catch(Throwable ex) {
+      z = 0;
+    }
+    return z;
+  }
 }
