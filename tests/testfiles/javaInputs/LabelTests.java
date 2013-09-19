@@ -17,6 +17,38 @@ class LabelTests {
     return z;
   }
 
+  public int simplePackedSwitch(int x1, int x2, int x3) {
+    int z;
+    switch(x1) {
+    case 1:
+      z = x2;
+      break;
+    case 2:
+      z = x3;
+      break;
+    default:
+      z = 0;
+    }
+
+    return z;
+  }
+
+  public int simpleSparseSwitch(int x1, int x2, int x3) {
+    int z;
+    switch(x1) {
+    case 100:
+      z = x2;
+      break;
+    case 201:
+      z = x3;
+      break;
+    default:
+      z = 0;
+    }
+
+    return z;
+  }
+
   /**
      Should return a phi node
   */
@@ -129,5 +161,199 @@ class LabelTests {
     }
 
     return x;
+  }
+
+  /**
+     We want to make sure that we only get an edge to the first
+     applicable handler (in CHA order).  Here, the phi node should
+     only have two values.
+   */
+  public int simpleNPEOnlyFirstHandler(String[] s) {
+    int x;
+    try {
+      x = s.length;
+    }
+    catch(NullPointerException ex) {
+      x = 0;
+    }
+    catch(Exception ex) {
+      x = 1;
+    }
+
+    return x;
+  }
+  
+  public int simpleNPEWithHandlerAndFinally(String[] s) {
+    int x;
+    try {
+      x = s.length;
+    }
+    catch(NullPointerException ex) {
+      System.out.println("Foo");
+    }
+    finally {
+      x = 0;
+    }
+
+    return x;
+  }
+  
+  /**
+     Returns a simple label since there are no handlers.
+   */
+  public int divideNoCatch(int x1, int x2) {
+    return x1 / x2;
+  }
+
+  /**
+     Right now, will have an edge to the handler since we don't prove
+     anything about x2 and zero.  In the future, we might want to do
+     that and then this case would change (the returned phi would have
+     two values instead of three).
+   */
+  public int safeDivideWithCatch(int x1, int x2) {
+    if(x2 == 0) return 0;
+
+    int z;
+    try {
+      z = x1 / x2;
+    }
+    catch(ArithmeticException ex) {
+      z = 5;
+    }
+
+    return z;
+  }
+
+  /**
+     Should return a phi node
+  */
+  public int divisionCatchArithEx(int x1, int x2) {
+
+    int z;
+    try {
+      z = x1 / x2;
+    }
+    catch(ArithmeticException ex) {
+      z = 5;
+    }
+
+    return z;
+  }
+
+  public int divisionCatchRuntimeEx(int x1, int x2) {
+    int z;
+    try {
+      z = x1 / x2;
+    }
+    catch(RuntimeException ex) {
+      z = 5;
+    }
+
+    return z;
+  }
+
+  public int divisionCatchException(int x1, int x2) {
+    int z;
+    try {
+      z = x1 / x2;
+    }
+    catch(Exception ex) {
+      z = 5;
+    }
+
+    return z;
+  }
+
+  public int divisionCatchThrowable(int x1, int x2) {
+    int z;
+    try {
+      z = x1 / x2;
+    }
+    catch(Throwable ex) {
+      z = 5;
+    }
+
+    return z;
+  }
+
+  public int divisionCatchNPE(int x1, int x2) {
+    int z;
+    try {
+      z = x1 / x2;
+    }
+    catch(NullPointerException ex) {
+      z = 5;
+    }
+
+    return z;
+  }
+
+  public int checkCastNoHandler(Object o) {
+    String s = (String)o;
+    return s.length();
+  }
+
+  public int checkCastHandleCCE(Object o) {
+    int z;
+    try {
+      String s = (String)o;
+      z = s.length();
+    }
+    catch(ClassCastException ex) {
+      z = 0;
+    }
+    return z;
+  }
+
+  public int checkCastHandleRuntimeException(Object o) {
+    int z;
+    try {
+      String s = (String)o;
+      z = s.length();
+    }
+    catch(RuntimeException ex) {
+      z = 0;
+    }
+    return z;
+  }
+
+  public int checkCastHandleException(Object o) {
+    int z;
+    try {
+      String s = (String)o;
+      z = s.length();
+    }
+    catch(Exception ex) {
+      z = 0;
+    }
+    return z;
+  }
+
+  public int checkCastHandleThrowable(Object o) {
+    int z;
+    try {
+      String s = (String)o;
+      z = s.length();
+    }
+    catch(Throwable ex) {
+      z = 0;
+    }
+    return z;
+  }
+
+  /**
+     This handler is dead code
+   */
+  public int checkCastHandleArithException(Object o) {
+    int z;
+    try {
+      String s = (String)o;
+      z = 5;
+    }
+    catch(ArithmeticException ex) {
+      z = 0;
+    }
+    return z;
   }
 }
