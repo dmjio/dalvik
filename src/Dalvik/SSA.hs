@@ -3,6 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 module Dalvik.SSA where
 
+import Control.Arrow ( first )
 import Control.Failure
 import Control.Monad ( liftM )
 import qualified Data.ByteString as BS
@@ -72,23 +73,35 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
 --
 -- this method would return:
 -- > Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")]
-getParamList :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe BS.ByteString, BS.ByteString)]
-getParamList df meth | isStatic meth = explicitParams df meth
-                     | otherwise     = do
-                        DT.Method cid _ _ <- getMethod df $ methId meth
-                        clName <- getTypeName df cid
-                        exParams <- explicitParams df meth
-                        return ((Just "this", clName):exParams)
+getParamList :: (Failure DecodeError f)
+                => DT.DexFile
+                -> EncodedMethod
+                -> f [(Maybe BS.ByteString, BS.ByteString)]
+getParamList df meth
+  | isStatic meth = explicitParams df meth
+  | otherwise     = do
+    DT.Method cid _ _ <- getMethod df $ methId meth
+    clName <- getTypeName df cid
+    exParams <- explicitParams df meth
+    return ((Just "this", clName):exParams)
   where
     explicitParams dexFile (DT.EncodedMethod mId _ _) = do
       DT.Method _ pid _ <- getMethod dexFile mId
       DT.Proto  _   _ paramIDs <- getProto df pid
 
       params <- mapM (getTypeName dexFile) paramIDs
-      return $ findNames params
+      return $ findNames (methCode meth) params
 
-    findNames :: [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
-    findNames ps = map (\p -> (Nothing, p)) ps
+    findNames :: Maybe CodeItem -> [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
+    findNames Nothing ps = map (\p -> (Nothing, p)) ps
+    findNames (Just (CodeItem { codeDebugInfo = Just di }))ps =
+      map (first attachParamName) psWithNameIndices
+      where
+        psWithNameIndices = zip (dbgParamNames di) ps
+        attachParamName ix
+          | Just name <- getStr df (fromIntegral ix) = Just name
+          | otherwise = Nothing
+
 
 -- | Map argument names for a method to the initial register for that
 -- argument.

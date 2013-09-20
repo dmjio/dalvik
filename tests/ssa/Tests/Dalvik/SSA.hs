@@ -98,7 +98,8 @@ getParamListTests getDex (clas, method, sig, file, oracle) =
   testWithDexFile getDex ("getParamList: " ++ toStr clas method sig) file $ \dexFile ->
     case getEncodedMethod dexFile clas method sig of
       Nothing -> assertFailure ("Could not find method: "++toStr clas method sig)
-      Just  m -> oracle @=? getParamList dexFile m
+      Just  m ->
+        oracle @=? getParamList dexFile m
 
 methRegTests :: DexReader -> (String, String, String, FilePath, Maybe [(Maybe BS.ByteString, Word16)]) -> Test
 methRegTests getDex (clas, method, sig, file, oracle) =
