@@ -110,7 +110,7 @@ checkReturnValue l expected phiExpected = fromMaybe (T.assertFailure "No return 
         PhiLabel _ _ _ -> do
           -- If we have a phi node, make sure it is referencing the correct values.
           let Just lbls = M.lookup label (labelingPhis l)
-          T.assertEqual "Phi value mismatch" lbls (S.fromList phiExpected)
+          T.assertEqual "Phi value mismatch" (S.fromList phiExpected) lbls
           T.assertBool "Phi label requires more than one incoming value" (length phiExpected > 1)
         _ -> T.assertEqual "There should not be expected values for non-phis" [] phiExpected
     _ -> return $ T.assertFailure "More than one (or no) register mapped for return"
