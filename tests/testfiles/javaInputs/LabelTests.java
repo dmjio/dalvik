@@ -1,7 +1,7 @@
 class LabelTests {
   private int field1;
   private int field2;
-  
+
   public int localCopies(int x1, int x2) {
     int t1 = x1;
     int t2 = t1;
@@ -485,5 +485,115 @@ class LabelTests {
     return x;
   }
 
+  public double[] newArrayUnchecked(int len) {
+    return new double[len];
+  }
 
+  // One day we might be able to do better here with a bit of proving
+  // about the length
+  public double[] newArrayChecked(int len) {
+    double[] res;
+    try {
+      res = new double[len];
+    }
+    catch(NegativeArraySizeException ex) {
+      res = new double[0];
+    }
+
+    return res;
+  }
+
+  public double[] newArrayCheckedThrowable(int len) {
+    double[] res;
+    try {
+      res = new double[len];
+    }
+    catch(Throwable ex) {
+      res = new double[0];
+    }
+
+    return res;
+  }
+
+  public double[] newArrayOOMChecked(int len) {
+    double[] res;
+    try {
+      res = new double[len];
+    }
+    catch(OutOfMemoryError ex) {
+      res = null;
+    }
+
+    return res;
+  }
+
+  public String newInstanceUnchecked() {
+    return new String("Foo");
+  }
+
+  /**
+     This test is kind of useful, but not completely.  It doesn't seem
+     possible to write a test that separates the newinstance
+     instruction from its subsequent constructor call (which could
+     throw any runtime exception or error).
+
+     Looking at the resulting CFG at the time of this writing, it is
+     actually right and the exception handler has two edges to it, as
+     expected (one for the newinstance instruction and the other for
+     the invoke).
+   */
+  public String newInstanceChecked() {
+    String s;
+
+    try {
+      s = new String("Foo");
+    }
+    catch(OutOfMemoryError ex) {
+      s = null;
+    }
+
+    return s;
+  }
+
+  /**
+     Testing fill-array-data to ensure it gets its null pointer edge.
+   */
+  public int[] newArrayFilledUnchecked() {
+    return new int[] {1,2,3,4};
+  }
+
+  /**
+     fill-array-data could never be executed on a null pointer from
+     compiler-generated code.  Hand-generated code could do it,
+     though, and the verifier can't check that.
+   */
+  public Object newArrayFilledCheckedNPE() {
+    Object o;
+
+    try {
+      o = new int[]{1,2,3,4};
+    }
+    catch(NullPointerException ex) {
+      o = null;
+    }
+
+    return o;
+  }
+
+  public Object newMultiArrayUnchecked(short x1, short x2) {
+    short[][] arr = new short[x1][x2];
+    return arr;
+  }
+
+  public Object newMultiArrayCheckedOOM(short x1, short x2) {
+    short[][] arr;
+    try {
+      arr = new short[x1][x2];
+    }
+    catch(OutOfMemoryError ex) {
+      arr = null;
+    }
+
+    return arr;
+  }
 }

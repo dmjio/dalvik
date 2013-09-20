@@ -363,8 +363,11 @@ relevantHandlersInScope env ix inst =
       -- with a CHA, we could know precisely in many cases... otherwise all
       Throw _ -> AllHandlers
       FillArrayData _ _ -> SomeHandlers [nullPtr]
-      NewArray _ _ _ -> SomeHandlers [newArray]
+      FilledNewArray _ _ -> SomeHandlers [oom]
+      FilledNewArrayRange _ _ -> SomeHandlers [oom]
+      NewArray _ _ _ -> SomeHandlers [newArray, oom]
       ArrayLength _ _ -> SomeHandlers [nullPtr]
+      NewInstance _ _ -> SomeHandlers [oom]
       CheckCast _ _ -> SomeHandlers [classCast]
       MonitorEnter _ -> SomeHandlers [nullPtr]
       MonitorExit _ -> SomeHandlers [nullPtr]
@@ -378,12 +381,17 @@ relevantHandlersInScope env ix inst =
                  , jl "Exception"
                  , jl "Throwable"
                  ]
+    anyVMError = [ jl "VirtualMachineError"
+                 , jl "Error"
+                 , jl "Throwable"
+                 ]
     divZero = jl "ArithmeticException" : anyRuntime
     nullPtr = jl "NullPointerException" : anyRuntime
     anyArray = jl "ArrayIndexOutOfBoundsException" : jl "IndexOutOfBoundsException" : anyRuntime
     arrayWrite = jl "ArrayStoreException" : anyRuntime
     newArray = jl "NegativeArraySizeException" : anyRuntime
     classCast = jl "ClassCastException" : anyRuntime
+    oom = jl "OutOfMemoryError" : anyVMError
 
 -- | Add a java/lang namespace prefix to the given exception name.
 jl :: BS.ByteString -> ClassName

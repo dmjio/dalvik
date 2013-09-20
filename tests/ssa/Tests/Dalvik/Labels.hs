@@ -90,9 +90,24 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "arrayWriteNoHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", ArgumentLabel "%arg0" 3, [])
     , ("LLabelTests;", "arrayWriteHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", PhiLabel 1 [0,2,3] 8,
        [SimpleLabel 10, SimpleLabel 12, ArgumentLabel "%arg0" 3])
+    , ("LLabelTests;", "newArrayUnchecked", "(I)[D", SimpleLabel 4, [])
+    , ("LLabelTests;", "newArrayChecked", "(I)[D", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 8])
+    , ("LLabelTests;", "newArrayCheckedThrowable", "(I)[D", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 8])
+    , ("LLabelTests;", "newArrayOOMChecked", "(I)[D", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "newInstanceUnchecked", "()Ljava/lang/String;", SimpleLabel 2, [])
+    , ("LLabelTests;", "newInstanceChecked", "()Ljava/lang/String;", PhiLabel 2 [1,3] 4,
+       [SimpleLabel 2, SimpleLabel 6])
+    , ("LLabelTests;", "newArrayFilledUnchecked", "()[I", SimpleLabel 3, [])
+    , ("LLabelTests;", "newArrayFilledCheckedNPE", "()Ljava/lang/Object;", PhiLabel 1 [0,2] 4,
+       [SimpleLabel 3, SimpleLabel 6])
+    , ("LLabelTests;", "newMultiArrayUnchecked", "(SS)Ljava/lang/Object;", SimpleLabel 8, [])
+    , ("LLabelTests;", "newMultiArrayCheckedOOM", "(SS)Ljava/lang/Object;", PhiLabel 3 [2,4] 9,
+       [SimpleLabel 8, SimpleLabel 11])
     ]
--- FIXME: Add an extra oracle parameter, a list of phi incoming
--- values.  It is only checked if the label is a matching phi label.
+
 isReturn :: Labeling -> Int -> Bool
 isReturn l ix =
   case labelingInstructionAt l ix of
