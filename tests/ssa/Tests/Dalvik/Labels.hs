@@ -36,6 +36,8 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "simpleLoop", "(II)I", PhiLabel 1 [0,2] 8,
        [SimpleLabel 9,ArgumentLabel "%arg1" 1])
     , ("LLabelTests;", "loopNopBody", "(II)I", ArgumentLabel "%arg1" 1, [])
+    , ("LLabelTests;", "nestedLoops", "(II)I", PhiLabel 1 [0,5] 10,
+       [SimpleLabel 17, ArgumentLabel "%arg1" 1])
     , ("LLabelTests;", "uncaughtNPE", "([Ljava/lang/String;)I", SimpleLabel 4, [])
     , ("LLabelTests;", "simpleNPECatchNPE", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5,
        [SimpleLabel 4, SimpleLabel 7])
