@@ -28,11 +28,11 @@ tests = T.buildTest $ do
   return $ T.testGroup "SSA Label tests" $ map (getLabelTests getDex (javaInputs </> "LabelTests.java"))
     [ ("LLabelTests;", "localCopies", "(II)I", ArgumentLabel "%arg1" 1, [])
     , ("LLabelTests;", "simpleBranch", "(II)I", PhiLabel 1 [0,2] 7,
-       [ArgumentLabel "%arg0" 2,ArgumentLabel "%arg1" 1])
+       [ArgumentLabel "%arg1" 1,ArgumentLabel "%arg2" 2])
     , ("LLabelTests;", "simplePackedSwitch", "(III)I", PhiLabel 2 [0,1,3] 9,
-       [SimpleLabel 8,ArgumentLabel "%arg0" 3,ArgumentLabel "%arg1" 2])
+       [SimpleLabel 8,ArgumentLabel "%arg2" 2,ArgumentLabel "%arg3" 3])
     , ("LLabelTests;", "simpleSparseSwitch", "(III)I", PhiLabel 2 [0,1,3] 9,
-       [SimpleLabel 8,ArgumentLabel "%arg0" 3,ArgumentLabel "%arg1" 2])
+       [SimpleLabel 8,ArgumentLabel "%arg2" 2,ArgumentLabel "%arg3" 3])
     , ("LLabelTests;", "simpleLoop", "(II)I", PhiLabel 1 [0,2] 8,
        [SimpleLabel 9,ArgumentLabel "%arg1" 1])
     , ("LLabelTests;", "loopNopBody", "(II)I", ArgumentLabel "%arg1" 1, [])
@@ -87,9 +87,9 @@ tests = T.buildTest $ do
        [SimpleLabel 6, SimpleLabel 9])
     , ("LLabelTests;", "arrayReadHandlerThrowable", "([II)I", PhiLabel 1 [0,2] 7,
        [SimpleLabel 6, SimpleLabel 9])
-    , ("LLabelTests;", "arrayWriteNoHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", ArgumentLabel "%arg0" 3, [])
+    , ("LLabelTests;", "arrayWriteNoHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", ArgumentLabel "%arg3" 3, [])
     , ("LLabelTests;", "arrayWriteHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", PhiLabel 1 [0,2,3] 8,
-       [SimpleLabel 10, SimpleLabel 12, ArgumentLabel "%arg0" 3])
+       [SimpleLabel 10, SimpleLabel 12, ArgumentLabel "%arg3" 3])
     , ("LLabelTests;", "newArrayUnchecked", "(I)[D", SimpleLabel 4, [])
     , ("LLabelTests;", "newArrayChecked", "(I)[D", PhiLabel 1 [0,2] 5,
        [SimpleLabel 4, SimpleLabel 8])

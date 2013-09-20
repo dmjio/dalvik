@@ -200,13 +200,12 @@ labelInstructions argRegs ers is = fst $ evalRWS label' e0 s0
     s0 = emptyLabelState argRegs'
     e0 = emptyEnv argRegs' ers ivec
     ivec = V.fromList is
-    argNameSource :: Int
-    argNameSource = 0
-    argRegs' = snd $ foldr nameAnonArgs (argNameSource, []) argRegs
-    nameAnonArgs (name, reg) (ix, m) =
+    argRegs' = map nameAnonArgs (zip [0..] argRegs)
+    nameAnonArgs :: (Int, (Maybe BS.ByteString, Word16)) -> (BS.ByteString, Word16)
+    nameAnonArgs (ix, (name, reg)) =
       case name of
-        Just name' -> (ix, (name', reg) : m)
-        Nothing -> (ix + 1, ("%arg" `mappend` fromString (show ix), reg) : m)
+        Just name' -> (name', reg)
+        Nothing -> ("%arg" `mappend` fromString (show ix), reg)
 
 -- | An environment to carry state for the labeling algorithm
 type SSALabeller = RWS LabelEnv () LabelState

@@ -78,6 +78,19 @@ class LabelTests {
     return x1;
   }
 
+  public int nestedLoops(int x1, int x2) {
+    int z = x1;
+    for(int i = 0; i < x2 + 1; ++i) {
+      for(int j = 0; j < i; ++ j) {
+        z = z + i;
+      }
+
+      z = z + 2;
+    }
+
+    return z;
+  }
+  
   /**
      Since the exception is not caught, a simple value should be
      returned
