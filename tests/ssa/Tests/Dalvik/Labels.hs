@@ -4,6 +4,7 @@ module Tests.Dalvik.Labels ( tests ) where
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
+import qualified Data.Set as S
 import Dalvik.Instruction
 import qualified Dalvik.Types as DT
 import Dalvik.SSA ( labelMethod )
@@ -25,46 +26,70 @@ tests :: Test
 tests = T.buildTest $ do
   getDex <- memoIO readAsDex
   return $ T.testGroup "SSA Label tests" $ map (getLabelTests getDex (javaInputs </> "LabelTests.java"))
-    [ ("LLabelTests;", "localCopies", "(II)I", ArgumentLabel "%arg1" 1)
-    , ("LLabelTests;", "simpleBranch", "(II)I", PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "simplePackedSwitch", "(III)I", PhiLabel 2 [0,1,3] 9)
-    , ("LLabelTests;", "simpleSparseSwitch", "(III)I", PhiLabel 2 [0,1,3] 9)
-    , ("LLabelTests;", "simpleLoop", "(II)I", PhiLabel 1 [0,2] 8)
-    , ("LLabelTests;", "loopNopBody", "(II)I", ArgumentLabel "%arg1" 1)
-    , ("LLabelTests;", "uncaughtNPE", "([Ljava/lang/String;)I", SimpleLabel 4)
-    , ("LLabelTests;", "simpleNPECatchNPE", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
-    , ("LLabelTests;", "simpleNPECatchRuntimeEx", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
-    , ("LLabelTests;", "simpleNPECatchException", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
-    , ("LLabelTests;", "simpleNPECatchThrowable", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
-    , ("LLabelTests;", "simpleNPECatchArithEx", "([Ljava/lang/String;)I", SimpleLabel 4)
-    , ("LLabelTests;", "simpleNPEOnlyFirstHandler", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5)
-    , ("LLabelTests;", "simpleNPEWithHandlerAndFinally", "([Ljava/lang/String;)I", SimpleLabel 4)
-    , ("LLabelTests;", "divideNoCatch", "(II)I", SimpleLabel 6)
-    , ("LLabelTests;", "arithNoDivision", "(II)I", SimpleLabel 9)
-    , ("LLabelTests;", "safeDivideWithCatch", "(II)I", PhiLabel 2 [1,4,5] 7)
-    , ("LLabelTests;", "divisionCatchArithEx", "(II)I", PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "divisionCatchRuntimeEx", "(II)I", PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "divisionCatchException", "(II)I", PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "divisionCatchThrowable", "(II)I", PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "divisionCatchNPE", "(II)I", SimpleLabel 6)
-    , ("LLabelTests;", "checkCastNoHandler", "(Ljava/lang/Object;)I", SimpleLabel 4)
-    , ("LLabelTests;", "checkCastHandleCCE", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
-    , ("LLabelTests;", "checkCastHandleRuntimeException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
-    , ("LLabelTests;", "checkCastHandleException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
-    , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5)
-    , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 4)
-    , ("LLabelTests;", "invokeToAllHandlers", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4,5,6,7,8] 5)
-    , ("LLabelTests;", "returnThisFieldNoHandler", "()I", SimpleLabel 2)
+    [ ("LLabelTests;", "localCopies", "(II)I", ArgumentLabel "%arg1" 1, [])
+    , ("LLabelTests;", "simpleBranch", "(II)I", PhiLabel 1 [0,2] 7,
+       [ArgumentLabel "%arg0" 2,ArgumentLabel "%arg1" 1])
+    , ("LLabelTests;", "simplePackedSwitch", "(III)I", PhiLabel 2 [0,1,3] 9,
+       [SimpleLabel 8,ArgumentLabel "%arg0" 3,ArgumentLabel "%arg1" 2])
+    , ("LLabelTests;", "simpleSparseSwitch", "(III)I", PhiLabel 2 [0,1,3] 9,
+       [SimpleLabel 8,ArgumentLabel "%arg0" 3,ArgumentLabel "%arg1" 2])
+    , ("LLabelTests;", "simpleLoop", "(II)I", PhiLabel 1 [0,2] 8,
+       [SimpleLabel 9,ArgumentLabel "%arg1" 1])
+    , ("LLabelTests;", "loopNopBody", "(II)I", ArgumentLabel "%arg1" 1, [])
+    , ("LLabelTests;", "uncaughtNPE", "([Ljava/lang/String;)I", SimpleLabel 4, [])
+    , ("LLabelTests;", "simpleNPECatchNPE", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "simpleNPECatchRuntimeEx", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "simpleNPECatchException", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "simpleNPECatchThrowable", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "simpleNPECatchArithEx", "([Ljava/lang/String;)I", SimpleLabel 4, [])
+    , ("LLabelTests;", "simpleNPEOnlyFirstHandler", "([Ljava/lang/String;)I", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "simpleNPEWithHandlerAndFinally", "([Ljava/lang/String;)I", SimpleLabel 4, [])
+    , ("LLabelTests;", "divideNoCatch", "(II)I", SimpleLabel 6, [])
+    , ("LLabelTests;", "arithNoDivision", "(II)I", SimpleLabel 9, [])
+    , ("LLabelTests;", "safeDivideWithCatch", "(II)I", PhiLabel 2 [1,4,5] 7,
+       [SimpleLabel 6, SimpleLabel 8, SimpleLabel 10])
+    , ("LLabelTests;", "divisionCatchArithEx", "(II)I", PhiLabel 1 [0,2] 7,
+       [SimpleLabel 6, SimpleLabel 9])
+    , ("LLabelTests;", "divisionCatchRuntimeEx", "(II)I", PhiLabel 1 [0,2] 7,
+       [SimpleLabel 6, SimpleLabel 9])
+    , ("LLabelTests;", "divisionCatchException", "(II)I", PhiLabel 1 [0,2] 7,
+       [SimpleLabel 6, SimpleLabel 9])
+    , ("LLabelTests;", "divisionCatchThrowable", "(II)I", PhiLabel 1 [0,2] 7,
+       [SimpleLabel 6, SimpleLabel 9])
+    , ("LLabelTests;", "divisionCatchNPE", "(II)I", SimpleLabel 6, [])
+    , ("LLabelTests;", "checkCastNoHandler", "(Ljava/lang/Object;)I", SimpleLabel 4, [])
+    , ("LLabelTests;", "checkCastHandleCCE", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "checkCastHandleRuntimeException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "checkCastHandleException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 4, [])
+    , ("LLabelTests;", "invokeToAllHandlers", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4,5,6,7,8] 5,
+       [SimpleLabel 4, SimpleLabel 7, SimpleLabel 9, SimpleLabel 11, SimpleLabel 13, SimpleLabel 15])
+    , ("LLabelTests;", "returnThisFieldNoHandler", "()I", SimpleLabel 2, [])
       -- Note that, ideally, we could use a bit more static analysis to make this
       -- test fail in a good way (since @this@ can never be NULL).
-    , ("LLabelTests;", "returnThisFieldHandler", "()I", PhiLabel 1 [0,2] 3)
-    , ("LLabelTests;", "returnOtherFieldNoHandler", "(LLabelTests;)I", SimpleLabel 4)
-    , ("LLabelTests;", "returnOtherFieldHandler", "(LLabelTests;)I", PhiLabel 1 [0,2] 5)
-    , ("LLabelTests;", "arrayReadNoHandler", "([II)I", SimpleLabel 6)
-    , ("LLabelTests;", "arrayReadHandler", "([II)I", PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "arrayReadHandlerThrowable", "([II)I", PhiLabel 1 [0,2] 7)
-    , ("LLabelTests;", "arrayWriteNoHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", ArgumentLabel "%arg0" 3)
-    , ("LLabelTests;", "arrayWriteHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", PhiLabel 1 [0,2,3] 8)
+    , ("LLabelTests;", "returnThisFieldHandler", "()I", PhiLabel 1 [0,2] 3,
+       [SimpleLabel 2, SimpleLabel 5])
+    , ("LLabelTests;", "returnOtherFieldNoHandler", "(LLabelTests;)I", SimpleLabel 4, [])
+    , ("LLabelTests;", "returnOtherFieldHandler", "(LLabelTests;)I", PhiLabel 1 [0,2] 5,
+       [SimpleLabel 4, SimpleLabel 7])
+    , ("LLabelTests;", "arrayReadNoHandler", "([II)I", SimpleLabel 6, [])
+    , ("LLabelTests;", "arrayReadHandler", "([II)I", PhiLabel 1 [0,2] 7,
+       [SimpleLabel 6, SimpleLabel 9])
+    , ("LLabelTests;", "arrayReadHandlerThrowable", "([II)I", PhiLabel 1 [0,2] 7,
+       [SimpleLabel 6, SimpleLabel 9])
+    , ("LLabelTests;", "arrayWriteNoHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", ArgumentLabel "%arg0" 3, [])
+    , ("LLabelTests;", "arrayWriteHandler", "([Ljava/lang/Object;Ljava/lang/Object;I)I", PhiLabel 1 [0,2,3] 8,
+       [SimpleLabel 10, SimpleLabel 12, ArgumentLabel "%arg0" 3])
     ]
 -- FIXME: Add an extra oracle parameter, a list of phi incoming
 -- values.  It is only checked if the label is a matching phi label.
@@ -74,26 +99,33 @@ isReturn l ix =
     Just (Return _ _) -> True
     _ -> False
 
-checkReturnValue :: Labeling -> Label -> T.Assertion
-checkReturnValue l expected = fromMaybe (T.assertFailure "No return instruction found") $ do
+checkReturnValue :: Labeling -> Label -> [Label] -> T.Assertion
+checkReturnValue l expected phiExpected = fromMaybe (T.assertFailure "No return instruction found") $ do
   (_, m) <- L.find (isReturn l . fst) instMaps
   case M.toList m of
     [(_, label) ] -> return $ do
       T.assertBool "Non-unique value label" (generatedLabelsAreUnique l)
       T.assertEqual "Unexpected label mismatch" expected label
+      case label of
+        PhiLabel _ _ _ -> do
+          -- If we have a phi node, make sure it is referencing the correct values.
+          let Just lbls = M.lookup label (labelingPhis l)
+          T.assertEqual "Phi value mismatch" lbls (S.fromList phiExpected)
+          T.assertBool "Phi label requires more than one incoming value" (length phiExpected > 1)
+        _ -> T.assertEqual "There should not be expected values for non-phis" [] phiExpected
     _ -> return $ T.assertFailure "More than one (or no) register mapped for return"
   where
     instMaps = M.toList (labelingReadRegs l)
 
-getLabelTests :: DexReader -> FilePath -> (String, String, String, Label) -> Test
-getLabelTests getDex file (klass, method, sig, oracle) =
+getLabelTests :: DexReader -> FilePath -> (String, String, String, Label, [Label]) -> Test
+getLabelTests getDex file (klass, method, sig, oracle, oracle') =
   testWithDexFile getDex ("CheckReturn: " ++ toStr klass method sig) file $ \dexFile ->
     case getEncodedMethod dexFile klass method sig of
       Nothing -> T.assertFailure ("Could not find method: " ++ toStr klass method sig)
       Just m ->
         case labelMethod dexFile m of
           Left e -> T.assertFailure ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
-          Right lbls -> checkReturnValue lbls oracle
+          Right lbls -> checkReturnValue lbls oracle oracle'
 
 toStr :: String -> String -> String -> String
 toStr []      m sig = printf "%s%s" m sig
