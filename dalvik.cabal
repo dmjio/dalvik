@@ -16,8 +16,7 @@ Library
     default-language: Haskell2010
     Extensions:
 
-    Build-Depends:  array,
-                    base >= 3,
+    Build-Depends:  base >= 3,
                     bytestring,
                     cereal,
                     conduit,
