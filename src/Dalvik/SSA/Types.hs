@@ -7,6 +7,7 @@ module Dalvik.SSA.Types --  (
 import Data.Int ( Int64 )
 import Data.Vector ( Vector )
 
+import Dalvik.ClassHierarchy
 -- Low-level instructions
 import qualified Dalvik.Instruction as LL
 
@@ -41,7 +42,8 @@ data Type = VoidType
           | CharType
           | BooleanType
           | ArrayType Type
-          | ReferenceType String
+          | ReferenceType ClassName -- Class
+          deriving (Eq, Ord, Show)
 
 valueId :: Value -> UniqueId
 valueId (InstructionV i) = instructionId i

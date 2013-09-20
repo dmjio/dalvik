@@ -26,6 +26,7 @@ import Dalvik.Types
 --
 -- > Ljava/lang/Object;
 data ClassName = ClassName [BS.ByteString]
+               deriving (Eq, Ord, Show)
 
 simpleClassName :: BS.ByteString -> ClassName
 simpleClassName name = ClassName [name]

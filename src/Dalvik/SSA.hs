@@ -1,12 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Dalvik.SSA where
 
 import Control.Arrow ( first )
 import Control.Failure
-import Control.Monad ( liftM )
+import Control.Monad ( foldM, liftM )
+import Control.Monad.Fix
 import qualified Data.ByteString as BS
+import Data.Map ( Map )
+import qualified Data.Map as M
 import qualified Data.Vector as V
 import Data.Word (Word16)
 
@@ -14,12 +18,26 @@ import Dalvik.Instruction as I
 import Dalvik.Types as DT
 import Dalvik.SSA.Labeling
 import Dalvik.SSA.Types as SSA
+import Dalvik.SSA.Internal.Names
 
-toSSA :: DT.DexFile -> SSA.DexFile
-toSSA f = undefined -- dexClasses f
+toSSA :: (MonadFix f, Failure DecodeError f) => DT.DexFile -> f SSA.DexFile
+toSSA df = mfix $ \ssa -> do
+  typeMap <- foldM translateType M.empty $ M.toList (DT.dexTypeNames df)
+  return undefined -- dexClasses f
+  where
+    translateType :: (Failure DecodeError f)
+                     => Map DT.TypeId SSA.Type
+                     -> (DT.TypeId, DT.StringId)
+                     -> f (Map DT.TypeId SSA.Type)
+    translateType m (tid, tstr) = do
+      tname <- getTypeName df tid
+      ty <- parseTypeName tname
+      return $ M.insert tid ty m
+    
 
 translateClass :: DT.Class -> SSA.Class
-translateClass c =
+translateClass c = undefined
+{-
   SSA.Class { --  classId = 0
             -- ,
               className = undefined
@@ -30,6 +48,7 @@ translateClass c =
             -- , classDirectMethods = undefined
             -- , classVirtualMethods = undefined
             }
+-}
 
 labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
 labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId

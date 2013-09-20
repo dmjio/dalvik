@@ -22,6 +22,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | NoClassAtIndex TypeId
                  | NoCodeForMethod MethodId
                  | NoHandlerAtOffset Word32
+                 | TypeDecodeError String BS.ByteString
                  deriving (Eq, Ord, Show)
 
 decodeErrorAsString :: DecodeError -> String
@@ -47,6 +48,8 @@ decodeErrorAsString (NoCodeForMethod mId) =
   printf "No code for method %d" mId
 decodeErrorAsString (NoHandlerAtOffset i) =
   printf "No exception handling block at offset %d" i
+decodeErrorAsString (TypeDecodeError reason bs) =
+  printf "Error decoding type name (%s): %s" (show bs) reason
 
 data DexHeader =
   DexHeader

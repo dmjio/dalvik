@@ -17,6 +17,7 @@ Library
     Extensions:
 
     Build-Depends:  base >= 3,
+                    attoparsec,
                     bytestring,
                     cereal,
                     conduit,
@@ -46,8 +47,9 @@ Library
                      Dalvik.SSA
                      Dalvik.SSA.Labeling
                      Dalvik.Types
-    Other-Modules: Dalvik.SSA.Types,
-                   Dalvik.SSA.BasicBlocks
+                     Dalvik.SSA.Internal.Names,
+                     Dalvik.SSA.Types
+    Other-Modules: Dalvik.SSA.BasicBlocks
     GHC-Options: -Wall -O1
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
 
