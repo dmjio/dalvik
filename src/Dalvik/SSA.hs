@@ -8,7 +8,7 @@ import Control.Arrow ( first )
 import Control.Failure
 import Control.Monad ( foldM, liftM )
 import Control.Monad.Fix
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS
 import Data.Map ( Map )
 import qualified Data.Map as M
 import qualified Data.Vector as V
@@ -21,22 +21,37 @@ import Dalvik.SSA.Types as SSA
 import Dalvik.SSA.Internal.Names
 
 toSSA :: (MonadFix f, Failure DecodeError f) => DT.DexFile -> f SSA.DexFile
-toSSA df = mfix $ \ssa -> do
+toSSA df = do
+  -- FIXME: Might want to put references to the appropriate class
+  -- in ReferenceType - then we would need to add the type map into
+  -- the knot tying process
+  dexIdentifierBS <- getStr df (dexThisId df)
   typeMap <- foldM translateType M.empty $ M.toList (DT.dexTypeNames df)
-  return undefined -- dexClasses f
+  cmap <- mfix $ \cmap' -> do
+    foldM (translateClass df typeMap cmap') M.empty $ M.toList (DT.dexClasses df)
+  return SSA.DexFile { dexIdentifier = BS.unpack dexIdentifierBS
+                     , SSA.dexClasses = M.elems cmap
+                     }
   where
     translateType :: (Failure DecodeError f)
                      => Map DT.TypeId SSA.Type
                      -> (DT.TypeId, DT.StringId)
                      -> f (Map DT.TypeId SSA.Type)
-    translateType m (tid, tstr) = do
+    translateType m (tid, _) = do
       tname <- getTypeName df tid
       ty <- parseTypeName tname
       return $ M.insert tid ty m
-    
 
-translateClass :: DT.Class -> SSA.Class
-translateClass c = undefined
+-- FIXME: We might need maps here for methods and fields, too, since
+-- we need direct access to those things.
+translateClass :: (Failure DecodeError f)
+                  => DT.DexFile
+                  -> Map DT.TypeId SSA.Type
+                  -> Map DT.TypeId SSA.Class
+                  -> Map DT.TypeId SSA.Class
+                  -> (DT.TypeId, DT.Class)
+                  -> f (Map DT.TypeId SSA.Class)
+translateClass = undefined
 {-
   SSA.Class { --  classId = 0
             -- ,
@@ -112,14 +127,14 @@ getParamList df meth
       return $ findNames (methCode meth) params
 
     findNames :: Maybe CodeItem -> [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
-    findNames Nothing ps = map (\p -> (Nothing, p)) ps
-    findNames (Just (CodeItem { codeDebugInfo = Just di }))ps =
+    findNames (Just (CodeItem { codeDebugInfo = Just di })) ps =
       map (first attachParamName) psWithNameIndices
       where
         psWithNameIndices = zip (dbgParamNames di) ps
         attachParamName ix
           | Just name <- getStr df (fromIntegral ix) = Just name
           | otherwise = Nothing
+    findNames _ ps = map (\p -> (Nothing, p)) ps
 
 
 -- | Map argument names for a method to the initial register for that

@@ -11,7 +11,10 @@ import Dalvik.ClassHierarchy
 -- Low-level instructions
 import qualified Dalvik.Instruction as LL
 
-data DexFile = DexFile { dexClasses :: [Class] }
+data DexFile =
+  DexFile { dexIdentifier :: String
+          , dexClasses :: [Class]
+          }
 
 data Value = InstructionV Instruction
            | ConstantV Constant
