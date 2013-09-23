@@ -4,7 +4,7 @@ module Tests.Dalvik.SSA ( tests ) where
 import qualified Data.ByteString as BS
 import Data.Word (Word16)
 import qualified Dalvik.Types as DT
-import Dalvik.SSA (methodRegisterAssignment, getParamList)
+import Dalvik.SSA (methodRegisterAssignment, getParamListTypeNames)
 
 import Tests.Dalvik.DexLoaders (DexReader, memoIO, readAsDex, getEncodedMethod)
 
@@ -95,11 +95,11 @@ tests = T.buildTest $ do
 
 getParamListTests :: DexReader -> (String, String, String, FilePath, Maybe [(Maybe BS.ByteString, BS.ByteString)]) -> Test
 getParamListTests getDex (clas, method, sig, file, oracle) =
-  testWithDexFile getDex ("getParamList: " ++ toStr clas method sig) file $ \dexFile ->
+  testWithDexFile getDex ("getParamListTypeNames: " ++ toStr clas method sig) file $ \dexFile ->
     case getEncodedMethod dexFile clas method sig of
       Nothing -> assertFailure ("Could not find method: "++toStr clas method sig)
-      Just  m ->
-        oracle @=? getParamList dexFile m
+      Just  m -> oracle @=? getParamListTypeNames dexFile m
+
 
 methRegTests :: DexReader -> (String, String, String, FilePath, Maybe [(Maybe BS.ByteString, Word16)]) -> Test
 methRegTests getDex (clas, method, sig, file, oracle) =

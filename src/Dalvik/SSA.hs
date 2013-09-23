@@ -201,6 +201,33 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
                                 , erCatchAll = chAllAddr ch
                                 }
 
+getParamList :: (Failure DecodeError f)
+                => DT.DexFile
+                -> EncodedMethod
+                -> f [(Maybe BS.ByteString, DT.TypeId)]
+getParamList df meth
+  | isStatic meth = explicitParams df meth
+  | otherwise     = do
+    DT.Method cid _ _ <- getMethod df $ methId meth
+    exParams <- explicitParams df meth
+    return ((Just "this", cid):exParams)
+  where
+    explicitParams dexFile (DT.EncodedMethod mId _ _) = do
+      DT.Method _ pid _ <- getMethod dexFile mId
+      DT.Proto  _   _ paramIDs <- getProto df pid
+
+      return $ findNames (methCode meth) paramIDs
+
+    findNames :: Maybe CodeItem -> [DT.TypeId] -> [(Maybe BS.ByteString, DT.TypeId)]
+    findNames (Just (CodeItem { codeDebugInfo = Just di })) ps =
+      map (first attachParamName) psWithNameIndices
+      where
+        psWithNameIndices = zip (dbgParamNames di) ps
+        attachParamName ix
+          | Just name <- getStr df (fromIntegral ix) = Just name
+          | otherwise = Nothing
+    findNames _ ps = map (\p -> (Nothing, p)) ps
+
 -- | extract the parameter list from an encoded method.  This returns
 -- a list of `(Maybe name, typeName)` pairs, in left-to-right order,
 -- and including the initial `this` parameter, if the method is an
@@ -213,34 +240,15 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
 --
 -- this method would return:
 -- > Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")]
-getParamList :: (Failure DecodeError f)
-                => DT.DexFile
-                -> EncodedMethod
-                -> f [(Maybe BS.ByteString, BS.ByteString)]
-getParamList df meth
-  | isStatic meth = explicitParams df meth
-  | otherwise     = do
-    DT.Method cid _ _ <- getMethod df $ methId meth
-    clName <- getTypeName df cid
-    exParams <- explicitParams df meth
-    return ((Just "this", clName):exParams)
-  where
-    explicitParams dexFile (DT.EncodedMethod mId _ _) = do
-      DT.Method _ pid _ <- getMethod dexFile mId
-      DT.Proto  _   _ paramIDs <- getProto df pid
-
-      params <- mapM (getTypeName dexFile) paramIDs
-      return $ findNames (methCode meth) params
-
-    findNames :: Maybe CodeItem -> [BS.ByteString] -> [(Maybe BS.ByteString, BS.ByteString)]
-    findNames (Just (CodeItem { codeDebugInfo = Just di })) ps =
-      map (first attachParamName) psWithNameIndices
-      where
-        psWithNameIndices = zip (dbgParamNames di) ps
-        attachParamName ix
-          | Just name <- getStr df (fromIntegral ix) = Just name
-          | otherwise = Nothing
-    findNames _ ps = map (\p -> (Nothing, p)) ps
+getParamListTypeNames :: (Failure DecodeError f)
+                         => DT.DexFile
+                      -> EncodedMethod
+                      -> f [(Maybe BS.ByteString, BS.ByteString)]
+getParamListTypeNames df meth = do
+  plist <- getParamList df meth
+  forM plist $ \(n, tid) -> do
+    tname <- getTypeName df tid
+    return (n, tname)
 
 
 -- | Map argument names for a method to the initial register for that
@@ -249,7 +257,7 @@ getParamList df meth
 methodRegisterAssignment :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe BS.ByteString, Word16)]
 methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing)     = failure $ NoCodeForMethod mId
 methodRegisterAssignment df meth@(DT.EncodedMethod _ _ (Just code)) = do
-  params <- getParamList df meth
+  params <- getParamListTypeNames df meth
   return $ snd $ accumOffsets params
     where
       accumOffsets params = foldr findOffset (codeRegs code, []) params
