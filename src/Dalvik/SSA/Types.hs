@@ -4,9 +4,11 @@ module Dalvik.SSA.Types --  (
   -- ) where
   where
 
+import Data.Function ( on )
 import Data.Int ( Int64 )
 import Data.Vector ( Vector )
 
+import Dalvik.AccessFlags
 import Dalvik.ClassHierarchy
 -- Low-level instructions
 import qualified Dalvik.Instruction as LL
@@ -157,13 +159,13 @@ data Instruction = Return { instructionId :: UniqueId
                  | FieldGet { instructionId :: UniqueId
                             , instructionType :: Type
                             , fieldReference :: Value
-                            , fieldName :: String
+--                            , fieldName :: String
                             , fieldNumber :: Int
                             }
                  | FieldPut { instructionId :: UniqueId
                             , instructionType :: Type
                             , fieldReference :: Value
-                            , fieldName :: String
+--                            , fieldName :: String
                             , fieldNumber :: Int
                             , fieldPutValue :: Value
                             }
@@ -184,14 +186,11 @@ data Parameter = Parameter { parameterId :: UniqueId
 
 data Method = Method { methodId :: UniqueId
                      , methodName :: String
-                     , methodType :: Type
+                     , methodReturnType :: Type
+                     , methodAccessFlags :: AccessFlags
                      , methodParameters :: [Parameter]
-                     , methodBody :: [BasicBlock]
+                     , methodBody :: Maybe [BasicBlock]
                      }
-            | AbstractMethod { methodId :: UniqueId
-                             , methodName :: String
-                             , methodType :: Type
-                             }
 
 data Interface = Interface { interfaceId :: UniqueId
                            , interfaceName :: String
@@ -202,14 +201,26 @@ data Class = Class { classId :: UniqueId
                    , className :: String
                    , classParent :: Maybe Class
                    , classInterfaces :: [Interface]
-                   , classMethods :: [Method]
-                   , classMembers :: [Member]
+                   , classDirectMethods :: [Method]
+                   , classVirtualMethods :: [Method]
+                   , classStaticFields :: [Field]
+                   , classInstanceFields :: [Field]
                    }
 
-data Member = Member { memberId :: UniqueId
-                     , memberName :: String
-                     , memberType :: Type
-                     }
+data Field = Field { fieldId :: UniqueId
+                   , fieldName :: String
+                   , fieldType :: Type
+                   , fieldAccessFlags :: AccessFlags
+                   , fieldClass :: Class
+                   }
+
+-- | Field IDs are unique among fields (but could overlap with IDs of
+-- other types).
+instance Eq Field where
+  (==) = (==) `on` fieldId
+
+instance Ord Field where
+  compare = compare `on` fieldId
 
 data MethodRef = ClassMethodRef Class Int
                | InterfaceMethodRef Interface Int
