@@ -81,6 +81,10 @@ data Labeling =
   Labeling { labelingReadRegs :: Map Int (Map Word16 Label)
            , labelingWriteRegs :: Map Int Label
            , labelingPhis :: Map Label (Set Label)
+           , labelingBlockPhis :: Map BlockNumber [Label]
+             -- ^ For each basic block, note which phi labels belong
+             -- to it.  This will be needed when we translate basic
+             -- blocks to the SSA IR.
            , labelingBasicBlocks :: BasicBlocks
            , labelingInstructions :: Vector Instruction
            }
@@ -237,9 +241,13 @@ label' = do
   return $ Labeling { labelingReadRegs = instructionLabels s
                      , labelingWriteRegs = instructionResultLabels s
                      , labelingPhis = phiOperands s
+                     , labelingBlockPhis = foldr addPhiForBlock M.empty $ M.keys (phiOperands s)
                      , labelingBasicBlocks = bbs
                      , labelingInstructions = ivec
                      }
+  where
+    addPhiForBlock p@(PhiLabel bnum _ _) m = M.insertWith (++) bnum [p] m
+    addPhiForBlock _ m = m
 
 -- | Label instructions and, if they end a block, mark the block as filled.
 --

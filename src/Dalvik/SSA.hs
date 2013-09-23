@@ -5,18 +5,20 @@ module Dalvik.SSA where
 
 import Control.Arrow ( first )
 import Control.Failure
-import Control.Monad ( foldM, liftM )
+import Control.Monad ( foldM, forM, liftM )
 import Control.Monad.Fix
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString.Char8 as BS
 import Data.Map ( Map )
 import qualified Data.Map as M
+import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word (Word16)
 
-import Dalvik.Instruction as I
+import Dalvik.Instruction as DT
 import Dalvik.Types as DT
+import Dalvik.SSA.BasicBlocks
 import Dalvik.SSA.Labeling
 import Dalvik.SSA.Types as SSA
 import Dalvik.SSA.Internal.Names
@@ -33,7 +35,7 @@ toSSA df = do
                      , SSA.dexClasses = M.elems cmap
                      }
 
-tieKnot :: (Failure DecodeError f) => KnotMonad f Knot
+tieKnot :: (MonadFix f, Failure DecodeError f) => KnotMonad f Knot
 tieKnot = do
   df <- gets knotDexFile
   knot' <- foldM translateType emptyKnot $ M.toList (DT.dexTypeNames df)
@@ -92,7 +94,7 @@ getTranslatedClass tid = do
   klass <- lookupClass tid
   maybe (error ("No class for type id: " ++ show tid)) return klass
 
-translateClass :: (Failure DecodeError f)
+translateClass :: (MonadFix f, Failure DecodeError f)
                   => Knot
                   -> (DT.TypeId, DT.Class)
                   -> KnotMonad f Knot
@@ -125,19 +127,73 @@ getRawProto' pid = do
   df <- gets knotDexFile
   lift $ getProto df pid
 
-translateMethod :: (Failure DecodeError f) => DT.EncodedMethod -> KnotMonad f SSA.Method
+translateMethod :: (MonadFix f, Failure DecodeError f) => DT.EncodedMethod -> KnotMonad f SSA.Method
 translateMethod em = do
   m <- getRawMethod' (DT.methId em)
   proto <- getRawProto' (DT.methProtoId m)
   mname <- getStr' (DT.methNameId m)
   rt <- getTranslatedType (DT.protoRet proto)
+
+  df <- gets knotDexFile
+  -- [(Maybe BS.ByteString, DT.TypeId)]
+  paramList <- lift $ getParamList df em
+  paramMap <- foldM makeParameter M.empty (zip [0..] paramList)
+
+  (body, _) <- mfix $ \(_, labelMap) -> do
+    translateMethodBody df paramMap labelMap em
+  
   return SSA.Method { SSA.methodId = fromIntegral (DT.methId em)
                     , SSA.methodName = mname
                     , SSA.methodReturnType = rt
                     , SSA.methodAccessFlags = DT.methAccessFlags em
-                    -- , SSA.methodParameters :: [Parameter]
-                    -- , SSA.methodBody :: Maybe [BasicBlock]
+                    , SSA.methodParameters = M.elems paramMap
+                    , SSA.methodBody = body
                     }
+
+translateMethodBody :: (MonadFix f, Failure DecodeError f)
+                       => DT.DexFile
+                       -> Map Int Parameter
+                       -> Map Label SSA.Value
+                       -> DT.EncodedMethod
+                       -> KnotMonad f (Maybe [BasicBlock], Map Label SSA.Value)
+translateMethodBody _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, M.empty)
+translateMethodBody df paramMap labelMap em = do
+  -- DT.DexFile -> DT.EncodedMethod -> f Labeling
+  labeling <- lift $ labelMethod df em
+  let bbs = labelingBasicBlocks labeling
+      blockList = basicBlocksAsList bbs
+  (bs, labelMap') <- foldM (translateBlock labeling labelMap) ([], M.empty) blockList
+  return (Just (reverse bs), labelMap')
+
+-- | To translate a BasicBlock, we first construct any (non-trivial)
+-- phi nodes for the block.  Then translate each instruction.
+translateBlock :: (Failure DecodeError f)
+                  => Labeling
+                  -> Map Label SSA.Value
+                  -> ([BasicBlock], Map Label SSA.Value)
+                  -> (BlockNumber, Vector DT.Instruction)
+                  -> KnotMonad f ([BasicBlock], Map Label SSA.Value)
+translateBlock labeling labelMap (bs, lmap) (bnum, insts) = do
+  bid <- freshId
+  -- :: Map BlockNumber [Label]
+  let blockPhis = M.findWithDefault [] bnum $ labelingBlockPhis labeling
+      b = SSA.BasicBlock { SSA.basicBlockId = bid
+                         }
+  return (b : bs, lmap)
+
+makeParameter :: (Failure DecodeError f)
+                 => Map Int Parameter
+                 -> (Int, (Maybe BS.ByteString, DT.TypeId))
+                 -> KnotMonad f (Map Int Parameter)
+makeParameter m (ix, (name, tid)) = do
+  pid <- freshId
+  t <- getTranslatedType tid
+  let p = SSA.Parameter { SSA.parameterId = pid
+                        , SSA.parameterType = t
+                        , SSA.parameterName = fmap BS.unpack name
+                        , SSA.parameterIndex = ix
+                        }
+  return $ M.insert ix p m
 
 
 getRawField' :: (Failure DecodeError f) => DT.FieldId -> KnotMonad f DT.Field
@@ -174,7 +230,7 @@ freshId = do
 labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
 labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
-  insts <- I.decodeInstructions (codeInsns codeItem)
+  insts <- DT.decodeInstructions (codeInsns codeItem)
   regMap <- methodRegisterAssignment dx em
   ers <- methodExceptionRanges dx em
   return $ labelInstructions regMap ers insts

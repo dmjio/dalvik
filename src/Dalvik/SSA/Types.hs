@@ -181,7 +181,8 @@ data Instruction = Return { instructionId :: UniqueId
 
 data Parameter = Parameter { parameterId :: UniqueId
                            , parameterType :: Type
-                           , parameterName :: String
+                           , parameterName :: Maybe String
+                           , parameterIndex :: Int
                            }
 
 data Method = Method { methodId :: UniqueId
