@@ -23,6 +23,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | NoCodeForMethod MethodId
                  | NoHandlerAtOffset Word32
                  | TypeDecodeError String BS.ByteString
+                 | NonPhiLabelInBlockHeader String
                  deriving (Eq, Ord, Show)
 
 decodeErrorAsString :: DecodeError -> String
@@ -50,6 +51,8 @@ decodeErrorAsString (NoHandlerAtOffset i) =
   printf "No exception handling block at offset %d" i
 decodeErrorAsString (TypeDecodeError reason bs) =
   printf "Error decoding type name (%s): %s" (show bs) reason
+decodeErrorAsString (NonPhiLabelInBlockHeader s) =
+  printf "Non Phi label in basic block header: %s" s
 
 data DexHeader =
   DexHeader

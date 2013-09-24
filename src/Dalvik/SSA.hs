@@ -12,6 +12,7 @@ import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString.Char8 as BS
 import Data.Map ( Map )
 import qualified Data.Map as M
+import Data.Maybe ( fromMaybe )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word (Word16)
@@ -139,9 +140,9 @@ translateMethod em = do
   paramList <- lift $ getParamList df em
   paramMap <- foldM makeParameter M.empty (zip [0..] paramList)
 
-  (body, _) <- mfix $ \(_, labelMap) -> do
+  (body, _) <- mfix $ \(_, labelMap) ->
     translateMethodBody df paramMap labelMap em
-  
+
   return SSA.Method { SSA.methodId = fromIntegral (DT.methId em)
                     , SSA.methodName = mname
                     , SSA.methodReturnType = rt
@@ -150,36 +151,216 @@ translateMethod em = do
                     , SSA.methodBody = body
                     }
 
+-- | FIXME: Use the paramMap to populate the initial method knot
 translateMethodBody :: (MonadFix f, Failure DecodeError f)
                        => DT.DexFile
                        -> Map Int Parameter
-                       -> Map Label SSA.Value
+                       -> MethodKnot
                        -> DT.EncodedMethod
-                       -> KnotMonad f (Maybe [BasicBlock], Map Label SSA.Value)
-translateMethodBody _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, M.empty)
+                       -> KnotMonad f (Maybe [BasicBlock], MethodKnot)
+translateMethodBody _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, emptyMethodKnot)
 translateMethodBody df paramMap labelMap em = do
-  -- DT.DexFile -> DT.EncodedMethod -> f Labeling
   labeling <- lift $ labelMethod df em
   let bbs = labelingBasicBlocks labeling
       blockList = basicBlocksAsList bbs
-  (bs, labelMap') <- foldM (translateBlock labeling labelMap) ([], M.empty) blockList
-  return (Just (reverse bs), labelMap')
+  (bs, tiedMknot) <- foldM (translateBlock labeling labelMap) ([], emptyMethodKnot) blockList
+  return (Just (reverse bs), tiedMknot)
+
+data MethodKnot = MethodKnot { mknotValues :: Map Label SSA.Value
+                             , mknotBlocks :: Map BlockNumber SSA.BasicBlock
+                             }
+
+emptyMethodKnot :: MethodKnot
+emptyMethodKnot = MethodKnot M.empty M.empty
 
 -- | To translate a BasicBlock, we first construct any (non-trivial)
 -- phi nodes for the block.  Then translate each instruction.
+--
+-- Note that the phi nodes (if any) are all at the beginning of the
+-- block in an arbitrary order.  Any analysis should process all of
+-- the phi nodes for a single block at once.
 translateBlock :: (Failure DecodeError f)
                   => Labeling
-                  -> Map Label SSA.Value
-                  -> ([BasicBlock], Map Label SSA.Value)
+                  -> MethodKnot
+                  -> ([SSA.BasicBlock], MethodKnot)
                   -> (BlockNumber, Vector DT.Instruction)
-                  -> KnotMonad f ([BasicBlock], Map Label SSA.Value)
-translateBlock labeling labelMap (bs, lmap) (bnum, insts) = do
+                  -> KnotMonad f ([SSA.BasicBlock], MethodKnot)
+translateBlock labeling tiedMknot (bs, mknot) (bnum, insts) = do
   bid <- freshId
-  -- :: Map BlockNumber [Label]
   let blockPhis = M.findWithDefault [] bnum $ labelingBlockPhis labeling
-      b = SSA.BasicBlock { SSA.basicBlockId = bid
+      insts' = V.toList insts
+      -- The last instruction has no successor
+      nexts = drop 1 (map Just insts') ++ [Nothing]
+  (phis, mknot') <- foldM (makePhi labeling tiedMknot) ([], mknot) blockPhis
+  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot) ([], mknot') (zip insts' nexts)
+  let b = SSA.BasicBlock { SSA.basicBlockId = bid
+                         , SSA.basicBlockInstructions = V.fromList $ phis ++ reverse insns
+                         , SSA.basicBlockPhiCount = length phis
                          }
-  return (b : bs, lmap)
+  return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') })
+
+srcLabelForReg :: (Failure DecodeError f, FromRegister r)
+                  => Labeling
+                  -> r
+                  -> KnotMonad f Label
+srcLabelForReg = undefined
+
+dstLabelForReg :: (Failure DecodeError f, FromRegister r)
+                  => Labeling
+                  -> r
+                  -> KnotMonad f Label
+dstLabelForReg = undefined
+
+getFinalValue :: MethodKnot -> Label -> SSA.Value
+getFinalValue mknot lbl =
+  fromMaybe (error ("No value for label: " ++ show lbl)) $ M.lookup lbl (mknotValues mknot)
+
+translateInstruction :: (Failure DecodeError f)
+                        => Labeling
+                        -> MethodKnot
+                        -> ([SSA.Instruction], MethodKnot)
+                        -> (DT.Instruction, Maybe DT.Instruction)
+                        -> KnotMonad f ([SSA.Instruction], MethodKnot)
+translateInstruction labeling tiedMknot acc@(insns, mknot) (inst, next) =
+  case inst of
+    -- These instructions do not show up in SSA form
+    DT.Nop -> return acc
+    DT.Move _ _ _ -> return acc
+    DT.PackedSwitchData _ _ -> return acc
+    DT.SparseSwitchData _ _ -> return acc
+    DT.ArrayData _ _ _ -> return acc
+    -- The rest of the instructions have some representation
+
+    -- The only standalone Move1 is for moving exceptions off of the
+    -- stack and into scope.  The rest will be associated with the
+    -- instruction before them, and can be ignored.
+    DT.Move1 MException dst -> do
+      eid <- freshId
+      lbl <- dstLabelForReg labeling dst
+      let e = SSA.MoveException { instructionId = eid
+                                }
+      return (e : insns, addInstMap mknot lbl e)
+    DT.Move1 _ _ -> return acc
+    DT.ReturnVoid -> do
+      rid <- freshId
+      let r = SSA.Return { instructionId = rid
+                         , instructionType = SSA.VoidType
+                         , returnValue = Nothing
+                         }
+      return (r : insns, mknot)
+    DT.Return _ src -> do
+      rid <- freshId
+      lbl <- srcLabelForReg labeling src
+      let r = SSA.Return { instructionId = rid
+                         , instructionType = SSA.VoidType
+                         , returnValue = Just $ getFinalValue tiedMknot lbl
+                         }
+      return (r : insns, mknot)
+    DT.MonitorEnter src -> do
+      mid <- freshId
+      lbl <- srcLabelForReg labeling src
+      let m = SSA.MonitorEnter { instructionId = mid
+                               , instructionType = SSA.VoidType
+                               , monitorReference = getFinalValue tiedMknot lbl
+                               }
+      return (m : insns, mknot)
+    DT.MonitorExit src -> do
+      mid <- freshId
+      lbl <- srcLabelForReg labeling src
+      let m = SSA.MonitorExit { instructionId = mid
+                              , instructionType = SSA.VoidType
+                              , monitorReference = getFinalValue tiedMknot lbl
+                              }
+      return (m : insns, mknot)
+    DT.CheckCast src tid -> do
+      cid <- freshId
+      lbl <- srcLabelForReg labeling src
+      t <- getTranslatedType tid
+      let c = SSA.CheckCast { instructionId = cid
+                            , instructionType = SSA.VoidType
+                            , castReference = getFinalValue tiedMknot lbl
+                            , castType = t
+                            }
+      return (c : insns, mknot)
+    DT.InstanceOf dst src tid -> do
+      iid <- freshId
+      srcLbl <- srcLabelForReg labeling src
+      dstLbl <- dstLabelForReg labeling dst
+      t <- getTranslatedType tid
+      let i = SSA.InstanceOf { instructionId = iid
+                             , instructionType = t
+                             , instanceOfReference = getFinalValue tiedMknot srcLbl
+                             }
+      return (i : insns, addInstMap mknot dstLbl i)
+    DT.ArrayLength dst src -> do
+      aid <- freshId
+      srcLbl <- srcLabelForReg labeling src
+      dstLbl <- dstLabelForReg labeling dst
+      let a = SSA.ArrayLength { instructionId = aid
+                              , instructionType = IntType
+                              , arrayReference = getFinalValue tiedMknot srcLbl
+                              }
+      return (a : insns, addInstMap mknot dstLbl a)
+    DT.NewInstance dst tid -> do
+      nid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      t <- getTranslatedType tid
+      let n = SSA.NewInstance { instructionId = nid
+                              , instructionType = t
+                              }
+      return (n : insns, addInstMap mknot dstLbl n)
+    DT.NewArray dst src tid -> do
+      nid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      srcLbl <- srcLabelForReg labeling src
+      t <- getTranslatedType tid
+      -- FIXME: Can we find array contents here?  fill-array isn't necessarily
+      -- adjacent to the array allocation.  If it is, fine.  If it isn't, we still need
+      -- the fill-array instruction...
+      let n = SSA.NewArray { instructionId = nid
+                           , instructionType = ArrayType t
+                           , newArrayType = t
+                           , newArrayLength = getFinalValue tiedMknot srcLbl
+                           , newArrayContents = Nothing
+                           }
+      return (n : insns, addInstMap mknot dstLbl n)
+    DT.Throw src -> do
+      tid <- freshId
+      srcLbl <- srcLabelForReg labeling src
+      let t = SSA.Throw { instructionId = tid
+                        , instructionType = VoidType
+                        , throwReference = getFinalValue tiedMknot srcLbl
+                        }
+     return (t : insns, mknot)
+    -- DT.Goto dstBlock -> do
+    --   gid <- freshId
+      
+--    DT.LoadConst dst -> undefined -- This one is special and introduces constants.
+
+addInstMap :: MethodKnot -> Label -> SSA.Instruction -> MethodKnot
+addInstMap mknot lbl i = mknot { mknotValues = M.insert lbl (SSA.InstructionV i) (mknotValues mknot) }
+
+makePhi :: (Failure DecodeError f)
+           => Labeling
+           -> MethodKnot
+           -> ([SSA.Instruction], MethodKnot)
+           -> Label
+           -> KnotMonad f ([SSA.Instruction], MethodKnot)
+makePhi labeling tiedMknot (insns, mknot) lbl@(PhiLabel _ _ _) = do
+  phiId <- freshId
+  --  Map Label (Set Label)
+  let ivs = labelingPhiIncomingValues labeling lbl
+      p = SSA.Phi { SSA.instructionId = phiId
+                  , SSA.instructionType = undefined
+                  , SSA.phiValues = map labelToIncoming ivs
+                  }
+  return (p : insns, mknot { mknotValues = M.insert lbl (InstructionV p) (mknotValues mknot) })
+  where
+    labelToIncoming (incBlock, incLbl) =
+      (fromMaybe (error ("No block for incoming block id: " ++ show incBlock)) $ M.lookup incBlock (mknotBlocks tiedMknot),
+       fromMaybe (error ("No value for incoming value: " ++ show incLbl)) $ M.lookup incLbl (mknotValues tiedMknot))
+makePhi _ _ _ lbl = failure $ NonPhiLabelInBlockHeader $ show lbl
+
 
 makeParameter :: (Failure DecodeError f)
                  => Map Int Parameter
