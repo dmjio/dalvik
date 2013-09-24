@@ -232,7 +232,7 @@ translateInstruction :: (Failure DecodeError f)
                         -> ([SSA.Instruction], MethodKnot)
                         -> (DT.Instruction, Maybe DT.Instruction)
                         -> KnotMonad f ([SSA.Instruction], MethodKnot)
-translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
+translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, nextInst) =
   case inst of
     -- These instructions do not show up in SSA form
     DT.Nop -> return acc
@@ -335,11 +335,55 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
       -- the fill-array instruction...
       let n = SSA.NewArray { instructionId = nid
                            , instructionType = t
-                           , newArrayType = t
                            , newArrayLength = getFinalValue tiedMknot srcLbl
                            , newArrayContents = Nothing
                            }
       return (n : insns, addInstMapping mknot dstLbl n)
+    -- As far as I can tell, this instruction (and its /range variant)
+    -- does roughly what it says: it takes several registers and
+    -- returns a new array with the values held in those registers as
+    -- its contents.  Note that array initializer syntax does *not*
+    -- get the compiler to generate these (that case uses
+    -- fill-array-data).  The compiler only seems to emit these when
+    -- setting up a multi-dimensional array allocation.  But the
+    -- result of this instruction is only used to store the
+    -- *dimensions* of the new array.  The real construction of
+    -- multi-dimensional arrays is delegated to
+    -- @java.lang.reflect.Array.newInstance@.
+    DT.FilledNewArray tid srcRegs -> do
+      nid <- freshId
+      t <- getTranslatedType tid
+      lbls <- mapM (srcLabelForReg labeling) srcRegs
+      c <- getConstantInt (length srcRegs)
+      let n = SSA.NewArray { instructionId = nid
+                           , instructionType = t
+                           , newArrayLength = c
+                           , newArrayContents = Just $ map (getFinalValue tiedMknot) lbls
+                           }
+      -- We have to check the next instruction to see if the result of
+      -- this instruction is saved anywhere.  If it is, the
+      -- instruction introduces a new SSA value (the new array).
+      possibleDestination <- resultSavedAs labeling nextInst
+      case possibleDestination of
+        Nothing -> return (n : insns, mknot)
+        Just dstLbl -> return (n : insns, addInstMapping mknot dstLbl n)
+    DT.FilledNewArrayRange tid srcRegs -> do
+      nid <- freshId
+      t <- getTranslatedType tid
+      lbls <- mapM (srcLabelForReg labeling) srcRegs
+      c <- getConstantInt (length srcRegs)
+      let n = SSA.NewArray { instructionId = nid
+                           , instructionType = t
+                           , newArrayLength = c
+                           , newArrayContents = Just $ map (getFinalValue tiedMknot) lbls
+                           }
+      -- We have to check the next instruction to see if the result of
+      -- this instruction is saved anywhere.  If it is, the
+      -- instruction introduces a new SSA value (the new array).
+      possibleDestination <- resultSavedAs labeling nextInst
+      case possibleDestination of
+        Nothing -> return (n : insns, mknot)
+        Just dstLbl -> return (n : insns, addInstMapping mknot dstLbl n)
     DT.Throw src -> do
       tid <- freshId
       srcLbl <- srcLabelForReg labeling src
@@ -635,7 +679,12 @@ unaryOpType o =
         DT.Float -> SSA.FloatType
         DT.Double -> SSA.DoubleType
 
--- | Look up the type of a labeled value.  Note that we MUST only look
+resultSavedAs :: (Failure DecodeError f) => Labeling -> Maybe DT.Instruction -> KnotMonad f (Maybe Label)
+resultSavedAs labeling (Just (DT.Move1 _ dst)) =
+  liftM Just $ dstLabelForReg labeling dst
+resultSavedAs _ _ = return Nothing
+
+-- | look up the type of a labeled value.  Note that we MUST only look
 -- at values that are already defined.  Looking in the "final" tied
 -- version of the state will lead to a <<loop>>.
 typeOfLabel :: MethodKnot

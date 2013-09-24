@@ -112,7 +112,6 @@ data Instruction = Return { instructionId :: UniqueId
                                }
                  | NewArray { instructionId :: UniqueId
                             , instructionType :: Type
-                            , newArrayType :: Type
                             , newArrayLength :: Value
                             , newArrayContents :: Maybe [Value]
                             }
