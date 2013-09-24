@@ -55,8 +55,12 @@ valueId (InstructionV i) = instructionId i
 valueId (ConstantV c) = constantId c
 valueId (ParameterV p) = parameterId p
 
+-- | A basic block containing 'Instruction's.  We maintain a count of
+-- the phi nodes in the block so that we can efficiently slice out
+-- either instructions or phi nodes for separate processing.
 data BasicBlock = BasicBlock { basicBlockId :: UniqueId
-                             , blockInstructions :: Vector Instruction
+                             , basicBlockInstructions :: Vector Instruction
+                             , basicBlockPhiCount :: Int
                              }
 
 type UniqueId = Int
@@ -65,6 +69,10 @@ data Instruction = Return { instructionId :: UniqueId
                           , instructionType :: Type
                           , returnValue :: Maybe Value
                           }
+                 | MoveException { instructionId :: UniqueId
+                                 , instructionType :: Type
+                                 , exceptionName :: String
+                                 }
                  | MonitorEnter { instructionId :: UniqueId
                                 , instructionType :: Type
                                 , monitorReference :: Value
@@ -81,7 +89,6 @@ data Instruction = Return { instructionId :: UniqueId
                  | InstanceOf { instructionId :: UniqueId
                               , instructionType :: Type
                               , instanceOfReference :: Value
-                              , instanceOfType :: Type
                               }
                  | ArrayLength { instructionId :: UniqueId
                                , instructionType :: Type
@@ -89,7 +96,6 @@ data Instruction = Return { instructionId :: UniqueId
                                }
                  | NewInstance { instructionId :: UniqueId
                                , instructionType :: Type
-                               , newInstanceType :: Type
                                }
                  | NewArray { instructionId :: UniqueId
                             , instructionType :: Type
