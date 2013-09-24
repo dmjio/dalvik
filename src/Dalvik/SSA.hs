@@ -244,7 +244,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
           let e = SSA.MoveException { instructionId = eid
                                     , instructionType = ty
                                     }
-          return (e : insns, addInstMap mknot lbl e)
+          return (e : insns, addInstMapping mknot lbl e)
         Nothing -> failure $ MoveExceptionOutsideOfHandler (show inst)
     DT.Move1 _ _ -> return acc
     DT.ReturnVoid -> do
@@ -297,7 +297,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                              , instructionType = t
                              , instanceOfReference = getFinalValue tiedMknot srcLbl
                              }
-      return (i : insns, addInstMap mknot dstLbl i)
+      return (i : insns, addInstMapping mknot dstLbl i)
     DT.ArrayLength dst src -> do
       aid <- freshId
       srcLbl <- srcLabelForReg labeling src
@@ -306,7 +306,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                               , instructionType = SSA.IntType
                               , arrayReference = getFinalValue tiedMknot srcLbl
                               }
-      return (a : insns, addInstMap mknot dstLbl a)
+      return (a : insns, addInstMapping mknot dstLbl a)
     DT.NewInstance dst tid -> do
       nid <- freshId
       dstLbl <- dstLabelForReg labeling dst
@@ -314,7 +314,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
       let n = SSA.NewInstance { instructionId = nid
                               , instructionType = t
                               }
-      return (n : insns, addInstMap mknot dstLbl n)
+      return (n : insns, addInstMapping mknot dstLbl n)
     DT.NewArray dst src tid -> do
       nid <- freshId
       dstLbl <- dstLabelForReg labeling dst
@@ -329,7 +329,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                            , newArrayLength = getFinalValue tiedMknot srcLbl
                            , newArrayContents = Nothing
                            }
-      return (n : insns, addInstMap mknot dstLbl n)
+      return (n : insns, addInstMapping mknot dstLbl n)
     DT.Throw src -> do
       tid <- freshId
       srcLbl <- srcLabelForReg labeling src
@@ -350,7 +350,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                           , compareOperand1 = getFinalValue tiedMknot src1Lbl
                           , compareOperand2 = getFinalValue tiedMknot src2Lbl
                           }
-      return (c : insns, addInstMap mknot dstLbl c)
+      return (c : insns, addInstMapping mknot dstLbl c)
 
     DT.ArrayOp op dstOrSrc arry ix -> do
       aid <- freshId
@@ -376,7 +376,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                                , arrayReference = getFinalValue tiedMknot arryLbl
                                , arrayIndex = getFinalValue tiedMknot ixLbl
                                }
-          return (a : insns, addInstMap mknot dstLbl a)
+          return (a : insns, addInstMapping mknot dstLbl a)
     DT.InstanceFieldOp op dstOrSrc objLbl field -> do
       iid <- freshId
       f <- getTranslatedField field
@@ -399,7 +399,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                                   , instanceOpReference = getFinalValue tiedMknot refLbl
                                   , instanceOpField = f
                                   }
-          return (i : insns, addInstMap mknot dstLbl i)
+          return (i : insns, addInstMapping mknot dstLbl i)
     DT.StaticFieldOp op dstOrSrc fid -> do
       sid <- freshId
       f <- getTranslatedField fid
@@ -419,7 +419,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                                 , instructionType = t
                                 , staticOpField = f
                                 }
-          return (s : insns, addInstMap mknot dstLbl s)
+          return (s : insns, addInstMapping mknot dstLbl s)
     DT.Unop op dst src -> do
       oid <- freshId
       dstLbl <- dstLabelForReg labeling dst
@@ -429,7 +429,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                           , unaryOperand = getFinalValue tiedMknot srcLbl
                           , unaryOperation = op
                           }
-      return (o : insns, addInstMap mknot dstLbl o)
+      return (o : insns, addInstMapping mknot dstLbl o)
     DT.IBinop op isWide dst src1 src2 -> do
       oid <- freshId
       dstLbl <- dstLabelForReg labeling dst
@@ -442,7 +442,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                            , binaryOperand2 = getFinalValue tiedMknot src2Lbl
                            , binaryOperation = op
                            }
-      return (o : insns, addInstMap mknot dstLbl o)
+      return (o : insns, addInstMapping mknot dstLbl o)
     DT.FBinop op isWide dst src1 src2 -> do
       oid <- freshId
       dstLbl <- dstLabelForReg labeling dst
@@ -454,7 +454,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                            , binaryOperand2 = getFinalValue tiedMknot src2Lbl
                            , binaryOperation = op
                            }
-      return (o : insns, addInstMap mknot dstLbl o)
+      return (o : insns, addInstMapping mknot dstLbl o)
     DT.IBinopAssign op isWide dstAndSrc src -> do
       oid <- freshId
       dstLbl <- dstLabelForReg labeling dstAndSrc
@@ -466,7 +466,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                            , binaryOperand2 = getFinalValue tiedMknot src2Lbl
                            , binaryOperation = op
                            }
-      return (o : insns, addInstMap mknot dstLbl o)
+      return (o : insns, addInstMapping mknot dstLbl o)
     DT.FBinopAssign op isWide dstAndSrc src -> do
       oid <- freshId
       dstLbl <- dstLabelForReg labeling dstAndSrc
@@ -478,7 +478,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                            , binaryOperand2 = getFinalValue tiedMknot src2Lbl
                            , binaryOperation = op
                            }
-      return (o : insns, addInstMap mknot dstLbl o)
+      return (o : insns, addInstMapping mknot dstLbl o)
     DT.BinopLit16 op dst src1 lit -> do
       oid <- freshId
       dstLbl <- dstLabelForReg labeling dst
@@ -490,7 +490,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                            , binaryOperand2 = c
                            , binaryOperation = op
                            }
-      return (o : insns, addInstMap mknot dstLbl o)
+      return (o : insns, addInstMapping mknot dstLbl o)
     DT.BinopLit8 op dst src1 lit -> do
       oid <- freshId
       dstLbl <- dstLabelForReg labeling dst
@@ -502,7 +502,14 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
                            , binaryOperand2 = c
                            , binaryOperation = op
                            }
-      return (o : insns, addInstMap mknot dstLbl o)
+      return (o : insns, addInstMapping mknot dstLbl o)
+    DT.LoadConst dst cnst -> do
+      c <- getConstant cnst
+      dstLbl <- dstLabelForReg labeling dst
+      return (insns, addValueMapping mknot dstLbl c)
+
+getConstant :: (Failure DecodeError f) => n -> KnotMonad f SSA.Value
+getConstant = undefined
 
 getConstantInt :: (Failure DecodeError f, Integral n) => n -> KnotMonad f SSA.Value
 getConstantInt = undefined
@@ -538,10 +545,11 @@ typeOfLabel mknot lbl =
     Nothing -> SSA.UnknownType
     Just v -> valueType v
 
--- mknotValues :: Map Label SSA.Value
+addValueMapping :: MethodKnot -> Label -> SSA.Value -> MethodKnot
+addValueMapping mknot lbl v = mknot { mknotValues = M.insert lbl v (mknotValues mknot) }
 
-addInstMap :: MethodKnot -> Label -> SSA.Instruction -> MethodKnot
-addInstMap mknot lbl i = mknot { mknotValues = M.insert lbl (SSA.InstructionV i) (mknotValues mknot) }
+addInstMapping :: MethodKnot -> Label -> SSA.Instruction -> MethodKnot
+addInstMapping mknot lbl i = addValueMapping mknot lbl (SSA.InstructionV i)
 
 -- | Make a phi node based on the labels we computed earlier.
 makePhi :: (Failure DecodeError f)
