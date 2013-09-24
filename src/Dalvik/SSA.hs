@@ -340,6 +340,7 @@ translateInstruction labeling tiedMknot acc@(insns, mknot) (inst, next) =
 addInstMap :: MethodKnot -> Label -> SSA.Instruction -> MethodKnot
 addInstMap mknot lbl i = mknot { mknotValues = M.insert lbl (SSA.InstructionV i) (mknotValues mknot) }
 
+-- | Make a phi node based on the labels we computed earlier.
 makePhi :: (Failure DecodeError f)
            => Labeling
            -> MethodKnot

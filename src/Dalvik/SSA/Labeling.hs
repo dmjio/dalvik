@@ -82,7 +82,16 @@ data Label = SimpleLabel Int64
 data Labeling =
   Labeling { labelingReadRegs :: Map Int (Map Word16 Label)
            , labelingWriteRegs :: Map Int Label
-           , labelingPhis :: Map Label (Set (BlockNumber, Label))
+           , labelingPhis :: Map Label (Set Label)
+             -- ^ The incoming values for each phi node (phi labels are the map keys)
+           , labelingPhiSources :: Map (Label, Label) (Set BlockNumber)
+             -- ^ Each key is (PhiLabel, IncomingValueLabel) and the
+             -- value associated is the basic block that the incoming
+             -- value came from.  We want to separate them out so that
+             -- trivial phi detection is simple (and left up to the
+             -- Set).  This map can safely have dead values, since it
+             -- will only be read from at SSA translation time, and
+             -- only relevant values will be queried.
            , labelingBlockPhis :: Map BlockNumber [Label]
              -- ^ For each basic block, note which phi labels belong
              -- to it.  This will be needed when we translate basic
@@ -92,10 +101,17 @@ data Labeling =
            }
   deriving (Eq, Ord, Show)
 
+-- | Look up all of the incoming values (tagged with the basic block
+-- that they came from) for a phi node label.  The basic block numbers
+-- are stored separately to make trivial phi elimination simpler, so
+-- we need to attach them to their labels here.
 labelingPhiIncomingValues :: Labeling -> Label -> [(BlockNumber, Label)]
-labelingPhiIncomingValues labeling l = S.toList ivs
+labelingPhiIncomingValues labeling phi = concatMap addBlockNumber (S.toList ivs)
   where
-    Just ivs = M.lookup l (labelingPhis labeling)
+    Just ivs = M.lookup phi (labelingPhis labeling)
+    addBlockNumber iv =
+      let Just tagged = M.lookup (phi, iv) (labelingPhiSources labeling)
+      in zip (S.toList tagged) (repeat iv)
 
 -- | The mutable state we are modifying while labeling.  This mainly
 -- models the register state and phi operands.
@@ -111,10 +127,11 @@ data LabelState =
                -- a result separately from the normal map.  This is only
                -- really required because of the compound instructions
                -- 'IBinopAssign' and 'FBinopAssign'
-             , phiOperands :: Map Label (Set (BlockNumber, Label))
+             , phiOperands :: Map Label (Set Label)
                -- ^ Operands of each phi node.  They are stored
                -- separately to make them easier to update (since they
                -- do need to be updated in several cases).
+             , phiOperandSources :: Map (Label, Label) (Set BlockNumber)
              , incompletePhis :: Map BlockNumber (Map Word16 Label)
                -- ^ These are the phi nodes in each block that cannot
                -- be resolved yet because there are unfilled
@@ -178,6 +195,7 @@ emptyLabelState argRegs =
              , instructionLabels = M.empty
              , instructionResultLabels = M.empty
              , phiOperands = M.empty
+             , phiOperandSources = M.empty
              , incompletePhis = M.empty
              , valueUsers = M.empty
              , filledBlocks = IS.empty
@@ -247,6 +265,7 @@ label' = do
   return $ Labeling { labelingReadRegs = instructionLabels s
                      , labelingWriteRegs = instructionResultLabels s
                      , labelingPhis = phiOperands s
+                     , labelingPhiSources = phiOperandSources s
                      , labelingBlockPhis = foldr addPhiForBlock M.empty $ M.keys (phiOperands s)
                      , labelingBasicBlocks = bbs
                      , labelingInstructions = ivec
@@ -581,7 +600,7 @@ tryRemoveTrivialPhi phi = do
         case u of
           PhiUse phi' -> void $ tryRemoveTrivialPhi phi'
           _ -> return ()
-      return (snd tval)
+      return tval
   where
     isNotThisPhi :: Label -> Use -> Bool
     isNotThisPhi _ (NormalUse _ _ _) = True
@@ -592,10 +611,10 @@ tryRemoveTrivialPhi phi = do
 -- FIXME: This could be made more efficient.  If the new label,
 -- @trivialValue@, isn't an argument, then it should be sufficient to
 -- use writeRegisterLabel for each use.
-replacePhiBy :: [Use] -> Label -> (BlockNumber, Label) -> SSALabeller ()
+replacePhiBy :: [Use] -> Label -> Label -> SSALabeller ()
 replacePhiBy uses oldPhi trivialValue = do
   modify $ \s -> s { phiOperands = M.map (S.map replacePhiUses) (phiOperands s)
-                   , currentDefinition = fmap (fmap replacePhiUses') (currentDefinition s)
+                   , currentDefinition = fmap (fmap replacePhiUses) (currentDefinition s)
                    }
   -- Note that we do nothing right now in the phi use case.  This is
   -- because we have handled phis in the above modify call.  That is
@@ -603,21 +622,24 @@ replacePhiBy uses oldPhi trivialValue = do
   -- to change the PhiUse case here.
   forM_ uses $ \u ->
     case u of
-      NormalUse ix inst reg -> recordAssignment ix inst reg (snd trivialValue)
+      NormalUse ix inst reg -> recordAssignment ix inst reg trivialValue
       PhiUse _ -> return ()
   where
-    replacePhiUses u = if oldPhi == snd u then trivialValue else u
-    replacePhiUses' u = if oldPhi == u then snd trivialValue else u
+    replacePhiUses u = if oldPhi == u then trivialValue else u
 
 -- | A phi node is trivial if it merges two or more distinct values
 -- (besides itself).  Unique operands and then remove self references.
 -- If there is only one label left, return Just that.
-trivialPhiValue :: Label -> SSALabeller (Maybe (BlockNumber, Label))
+--
+-- Note that each phi incoming value label is tagged with the block number
+-- that it came from.  This information is important for the SSA translation
+-- later on, but it can get in the way here.
+trivialPhiValue :: Label -> SSALabeller (Maybe Label)
 trivialPhiValue phi = do
   operandMap <- gets phiOperands
   case M.lookup phi operandMap of
     Just ops ->
-      let withoutSelf = S.filter ((/=phi) . snd) ops
+      let withoutSelf = S.filter (/=phi) ops
     -- FIXME: If the result of this is empty, the phi node is actually
     -- undefined.  We want a special case for that so we can insert an
     -- undefined instruction in the translation phase.  We can't
@@ -636,7 +658,8 @@ appendPhiOperand :: Label -> BlockNumber -> Label -> SSALabeller ()
 appendPhiOperand phi bnum operand = modify appendOperand
   where
     appendOperand s =
-      s { phiOperands = M.insertWith S.union phi (S.singleton (bnum, operand)) (phiOperands s)
+      s { phiOperands = M.insertWith S.union phi (S.singleton operand) (phiOperands s)
+        , phiOperandSources = M.insertWith S.union (phi, operand) (S.singleton bnum) (phiOperandSources s)
         , valueUsers = M.insertWith S.union operand (S.singleton (PhiUse phi)) (valueUsers s)
         }
 
