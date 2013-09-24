@@ -297,7 +297,7 @@ translateInstruction labeling tiedMknot acc@(insns, mknot) (inst, next) =
       srcLbl <- srcLabelForReg labeling src
       dstLbl <- dstLabelForReg labeling dst
       let a = SSA.ArrayLength { instructionId = aid
-                              , instructionType = IntType
+                              , instructionType = SSA.IntType
                               , arrayReference = getFinalValue tiedMknot srcLbl
                               }
       return (a : insns, addInstMap mknot dstLbl a)
@@ -318,7 +318,7 @@ translateInstruction labeling tiedMknot acc@(insns, mknot) (inst, next) =
       -- adjacent to the array allocation.  If it is, fine.  If it isn't, we still need
       -- the fill-array instruction...
       let n = SSA.NewArray { instructionId = nid
-                           , instructionType = ArrayType t
+                           , instructionType = SSA.ArrayType t
                            , newArrayType = t
                            , newArrayLength = getFinalValue tiedMknot srcLbl
                            , newArrayContents = Nothing
@@ -328,14 +328,211 @@ translateInstruction labeling tiedMknot acc@(insns, mknot) (inst, next) =
       tid <- freshId
       srcLbl <- srcLabelForReg labeling src
       let t = SSA.Throw { instructionId = tid
-                        , instructionType = VoidType
+                        , instructionType = SSA.VoidType
                         , throwReference = getFinalValue tiedMknot srcLbl
                         }
       return (t : insns, mknot)
-    -- DT.Goto dstBlock -> do
-    --   gid <- freshId
-      
---    DT.LoadConst dst -> undefined -- This one is special and introduces constants.
+
+    DT.Cmp op dst src1 src2 -> do
+      cid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      src1Lbl <- srcLabelForReg labeling src1
+      src2Lbl <- srcLabelForReg labeling src2
+      let c = SSA.Compare { instructionId = cid
+                          , instructionType = SSA.IntType
+                          , compareOperation = op
+                          , compareOperand1 = getFinalValue tiedMknot src1Lbl
+                          , compareOperand2 = getFinalValue tiedMknot src2Lbl
+                          }
+      return (c : insns, addInstMap mknot dstLbl c)
+
+    DT.ArrayOp op dstOrSrc arry ix -> do
+      aid <- freshId
+      arryLbl <- srcLabelForReg labeling arry
+      ixLbl <- srcLabelForReg labeling ix
+      case op of
+        Put _ -> do
+          pvLbl <- srcLabelForReg labeling dstOrSrc
+          let a = SSA.ArrayPut { instructionId = aid
+                               , instructionType = SSA.VoidType
+                               , arrayReference = getFinalValue tiedMknot arryLbl
+                               , arrayIndex = getFinalValue tiedMknot ixLbl
+                               , arrayPutValue = getFinalValue tiedMknot pvLbl
+                               }
+          return (a : insns, mknot)
+        Get _ -> do
+          dstLbl <- dstLabelForReg labeling dstOrSrc
+          let a = SSA.ArrayGet { instructionId = aid
+                               , instructionType =
+                                 case typeOfLabel mknot arryLbl of
+                                   SSA.ArrayType t -> t
+                                   _ -> UnknownType
+                               , arrayReference = getFinalValue tiedMknot arryLbl
+                               , arrayIndex = getFinalValue tiedMknot ixLbl
+                               }
+          return (a : insns, addInstMap mknot dstLbl a)
+    DT.InstanceFieldOp op dstOrSrc objLbl field -> do
+      iid <- freshId
+      f <- getTranslatedField field
+      refLbl <- srcLabelForReg labeling objLbl
+      case op of
+        Put _ -> do
+          valLbl <- srcLabelForReg labeling dstOrSrc
+          let i = SSA.InstancePut { instructionId = iid
+                                  , instructionType = SSA.VoidType
+                                  , instanceOpReference = getFinalValue tiedMknot refLbl
+                                  , instanceOpField = f
+                                  , instanceOpPutValue = getFinalValue tiedMknot valLbl
+                                  }
+          return (i : insns, mknot)
+        Get _ -> do
+          dstLbl <- dstLabelForReg labeling dstOrSrc
+          t <- getFieldType field
+          let i = SSA.InstanceGet { instructionId = iid
+                                  , instructionType = t
+                                  , instanceOpReference = getFinalValue tiedMknot refLbl
+                                  , instanceOpField = f
+                                  }
+          return (i : insns, addInstMap mknot dstLbl i)
+    DT.StaticFieldOp op dstOrSrc fid -> do
+      sid <- freshId
+      f <- getTranslatedField fid
+      case op of
+        Put _ -> do
+          valLbl <- srcLabelForReg labeling dstOrSrc
+          let s = SSA.StaticPut { instructionId = sid
+                                , instructionType = VoidType
+                                , staticOpField = f
+                                , staticOpPutValue = getFinalValue tiedMknot valLbl
+                                }
+          return (s : insns, mknot)
+        Get _ -> do
+          t <- getFieldType fid
+          dstLbl <- dstLabelForReg labeling dstOrSrc
+          let s = SSA.StaticGet { instructionId = sid
+                                , instructionType = t
+                                , staticOpField = f
+                                }
+          return (s : insns, addInstMap mknot dstLbl s)
+    DT.Unop op dst src -> do
+      oid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      srcLbl <- srcLabelForReg labeling src
+      let o = SSA.UnaryOp { instructionId = oid
+                          , instructionType = unaryOpType op
+                          , unaryOperand = getFinalValue tiedMknot srcLbl
+                          , unaryOperation = op
+                          }
+      return (o : insns, addInstMap mknot dstLbl o)
+    DT.IBinop op isWide dst src1 src2 -> do
+      oid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      src1Lbl <- srcLabelForReg labeling src1
+      src2Lbl <- srcLabelForReg labeling src2
+      let o = SSA.BinaryOp { instructionId = oid
+                                             -- FIXME: Can this be short or byte?
+                           , instructionType = if isWide then SSA.LongType else SSA.IntType
+                           , binaryOperand1 = getFinalValue tiedMknot src1Lbl
+                           , binaryOperand2 = getFinalValue tiedMknot src2Lbl
+                           , binaryOperation = op
+                           }
+      return (o : insns, addInstMap mknot dstLbl o)
+    DT.FBinop op isWide dst src1 src2 -> do
+      oid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      src1Lbl <- srcLabelForReg labeling src1
+      src2Lbl <- srcLabelForReg labeling src2
+      let o = SSA.BinaryOp { instructionId = oid
+                           , instructionType = if isWide then SSA.DoubleType else SSA.FloatType
+                           , binaryOperand1 = getFinalValue tiedMknot src1Lbl
+                           , binaryOperand2 = getFinalValue tiedMknot src2Lbl
+                           , binaryOperation = op
+                           }
+      return (o : insns, addInstMap mknot dstLbl o)
+    DT.IBinopAssign op isWide dstAndSrc src -> do
+      oid <- freshId
+      dstLbl <- dstLabelForReg labeling dstAndSrc
+      src1Lbl <- srcLabelForReg labeling dstAndSrc
+      src2Lbl <- srcLabelForReg labeling src
+      let o = SSA.BinaryOp { instructionId = oid
+                           , instructionType = if isWide then SSA.LongType else SSA.IntType
+                           , binaryOperand1 = getFinalValue tiedMknot src1Lbl
+                           , binaryOperand2 = getFinalValue tiedMknot src2Lbl
+                           , binaryOperation = op
+                           }
+      return (o : insns, addInstMap mknot dstLbl o)
+    DT.FBinopAssign op isWide dstAndSrc src -> do
+      oid <- freshId
+      dstLbl <- dstLabelForReg labeling dstAndSrc
+      src1Lbl <- srcLabelForReg labeling dstAndSrc
+      src2Lbl <- srcLabelForReg labeling src
+      let o = SSA.BinaryOp { instructionId = oid
+                           , instructionType = if isWide then SSA.DoubleType else SSA.FloatType
+                           , binaryOperand1 = getFinalValue tiedMknot src1Lbl
+                           , binaryOperand2 = getFinalValue tiedMknot src2Lbl
+                           , binaryOperation = op
+                           }
+      return (o : insns, addInstMap mknot dstLbl o)
+    DT.BinopLit16 op dst src1 lit -> do
+      oid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      srcLbl <- srcLabelForReg labeling src1
+      c <- getConstantInt lit
+      let o = SSA.BinaryOp { instructionId = oid
+                           , instructionType = SSA.IntType
+                           , binaryOperand1 = getFinalValue tiedMknot srcLbl
+                           , binaryOperand2 = c
+                           , binaryOperation = op
+                           }
+      return (o : insns, addInstMap mknot dstLbl o)
+    DT.BinopLit8 op dst src1 lit -> do
+      oid <- freshId
+      dstLbl <- dstLabelForReg labeling dst
+      srcLbl <- srcLabelForReg labeling src1
+      c <- getConstantInt lit
+      let o = SSA.BinaryOp { instructionId = oid
+                           , instructionType = SSA.IntType
+                           , binaryOperand1 = getFinalValue tiedMknot srcLbl
+                           , binaryOperand2 = c
+                           , binaryOperation = op
+                           }
+      return (o : insns, addInstMap mknot dstLbl o)
+
+getConstantInt :: (Failure DecodeError f, Integral n) => n -> KnotMonad f SSA.Value
+getConstantInt = undefined
+
+-- | Determine the result type of a unary operation
+unaryOpType :: DT.Unop -> SSA.Type
+unaryOpType o =
+  case o of
+    DT.NegInt -> SSA.IntType
+    DT.NotInt -> SSA.IntType
+    DT.NegLong -> SSA.LongType
+    DT.NotLong -> SSA.LongType
+    DT.NegFloat -> SSA.FloatType
+    DT.NegDouble -> SSA.DoubleType
+    DT.Convert _ ctype ->
+      case ctype of
+        DT.Byte -> SSA.ByteType
+        DT.Char -> SSA.CharType
+        DT.Short -> SSA.ShortType
+        DT.Int -> SSA.IntType
+        DT.Long -> SSA.LongType
+        DT.Float -> SSA.FloatType
+        DT.Double -> SSA.DoubleType
+
+-- | Look up the type of a labeled value.  Note that we MUST only look
+-- at values that are already defined.  Looking in the "final" tied
+-- version of the state will lead to a <<loop>>.
+typeOfLabel :: MethodKnot
+               -> Label
+               -> SSA.Type
+typeOfLabel mknot lbl =
+  case M.lookup lbl (mknotValues mknot) of
+    Nothing -> SSA.UnknownType
+    Just v -> valueType v
+
+-- mknotValues :: Map Label SSA.Value
 
 addInstMap :: MethodKnot -> Label -> SSA.Instruction -> MethodKnot
 addInstMap mknot lbl i = mknot { mknotValues = M.insert lbl (SSA.InstructionV i) (mknotValues mknot) }
@@ -389,6 +586,20 @@ getTranslatedType tid = do
   ts <- asks knotTypes
   let t = M.lookup tid ts
   maybe (error ("No SSA type for " ++ show tid)) return t
+
+getTranslatedField :: (Failure DecodeError f) => DT.FieldId -> KnotMonad f SSA.Field
+getTranslatedField fid = do
+  fs <- asks knotFields
+  let f = M.lookup fid fs
+  maybe (error ("No SSA field for " ++ show fid)) return f
+
+-- | This does not touch the tied knot and is safe to call from
+-- anywhere (since Types are translated first).
+getFieldType :: (Failure DecodeError f) => DT.FieldId -> KnotMonad f SSA.Type
+getFieldType fid = do
+  rawFields <- gets (DT.dexFields . knotDexFile)
+  let Just rawField = M.lookup fid rawFields
+  getTranslatedType (DT.fieldTypeId rawField)
 
 translateField :: (Failure DecodeError f) => DT.EncodedField -> KnotMonad f SSA.Field
 translateField ef = do

@@ -22,6 +22,9 @@ data Value = InstructionV Instruction
            | ConstantV Constant
            | ParameterV Parameter
 
+-- FIXME: These will need to be adjusted to reflect the actual
+-- primitives available...  Unfortunately, typing them will be
+-- difficult.
 data Constant = ConstantInt !Int !Int64
               | ConstantDouble !Int !Double
               | ConstantString !Int String
@@ -37,6 +40,9 @@ constantId (ConstantBoolean i _) = i
 constantId (ConstantChar i _) = i
 constantId (ConstantNull i) = i
 
+constantType :: Constant -> Type
+constantType _ = UnknownType
+
 data Type = VoidType
           | ByteType
           | ShortType
@@ -48,12 +54,20 @@ data Type = VoidType
           | BooleanType
           | ArrayType Type
           | ReferenceType ClassName -- Class
+          | UnknownType
+            -- ^ We use this in cases where we can't deduce a type
+            -- during the SSA translation
           deriving (Eq, Ord, Show)
 
 valueId :: Value -> UniqueId
 valueId (InstructionV i) = instructionId i
 valueId (ConstantV c) = constantId c
 valueId (ParameterV p) = parameterId p
+
+valueType :: Value -> Type
+valueType (InstructionV i) = instructionType i
+valueType (ConstantV c) = constantType c
+valueType (ParameterV p) = parameterType p
 
 -- | A basic block containing 'Instruction's.  We maintain a count of
 -- the phi nodes in the block so that we can efficiently slice out
@@ -151,35 +165,34 @@ data Instruction = Return { instructionId :: UniqueId
                             }
                  | StaticGet { instructionId :: UniqueId
                              , instructionType :: Type
-                             , staticClass :: Type
-                             , staticFieldName :: String
-                             , staticFieldNumber :: Int
+                             , staticOpField :: Field
                              }
                  | StaticPut { instructionId :: UniqueId
                              , instructionType :: Type
-                             , staticClass :: Type
-                             , staticFieldName :: String
-                             , staticFieldNumber :: Int
-                             , staticPutValue :: Value
+                             , staticOpField :: Field
+                             , staticOpPutValue :: Value
                              }
-                 | FieldGet { instructionId :: UniqueId
-                            , instructionType :: Type
-                            , fieldReference :: Value
---                            , fieldName :: String
-                            , fieldNumber :: Int
+                 | InstanceGet { instructionId :: UniqueId
+                               , instructionType :: Type
+                               , instanceOpReference :: Value
+                               , instanceOpField :: Field
+                               }
+                 | InstancePut { instructionId :: UniqueId
+                               , instructionType :: Type
+                               , instanceOpReference :: Value
+                               , instanceOpField :: Field
+                               , instanceOpPutValue :: Value
                             }
-                 | FieldPut { instructionId :: UniqueId
-                            , instructionType :: Type
-                            , fieldReference :: Value
---                            , fieldName :: String
-                            , fieldNumber :: Int
-                            , fieldPutValue :: Value
-                            }
-                 | Invoke { instructionId :: UniqueId
-                          , instructionType :: Type
-                          , invokeMethod :: InvokeMethod
-                          , invokeArguments :: [Value]
-                          }
+                 | InvokeVirtual { instructionId :: UniqueId
+                                 , instructionType :: Type
+                                 , invokeVirtualMethod :: InvokeVirtualMethod
+                                 , invokeArguments :: [Value]
+                                 }
+                 | InvokeDirect { instructionId :: UniqueId
+                                , instructionType :: Type
+                                , invokeDirectMethod :: InvokeDirectMethod
+                                , invokeArguments :: [Value]
+                                }
                  | Phi { instructionId :: UniqueId
                        , instructionType :: Type
                        , phiValues :: [(BasicBlock, Value)]
@@ -232,8 +245,9 @@ instance Ord Field where
 data MethodRef = ClassMethodRef Class Int
                | InterfaceMethodRef Interface Int
 
-data InvokeMethod = InvokeInterface MethodRef
-                  | InvokeVirtual MethodRef
-                  | InvokeSuper MethodRef
-                  | InvokeStatic Method
-                  | InvokeDirect Method
+data InvokeDirectMethod = MethodInvokeStatic
+                        | MethodInvokeDirect
+
+data InvokeVirtualMethod = MethodInvokeInterface
+                         | MethodInvokeSuper
+                         | MethodInvokeVirtual
