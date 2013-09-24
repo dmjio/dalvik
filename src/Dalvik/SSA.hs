@@ -334,7 +334,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
       -- adjacent to the array allocation.  If it is, fine.  If it isn't, we still need
       -- the fill-array instruction...
       let n = SSA.NewArray { instructionId = nid
-                           , instructionType = SSA.ArrayType t
+                           , instructionType = t
                            , newArrayType = t
                            , newArrayLength = getFinalValue tiedMknot srcLbl
                            , newArrayContents = Nothing
