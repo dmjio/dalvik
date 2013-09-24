@@ -10,6 +10,7 @@ import Control.Monad.Fix
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.List as L
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
@@ -199,6 +200,11 @@ translateBlock labeling tiedMknot (bs, mknot) (bnum, insts) = do
                          }
   return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') })
 
+-- FIXME: We could insert unconditional branches at the end of any
+-- basic blocks that fallthrough without an explicit transfer
+-- instruction...  That might not be useful, though, since there are
+-- already implicit terminators in the presence of exceptions.
+
 srcLabelForReg :: (Failure DecodeError f, FromRegister r)
                   => Labeling
                   -> r
@@ -214,6 +220,10 @@ dstLabelForReg = undefined
 getFinalValue :: MethodKnot -> Label -> SSA.Value
 getFinalValue mknot lbl =
   fromMaybe (error ("No value for label: " ++ show lbl)) $ M.lookup lbl (mknotValues mknot)
+
+getFinalBlock :: MethodKnot -> BlockNumber -> SSA.BasicBlock
+getFinalBlock mknot bnum =
+  fromMaybe (error ("No basic block: " ++ show bnum)) $ M.lookup bnum (mknotBlocks mknot)
 
 translateInstruction :: (Failure DecodeError f)
                         => Labeling
@@ -507,6 +517,97 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
       c <- getConstant cnst
       dstLbl <- dstLabelForReg labeling dst
       return (insns, addValueMapping mknot dstLbl c)
+    DT.Goto _ -> do
+      bid <- freshId
+      let [(Unconditional, targetBlock)] = basicBlockBranchTargets bbs bnum
+          b = SSA.UnconditionalBranch { instructionId = bid
+                                      , instructionType = SSA.VoidType
+                                      , branchTarget = getFinalBlock tiedMknot targetBlock
+                                      }
+      return (b : insns, mknot)
+    DT.Goto16 _ -> do
+      bid <- freshId
+      let [(Unconditional, targetBlock)] = basicBlockBranchTargets bbs bnum
+          b = SSA.UnconditionalBranch { instructionId = bid
+                                      , instructionType = SSA.VoidType
+                                      , branchTarget = getFinalBlock tiedMknot targetBlock
+                                      }
+      return (b : insns, mknot)
+    DT.Goto32 _ -> do
+      bid <- freshId
+      let [(Unconditional, targetBlock)] = basicBlockBranchTargets bbs bnum
+          b = SSA.UnconditionalBranch { instructionId = bid
+                                      , instructionType = SSA.VoidType
+                                      , branchTarget = getFinalBlock tiedMknot targetBlock
+                                      }
+      return (b : insns, mknot)
+    DT.PackedSwitch src _ -> do
+      bid <- freshId
+      srcLbl <- srcLabelForReg labeling src
+      let targets = basicBlockBranchTargets bbs bnum
+          ([(Fallthrough, ft)], caseEdges) = L.partition isFallthroughEdge targets
+          toSwitchTarget (c, t) =
+            let SwitchCase val = c
+            in (val, getFinalBlock tiedMknot t)
+          b = SSA.Switch { instructionId = bid
+                         , instructionType = SSA.VoidType
+                         , switchValue = getFinalValue tiedMknot srcLbl
+                         , switchTargets = map toSwitchTarget caseEdges
+                         , switchFallthrough = getFinalBlock tiedMknot ft
+                         }
+      return (b : insns, mknot)
+    DT.SparseSwitch src _ -> do
+      bid <- freshId
+      srcLbl <- srcLabelForReg labeling src
+      let targets = basicBlockBranchTargets bbs bnum
+          ([(Fallthrough, ft)], caseEdges) = L.partition isFallthroughEdge targets
+          toSwitchTarget (c, t) =
+            let SwitchCase val = c
+            in (val, getFinalBlock tiedMknot t)
+          b = SSA.Switch { instructionId = bid
+                         , instructionType = SSA.VoidType
+                         , switchValue = getFinalValue tiedMknot srcLbl
+                         , switchTargets = map toSwitchTarget caseEdges
+                         , switchFallthrough = getFinalBlock tiedMknot ft
+                         }
+      return (b : insns, mknot)
+    DT.If op src1 src2 _ -> do
+      bid <- freshId
+      src1Lbl <- srcLabelForReg labeling src1
+      src2Lbl <- srcLabelForReg labeling src2
+      let targets = basicBlockBranchTargets bbs bnum
+          ([(Fallthrough, ft)], [(Conditional, ct)]) = L.partition isFallthroughEdge targets
+          b = SSA.ConditionalBranch { instructionId = bid
+                                    , instructionType = VoidType
+                                    , branchOperand1 = getFinalValue tiedMknot src1Lbl
+                                    , branchOperand2 = getFinalValue tiedMknot src2Lbl
+                                    , branchTestType = op
+                                    , branchTarget = getFinalBlock tiedMknot ct
+                                    , branchFallthrough = getFinalBlock tiedMknot ft
+                                    }
+      return (b : insns, mknot)
+    DT.IfZero op src _ -> do
+      bid <- freshId
+      srcLbl <- srcLabelForReg labeling src
+      zero <- getConstantInt (0 :: Int)
+      let targets = basicBlockBranchTargets bbs bnum
+          ([(Fallthrough, ft)], [(Conditional, ct)]) = L.partition isFallthroughEdge targets
+          b = SSA.ConditionalBranch { instructionId = bid
+                                    , instructionType = VoidType
+                                    , branchOperand1 = getFinalValue tiedMknot srcLbl
+                                    , branchOperand2 = zero
+                                    , branchTestType = op
+                                    , branchTarget = getFinalBlock tiedMknot ct
+                                    , branchFallthrough = getFinalBlock tiedMknot ft
+                                    }
+      return (b : insns, mknot)
+    
+  where
+    bbs = labelingBasicBlocks labeling
+
+isFallthroughEdge :: (JumpCondition, BlockNumber) -> Bool
+isFallthroughEdge (Fallthrough, _) = True
+isFallthroughEdge _ = False
 
 getConstant :: (Failure DecodeError f) => n -> KnotMonad f SSA.Value
 getConstant = undefined

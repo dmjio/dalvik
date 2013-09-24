@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 -- | Split an 'Instruction' stream into basic blocks.
 --
 -- This is a support module for the SSA labelling module.
@@ -17,17 +18,20 @@ module Dalvik.SSA.BasicBlocks (
   BlockNumber,
   TypeName,
   ExceptionRange(..),
+  JumpCondition(..),
   basicBlockForInstruction,
   basicBlockPredecessors,
   basicBlockSuccessors,
   basicBlocksAsList,
   basicBlockHandlesException,
+  basicBlockBranchTargets,
   findBasicBlocks,
   instructionBlockNumber,
   instructionEndsBlock
   ) where
 
 import qualified Data.ByteString as BS
+import Data.Int ( Int64 )
 import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
 import Data.IntervalMap.Strict ( IntervalMap )
@@ -73,13 +77,27 @@ data BasicBlocks =
               , bbPredecessors :: Vector [BlockNumber]
                 -- ^ One entry per basic block
               , bbSuccessors :: Vector [BlockNumber]
+                -- ^ Again, one entry per basic block
               , bbBlockEnds :: IntSet
                 -- ^ Ends of all block ranges.  We need these because
                 -- some blocks end on implicit fallthrough on
                 -- instructions that are *not* terminators.
               , bbBlockExceptionTypes :: Map BlockNumber BS.ByteString
+                -- ^ For each basic block that begins a catch block,
+                -- record the type of the exception handled by that
+                -- catch block.  This is required to translate the
+                -- move-exception instruction into SSA form.
+              , bbBranchTargets :: Map BlockNumber [(JumpCondition, BlockNumber)]
+                -- ^ Record the targets of the explicit terminator
+                -- instructions in each block.  We need these to
+                -- translate terminator statements, generally.
               }
   deriving (Eq, Ord, Show)
+
+basicBlockBranchTargets :: BasicBlocks -> BlockNumber -> [(JumpCondition, BlockNumber)]
+basicBlockBranchTargets bbs bnum = ts
+  where
+    Just ts = M.lookup bnum (bbBranchTargets bbs)
 
 -- | Determine what type, if any, is handled in the named basic block
 basicBlockHandlesException :: BasicBlocks -> BlockNumber -> Maybe BS.ByteString
@@ -148,10 +166,11 @@ findBasicBlocks ivec ers =
               , bbBlockEnds = blockEnds
               , bbBlockExceptionTypes =
                 exceptionBlockTypes (resolveOffsetFrom env 0) bmapVec ers
+              , bbBranchTargets = btargets
               }
   where
     env = makeEnv ivec ers
-    (preds, succs) = buildPredecessors env bvec bmapVec blockEnds
+    (preds, succs, btargets) = buildPredecessors env bvec bmapVec blockEnds
     (bvec, bnumMap) = splitIntoBlocks env
     bmapVec = buildInstructionBlockMap bnumMap
     blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
@@ -205,16 +224,17 @@ buildPredecessors :: BBEnv
                   -> Vector (BlockNumber, Vector Instruction)
                   -> Vector BlockNumber
                   -> IntSet
-                  -> (Vector [BlockNumber], Vector [BlockNumber])
+                  -> (Vector [BlockNumber], Vector [BlockNumber], Map BlockNumber [(JumpCondition, BlockNumber)])
 buildPredecessors env bvec bmap blockEnds =
   (V.generate (V.length bvec) getPreds,
-   V.generate (V.length bvec) getSuccs)
+   V.generate (V.length bvec) getSuccs,
+   branchTargets)
   where
     ivec = envInstVec env
     getPreds ix = S.toList $ fromMaybe S.empty $ M.lookup ix predMap
     getSuccs ix = S.toList $ fromMaybe S.empty $ M.lookup ix succMap
-    (predMap, succMap) = V.ifoldl' addTermSuccs (M.empty, M.empty) ivec
-    addTermSuccs m@(pm, sm) ix inst
+    (predMap, succMap, branchTargets) = V.ifoldl' addTermSuccs (M.empty, M.empty, M.empty) ivec
+    addTermSuccs m@(pm, sm, bts) ix inst
       -- @inst@ is a fallthrough instruction that implicitly ends a block,
       -- so we need to make an entry for it.  We don't make an entry for the
       -- last instruction in the function.
@@ -225,13 +245,22 @@ buildPredecessors env bvec bmap blockEnds =
             Just termBlock = bmap V.!? ix
             Just targetBlock = bmap V.!? target
         in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
-            M.insertWith S.union termBlock (S.singleton targetBlock) sm)
+            M.insertWith S.union termBlock (S.singleton targetBlock) sm,
+            bts)
+           -- We only update the branch targets map in this branch
+           -- because we only need to know target information for
+           -- explicit branch instructions.
       | otherwise = fromMaybe m $ do
           targets <- terminatorAbsoluteTargets env ix inst
           termBlock <- bmap V.!? ix
-          let targetBlocks = mapMaybe (bmap V.!?) targets
-              addSuccsPreds (p, s) targetBlock = (M.insertWith S.union targetBlock (S.singleton termBlock) p,
-                                                  M.insertWith S.union termBlock (S.singleton targetBlock) s)
+          let instIndexToBlockNum (cond, tix) = do
+                bnum <- bmap V.!? tix
+                return (cond, bnum)
+              targetBlocks = mapMaybe instIndexToBlockNum targets
+              addSuccsPreds (p, s, b) (condition, targetBlock) =
+                (M.insertWith S.union targetBlock (S.singleton termBlock) p,
+                 M.insertWith S.union termBlock (S.singleton targetBlock) s,
+                 M.insertWith (++) termBlock [(condition, targetBlock)] b)
           return $ L.foldl' addSuccsPreds m targetBlocks
 
 buildInstructionBlockMap :: Map (Int, Int) BlockNumber -> Vector BlockNumber
@@ -285,35 +314,56 @@ addTargetIndex :: BBEnv -> IntSet -> Int -> Instruction -> IntSet
 addTargetIndex env acc ix inst =
   case terminatorAbsoluteTargets env ix inst of
     Nothing -> acc
-    Just targets -> L.foldl' (flip IS.insert) acc targets
+    Just targets -> L.foldl' (flip IS.insert) acc (map snd targets)
+
+data JumpCondition = Unconditional
+                   | Fallthrough
+                   | SwitchCase Int64
+                   | Conditional
+                   | Exceptional
+                   deriving (Eq, Ord, Show)
 
 -- | Find the absolute target indices (into the instruction vector) for each
 -- block terminator instruction.  The conditional branches have explicit
 -- targets, but can also allow execution to fall through.
-terminatorAbsoluteTargets :: BBEnv -> Int -> Instruction -> Maybe [Int]
+terminatorAbsoluteTargets :: BBEnv -> Int -> Instruction -> Maybe [(JumpCondition, Int)]
 terminatorAbsoluteTargets env ix inst =
   case inst of
-    Goto i8 -> Just [resolveOffsetFrom env ix (fromIntegral i8)]
-    Goto16 i16 -> Just [resolveOffsetFrom env ix (fromIntegral i16)]
-    Goto32 i32 -> Just [resolveOffsetFrom env ix (fromIntegral i32)]
+    Goto i8 -> Just [(Unconditional, resolveOffsetFrom env ix (fromIntegral i8))]
+    Goto16 i16 -> Just [(Unconditional, resolveOffsetFrom env ix (fromIntegral i16))]
+    Goto32 i32 -> Just [(Unconditional, resolveOffsetFrom env ix (fromIntegral i32))]
     PackedSwitch _ tableOff ->
       let tableVecOff = resolveOffsetFrom env ix (fromIntegral tableOff)
           ivec = envInstVec env
-          Just (PackedSwitchData _ offs) = ivec V.!? tableVecOff
-      in Just (ix + 1 : [resolveOffsetFrom env ix (fromIntegral o) | o <- offs])
+          Just (PackedSwitchData startVal offs) = ivec V.!? tableVecOff
+          indexedOffsets = zip [startVal..] offs
+          ft = (Fallthrough, ix + 1)
+          cases = [ (SwitchCase (fromIntegral switchVal), resolveOffsetFrom env ix (fromIntegral o))
+                  | (switchVal, o) <- indexedOffsets
+                  ]
+      in Just (ft : cases)
     SparseSwitch _ tableOff ->
       let tableVecOff = resolveOffsetFrom env ix (fromIntegral tableOff)
           ivec = envInstVec env
-          Just (SparseSwitchData _ offs) = ivec V.!? tableVecOff
-      in Just (ix + 1 : [resolveOffsetFrom env ix (fromIntegral o) | o <- offs])
-    If _ _ _ off -> Just [ix + 1, resolveOffsetFrom env ix (fromIntegral off)]
-    IfZero _ _ off -> Just [ix + 1, resolveOffsetFrom env ix (fromIntegral off)]
+          Just (SparseSwitchData vals offs) = ivec V.!? tableVecOff
+          indexedOffsets = zip vals offs
+          ft = (Fallthrough, ix + 1)
+          cases = [ (SwitchCase (fromIntegral switchVal), resolveOffsetFrom env ix (fromIntegral o))
+                  | (switchVal, o) <- indexedOffsets
+                  ]
+      in Just (ft : cases)
+    If _ _ _ off -> Just [ (Fallthrough, ix + 1)
+                         , (Conditional, resolveOffsetFrom env ix (fromIntegral off))
+                         ]
+    IfZero _ _ off -> Just [ (Fallthrough, ix + 1)
+                           , (Conditional, resolveOffsetFrom env ix (fromIntegral off))
+                           ]
     ReturnVoid -> Just []
     Return _ _ -> Just []
     -- Throw is always a terminator.  It may or may not have targets
     -- within the function.  We can also refine these if we *know* the
     -- concrete type of the exception thrown.
-    Throw _ -> Just $ relevantHandlersInScope env ix inst
+    Throw _ -> Just $ map (Exceptional,) $ relevantHandlersInScope env ix inst
     -- For all other instructions, we need to do a more thorough lookup.
     -- See Note [Exceptional Control Flow] for details.
     --
@@ -323,7 +373,7 @@ terminatorAbsoluteTargets env ix inst =
     _ ->
       case relevantHandlersInScope env ix inst of
         [] -> Nothing
-        hs -> Just $ S.toList $ S.fromList $ (ix+1) : hs
+        hs -> Just $ (Fallthrough, ix+1) : map (Exceptional,) (S.toList (S.fromList hs))
 
 -- | Traverse handlers that are in scope from innermost to outermost.
 -- If any matches the exception type thrown by this instruction, take

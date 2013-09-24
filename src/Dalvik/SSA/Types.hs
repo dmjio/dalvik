@@ -122,8 +122,11 @@ data Instruction = Return { instructionId :: UniqueId
                          }
                  | ConditionalBranch { instructionId :: UniqueId
                                      , instructionType :: Type
-                                     , branchPredicate :: Value
+                                     , branchOperand1 :: Value
+                                     , branchOperand2 :: Value
+                                     , branchTestType :: LL.IfOp
                                      , branchTarget :: BasicBlock
+                                     , branchFallthrough :: BasicBlock
                                      }
                  | UnconditionalBranch { instructionId :: UniqueId
                                        , instructionType :: Type
@@ -133,6 +136,7 @@ data Instruction = Return { instructionId :: UniqueId
                           , instructionType :: Type
                           , switchValue :: Value
                           , switchTargets :: [(Int64, BasicBlock)]
+                          , switchFallthrough :: BasicBlock
                           }
                  | Compare { instructionId :: UniqueId
                            , instructionType :: Type
