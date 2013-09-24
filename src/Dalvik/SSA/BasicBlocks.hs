@@ -142,7 +142,7 @@ makeEnv ivec ers =
     revMap acc ix off = M.insert off ix acc
     addHandler r m =
       let s = resolveOffsetFrom env0 0 $ fromIntegral $ erOffset r
-          e = resolveOffsetFrom env0 s $ fromIntegral $ erCount r -- - 1
+          e = resolveOffsetFrom env0 s $ fromIntegral $ erCount r
       in IM.insert (IM.ClosedInterval s e) r m
 
 resolveOffsetFrom :: BBEnv
