@@ -192,7 +192,7 @@ translateBlock labeling tiedMknot (bs, mknot) (bnum, insts) = do
       -- The last instruction has no successor
       nexts = drop 1 (map Just insts') ++ [Nothing]
   (phis, mknot') <- foldM (makePhi labeling tiedMknot) ([], mknot) blockPhis
-  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot) ([], mknot') (zip insts' nexts)
+  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip insts' nexts)
   let b = SSA.BasicBlock { SSA.basicBlockId = bid
                          , SSA.basicBlockInstructions = V.fromList $ phis ++ reverse insns
                          , SSA.basicBlockPhiCount = length phis
@@ -218,10 +218,11 @@ getFinalValue mknot lbl =
 translateInstruction :: (Failure DecodeError f)
                         => Labeling
                         -> MethodKnot
+                        -> BlockNumber
                         -> ([SSA.Instruction], MethodKnot)
                         -> (DT.Instruction, Maybe DT.Instruction)
                         -> KnotMonad f ([SSA.Instruction], MethodKnot)
-translateInstruction labeling tiedMknot acc@(insns, mknot) (inst, next) =
+translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, next) =
   case inst of
     -- These instructions do not show up in SSA form
     DT.Nop -> return acc
@@ -237,9 +238,14 @@ translateInstruction labeling tiedMknot acc@(insns, mknot) (inst, next) =
     DT.Move1 MException dst -> do
       eid <- freshId
       lbl <- dstLabelForReg labeling dst
-      let e = SSA.MoveException { instructionId = eid
-                                }
-      return (e : insns, addInstMap mknot lbl e)
+      case basicBlockHandlesException (labelingBasicBlocks labeling) bnum of
+        Just exname -> do
+          ty <- parseTypeName exname
+          let e = SSA.MoveException { instructionId = eid
+                                    , instructionType = ty
+                                    }
+          return (e : insns, addInstMap mknot lbl e)
+        Nothing -> failure $ MoveExceptionOutsideOfHandler (show inst)
     DT.Move1 _ _ -> return acc
     DT.ReturnVoid -> do
       rid <- freshId

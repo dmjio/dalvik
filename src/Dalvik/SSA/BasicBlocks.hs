@@ -21,6 +21,7 @@ module Dalvik.SSA.BasicBlocks (
   basicBlockPredecessors,
   basicBlockSuccessors,
   basicBlocksAsList,
+  basicBlockHandlesException,
   findBasicBlocks,
   instructionBlockNumber,
   instructionEndsBlock
@@ -48,6 +49,10 @@ type TypeName = BS.ByteString
 
 -- | Descriptions of exception handlers within a method.  Each of the
 -- Word32 fields is an offset into the instruction stream (0-indexed).
+-- @erOffset@ is the first @ushort@ in the instruction stream covered
+-- by the try block. @erCount@ is the number of @ushort@s in the
+-- instruction stream after the start covered by the try block.  The
+-- other fields describe handlers.
 data ExceptionRange =
   ExceptionRange { erOffset :: Word32
                  , erCount :: Word16
@@ -72,8 +77,13 @@ data BasicBlocks =
                 -- ^ Ends of all block ranges.  We need these because
                 -- some blocks end on implicit fallthrough on
                 -- instructions that are *not* terminators.
+              , bbBlockExceptionTypes :: Map BlockNumber BS.ByteString
               }
   deriving (Eq, Ord, Show)
+
+-- | Determine what type, if any, is handled in the named basic block
+basicBlockHandlesException :: BasicBlocks -> BlockNumber -> Maybe BS.ByteString
+basicBlockHandlesException bbs bnum = M.lookup bnum (bbBlockExceptionTypes bbs)
 
 -- | Extract the basic blocks into a more directly-usable form.
 basicBlocksAsList :: BasicBlocks -> [(BlockNumber, Vector Instruction)]
@@ -136,6 +146,8 @@ findBasicBlocks ivec ers =
               , bbPredecessors = preds
               , bbSuccessors = succs
               , bbBlockEnds = blockEnds
+              , bbBlockExceptionTypes =
+                exceptionBlockTypes (resolveOffsetFrom env 0) bmapVec ers
               }
   where
     env = makeEnv ivec ers
@@ -144,6 +156,19 @@ findBasicBlocks ivec ers =
     bmapVec = buildInstructionBlockMap bnumMap
     blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
     collectEnds (_, e) _ = IS.insert e
+
+exceptionBlockTypes :: (Int -> Int)
+                       -> Vector BlockNumber
+                       -> [ExceptionRange]
+                       -> Map BlockNumber BS.ByteString
+exceptionBlockTypes toInstIdx bnumMap =
+  L.foldl' addBlockHandlerTypes M.empty
+  where
+    addBlockHandlerTypes m er = L.foldl' addHandlerType m (erCatch er)
+    addHandlerType m (name, offset) =
+      let instIdx = toInstIdx (fromIntegral offset)
+          Just bnum = bnumMap V.!? instIdx
+      in M.insert bnum name m
 
 -- | Test if the instruction at the given index into the instruction
 -- stream ends a basic block.  This covers both explicit block ends

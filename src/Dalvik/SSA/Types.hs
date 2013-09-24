@@ -85,7 +85,6 @@ data Instruction = Return { instructionId :: UniqueId
                           }
                  | MoveException { instructionId :: UniqueId
                                  , instructionType :: Type
-                                 , exceptionName :: String
                                  }
                  | MonitorEnter { instructionId :: UniqueId
                                 , instructionType :: Type
