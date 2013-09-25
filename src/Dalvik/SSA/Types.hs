@@ -22,23 +22,17 @@ data Value = InstructionV Instruction
            | ConstantV Constant
            | ParameterV Parameter
 
--- FIXME: These will need to be adjusted to reflect the actual
--- primitives available...  Unfortunately, typing them will be
--- difficult.
-data Constant = ConstantInt !Int !Int64
-              | ConstantDouble !Int !Double
-              | ConstantString !Int String
-              | ConstantBoolean !Int !Bool
-              | ConstantChar !Int !Char
-              | ConstantNull !Int
+-- FIXME: For now, all numeric constants are integer types because we
+-- can't tell (without a type inference pass) what type a constant
+-- really is.  Dalvik is untyped.
+data Constant = ConstantInt !UniqueId !Int64
+              | ConstantString !UniqueId String
+              | ConstantClass !UniqueId Type
 
 constantId :: Constant -> Int
 constantId (ConstantInt i _) = i
-constantId (ConstantDouble i _) = i
 constantId (ConstantString i _) = i
-constantId (ConstantBoolean i _) = i
-constantId (ConstantChar i _) = i
-constantId (ConstantNull i) = i
+constantId (ConstantClass i _) = i
 
 constantType :: Constant -> Type
 constantType _ = UnknownType

@@ -28,6 +28,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | InvalidArrayDataList Int [Word16]
                  | InvalidArrayDataElementSize Word16
                  | NoArrayDataForFillArray Int
+                 | NoLabelForExpectedRegister String Word16 Int
                  deriving (Eq, Ord, Show)
 
 decodeErrorAsString :: DecodeError -> String
@@ -65,6 +66,8 @@ decodeErrorAsString (InvalidArrayDataElementSize esz) =
   printf "Invalid array data element size in array-data-payload: %d" esz
 decodeErrorAsString (NoArrayDataForFillArray ix) =
   printf "No array-data-payload for fill-array at index %d" ix
+decodeErrorAsString (NoLabelForExpectedRegister loc regNo ix) =
+  printf "Missing SSA label for expected %s register %s at %s" loc regNo ix
 
 data DexHeader =
   DexHeader
