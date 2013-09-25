@@ -115,6 +115,11 @@ data Instruction = Return { instructionId :: UniqueId
                             , newArrayLength :: Value
                             , newArrayContents :: Maybe [Value]
                             }
+                 | FillArray { instructionId :: UniqueId
+                             , instructionType :: Type
+                             , fillArrayReference :: Value
+                             , fillArrayContents :: [Int64]
+                             }
                  | Throw { instructionId :: UniqueId
                          , instructionType :: Type
                          , throwReference :: Value

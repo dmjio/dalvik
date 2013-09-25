@@ -164,7 +164,7 @@ translateMethodBody df paramMap labelMap em = do
   labeling <- lift $ labelMethod df em
   let bbs = labelingBasicBlocks labeling
       blockList = basicBlocksAsList bbs
-  (bs, tiedMknot) <- foldM (translateBlock labeling labelMap) ([], emptyMethodKnot) blockList
+  (bs, tiedMknot, _) <- foldM (translateBlock labeling labelMap) ([], emptyMethodKnot, 0) blockList
   return (Just (reverse bs), tiedMknot)
 
 data MethodKnot = MethodKnot { mknotValues :: Map Label SSA.Value
@@ -183,22 +183,22 @@ emptyMethodKnot = MethodKnot M.empty M.empty
 translateBlock :: (Failure DecodeError f)
                   => Labeling
                   -> MethodKnot
-                  -> ([SSA.BasicBlock], MethodKnot)
+                  -> ([SSA.BasicBlock], MethodKnot, Int)
                   -> (BlockNumber, Vector DT.Instruction)
-                  -> KnotMonad f ([SSA.BasicBlock], MethodKnot)
-translateBlock labeling tiedMknot (bs, mknot) (bnum, insts) = do
+                  -> KnotMonad f ([SSA.BasicBlock], MethodKnot, Int)
+translateBlock labeling tiedMknot (bs, mknot, indexCounter) (bnum, insts) = do
   bid <- freshId
   let blockPhis = M.findWithDefault [] bnum $ labelingBlockPhis labeling
       insts' = V.toList insts
       -- The last instruction has no successor
       nexts = drop 1 (map Just insts') ++ [Nothing]
   (phis, mknot') <- foldM (makePhi labeling tiedMknot) ([], mknot) blockPhis
-  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip insts' nexts)
+  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip3 [indexCounter..] insts' nexts)
   let b = SSA.BasicBlock { SSA.basicBlockId = bid
                          , SSA.basicBlockInstructions = V.fromList $ phis ++ reverse insns
                          , SSA.basicBlockPhiCount = length phis
                          }
-  return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') })
+  return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') }, indexCounter + length insts')
 
 -- FIXME: We could insert unconditional branches at the end of any
 -- basic blocks that fallthrough without an explicit transfer
@@ -230,9 +230,9 @@ translateInstruction :: (Failure DecodeError f)
                         -> MethodKnot
                         -> BlockNumber
                         -> ([SSA.Instruction], MethodKnot)
-                        -> (DT.Instruction, Maybe DT.Instruction)
+                        -> (Int, DT.Instruction, Maybe DT.Instruction)
                         -> KnotMonad f ([SSA.Instruction], MethodKnot)
-translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, nextInst) =
+translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst, nextInst) =
   case inst of
     -- These instructions do not show up in SSA form
     DT.Nop -> return acc
@@ -330,9 +330,6 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, nextInst)
       dstLbl <- dstLabelForReg labeling dst
       srcLbl <- srcLabelForReg labeling src
       t <- getTranslatedType tid
-      -- FIXME: Can we find array contents here?  fill-array isn't necessarily
-      -- adjacent to the array allocation.  If it is, fine.  If it isn't, we still need
-      -- the fill-array instruction...
       let n = SSA.NewArray { instructionId = nid
                            , instructionType = t
                            , newArrayLength = getFinalValue tiedMknot srcLbl
@@ -384,6 +381,26 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (inst, nextInst)
       case possibleDestination of
         Nothing -> return (n : insns, mknot)
         Just dstLbl -> return (n : insns, addInstMapping mknot dstLbl n)
+    DT.FillArrayData src off -> do
+      aid <- freshId
+      srcLbl <- srcLabelForReg labeling src
+      -- The array data payload is stored as Word16 (ushort).  The
+      -- payload instruction tells us how many *bytes* are required
+      -- for each actual data item.  If it is 1 (for bytes), then we
+      -- need to split code units.  If it is 2, we have the raw data.
+      -- If it is 4 or 8, we need to combine adjacent units.
+      --
+      -- If the dex file is endian swapped, we apparently need to
+      -- byte swap each ushort.  Not doing that yet...
+      case instructionAtRawOffsetFrom bbs instIndex off of
+        Just (DT.ArrayData _ _ numbers) ->
+          let a = SSA.FillArray { instructionId = aid
+                                , instructionType = SSA.VoidType
+                                , fillArrayReference = getFinalValue tiedMknot srcLbl
+                                , fillArrayContents = numbers
+                                }
+          in return (a : insns, mknot)
+        _ -> failure $ NoArrayDataForFillArray instIndex
     DT.Throw src -> do
       tid <- freshId
       srcLbl <- srcLabelForReg labeling src

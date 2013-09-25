@@ -27,7 +27,8 @@ module Dalvik.SSA.BasicBlocks (
   basicBlockBranchTargets,
   findBasicBlocks,
   instructionBlockNumber,
-  instructionEndsBlock
+  instructionEndsBlock,
+  instructionAtRawOffsetFrom
   ) where
 
 import qualified Data.ByteString as BS
@@ -63,6 +64,7 @@ data ExceptionRange =
                  , erCatch :: [(BS.ByteString, Word32)]
                  , erCatchAll :: Maybe Word32
                  }
+  deriving (Eq, Ord, Show)
 
 -- | Unique (within a method) basic block identifiers
 type BlockNumber = Int
@@ -91,8 +93,19 @@ data BasicBlocks =
                 -- ^ Record the targets of the explicit terminator
                 -- instructions in each block.  We need these to
                 -- translate terminator statements, generally.
+              , bbEnv :: BBEnv
               }
   deriving (Eq, Ord, Show)
+
+-- | Given the index of an Instruction in the instruction vector and a
+-- raw Dalvik offset, compute the instruction referenced by the
+-- relative offset.  Raw offsets are in units of @ushort@, which do
+-- **not** correspond one-to-one with instructions.
+instructionAtRawOffsetFrom :: (Integral a) => BasicBlocks -> Int -> a -> Maybe Instruction
+instructionAtRawOffsetFrom bbs ix offset =
+  envInstVec (bbEnv bbs) V.!? targetIndex
+  where
+    targetIndex = resolveOffsetFrom (bbEnv bbs) ix (fromIntegral offset)
 
 basicBlockBranchTargets :: BasicBlocks -> BlockNumber -> [(JumpCondition, BlockNumber)]
 basicBlockBranchTargets bbs bnum = ts
@@ -126,6 +139,7 @@ data BBEnv =
           -- target Instruction by looking it up here.
         , envExceptionHandlers :: Handlers
         }
+  deriving (Eq, Ord, Show)
 
 makeEnv :: Vector Instruction -> [ExceptionRange] -> BBEnv
 makeEnv ivec ers =
@@ -167,6 +181,7 @@ findBasicBlocks ivec ers =
               , bbBlockExceptionTypes =
                 exceptionBlockTypes (resolveOffsetFrom env 0) bmapVec ers
               , bbBranchTargets = btargets
+              , bbEnv = env
               }
   where
     env = makeEnv ivec ers

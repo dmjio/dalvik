@@ -27,6 +27,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | MoveExceptionOutsideOfHandler String
                  | InvalidArrayDataList Int [Word16]
                  | InvalidArrayDataElementSize Word16
+                 | NoArrayDataForFillArray Int
                  deriving (Eq, Ord, Show)
 
 decodeErrorAsString :: DecodeError -> String
@@ -62,6 +63,8 @@ decodeErrorAsString (InvalidArrayDataList eltSz ws) =
   printf "Could not decode array data list (%d bytes per element): %s" eltSz (show ws)
 decodeErrorAsString (InvalidArrayDataElementSize esz) =
   printf "Invalid array data element size in array-data-payload: %d" esz
+decodeErrorAsString (NoArrayDataForFillArray ix) =
+  printf "No array-data-payload for fill-array at index %d" ix
 
 data DexHeader =
   DexHeader
