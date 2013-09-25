@@ -108,9 +108,11 @@ translateClass k (tid, klass) = do
   instanceFields <- mapM translateField (DT.classInstanceFields klass)
   directMethods <- mapM translateMethod (DT.classDirectMethods klass)
   virtualMethods <- mapM translateMethod (DT.classVirtualMethods klass)
+  itypes <- mapM getTranslatedType (DT.classInterfaces klass)
   let c = SSA.Class { SSA.classId = cid
                     , SSA.className = cname
                     , SSA.classParent = parent
+                    , SSA.classInterfaces = itypes
                     , SSA.classStaticFields = staticFields
                     , SSA.classInstanceFields = instanceFields
                     , SSA.classDirectMethods = directMethods

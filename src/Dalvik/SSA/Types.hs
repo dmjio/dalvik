@@ -219,15 +219,10 @@ data Method = Method { methodId :: UniqueId
                      , methodBody :: Maybe [BasicBlock]
                      }
 
-data Interface = Interface { interfaceId :: UniqueId
-                           , interfaceName :: String
-                           , interfaceMethods :: [Method]
-                           }
-
 data Class = Class { classId :: UniqueId
                    , className :: String
                    , classParent :: Maybe Class
-                   , classInterfaces :: [Interface]
+                   , classInterfaces :: [Type]
                    , classDirectMethods :: [Method]
                    , classVirtualMethods :: [Method]
                    , classStaticFields :: [Field]
@@ -250,7 +245,7 @@ instance Ord Field where
   compare = compare `on` fieldId
 
 data MethodRef = ClassMethodRef Class Int
-               | InterfaceMethodRef Interface Int
+
 
 data InvokeDirectMethod = MethodInvokeStatic
                         | MethodInvokeDirect
