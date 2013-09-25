@@ -86,8 +86,6 @@ data KnotState = KnotState { knotIdSrc :: Int
 initialKnotState :: DT.DexFile -> KnotState
 initialKnotState = KnotState 0
 
--- | FIXME: Attach the Class to ReferenceTypes.  This will require some changes
--- to the test suite...
 translateType :: (Failure DecodeError f)
                  => DT.DexFile
                  -> Knot
