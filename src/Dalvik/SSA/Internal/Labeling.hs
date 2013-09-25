@@ -54,7 +54,6 @@ import Control.Failure
 import Control.Monad ( filterM, forM_, liftM, void )
 import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString as BS
-import Data.Int ( Int64 )
 import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
 import Data.Map ( Map )
@@ -78,9 +77,9 @@ import Dalvik.SSA.Internal.RegisterAssignment
 
 -- | Types of label.  Arguments and Phi nodes have special labels
 -- carrying extra information.
-data Label = SimpleLabel Int64
-           | PhiLabel BlockNumber [BlockNumber] Int64
-           | ArgumentLabel BS.ByteString Int64
+data Label = SimpleLabel Int
+           | PhiLabel BlockNumber [BlockNumber] Int
+           | ArgumentLabel BS.ByteString Int
            deriving (Eq, Ord, Show)
 
 -- | A labeling assigns an SSA number/Label to a register at *each*
@@ -158,7 +157,7 @@ data LabelState =
                -- ^ A block is sealed if all of its predecessors are
                -- filled.  Phi node operands are only computed for
                -- sealed blocks (so that all operands are available).
-             , labelCounter :: Int64
+             , labelCounter :: Int
                -- ^ A source of label unique IDs
              }
 
