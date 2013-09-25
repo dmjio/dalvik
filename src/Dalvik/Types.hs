@@ -29,6 +29,8 @@ data DecodeError = PrematureEnd Word8 Word16
                  | InvalidArrayDataElementSize Word16
                  | NoArrayDataForFillArray Int
                  | NoLabelForExpectedRegister String Word16 Int
+                 | NoParameterAtIndex MethodId Int
+                 | NonArgumentLabelInParameterList MethodId String
                  deriving (Eq, Ord, Show)
 
 decodeErrorAsString :: DecodeError -> String
@@ -68,6 +70,11 @@ decodeErrorAsString (NoArrayDataForFillArray ix) =
   printf "No array-data-payload for fill-array at index %d" ix
 decodeErrorAsString (NoLabelForExpectedRegister loc regNo ix) =
   printf "Missing SSA label for expected %s register %s at %s" loc regNo ix
+decodeErrorAsString (NoParameterAtIndex mix ix) =
+  printf "No parameter at expected argument list index %d in method %d" ix mix
+decodeErrorAsString (NonArgumentLabelInParameterList mix lbl) =
+  printf "Non-argument typed label (%s) in argument label list for method %d" lbl mix
+
 
 data DexHeader =
   DexHeader

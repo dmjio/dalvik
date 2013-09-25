@@ -103,6 +103,8 @@ data Labeling =
              -- blocks to the SSA IR.
            , labelingBasicBlocks :: BasicBlocks
            , labelingInstructions :: Vector Instruction
+           , labelingParameters :: [Label]
+             -- ^ The argument labels allocated for this function
            }
   deriving (Eq, Ord, Show)
 
@@ -297,6 +299,7 @@ label' = do
   -- labeling.
   s <- get
   bbs <- asks envBasicBlocks
+  argLabels <- asks (M.elems . envRegisterAssignment)
   return $ Labeling { labelingReadRegs = instructionLabels s
                      , labelingWriteRegs = instructionResultLabels s
                      , labelingPhis = phiOperands s
@@ -304,6 +307,7 @@ label' = do
                      , labelingBlockPhis = foldr addPhiForBlock M.empty $ M.keys (phiOperands s)
                      , labelingBasicBlocks = bbs
                      , labelingInstructions = ivec
+                     , labelingParameters = argLabels
                      }
   where
     addPhiForBlock p@(PhiLabel bnum _ _) m = M.insertWith (++) bnum [p] m

@@ -177,7 +177,6 @@ translateMethod em = do
                     , SSA.methodBody = body
                     }
 
--- | FIXME: Use the paramMap to populate the initial method knot
 translateMethodBody :: (MonadFix f, Failure DecodeError f)
                        => DT.DexFile
                        -> Map Int Parameter
@@ -187,10 +186,19 @@ translateMethodBody :: (MonadFix f, Failure DecodeError f)
 translateMethodBody _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, emptyMethodKnot)
 translateMethodBody df paramMap labelMap em = do
   labeling <- lift $ labelMethod df em
-  let bbs = labelingBasicBlocks labeling
+  let parameterLabels = labelingParameters labeling
+      bbs = labelingBasicBlocks labeling
       blockList = basicBlocksAsList bbs
-  (bs, tiedMknot, _) <- foldM (translateBlock labeling labelMap) ([], emptyMethodKnot, 0) blockList
+  mknot0 <- foldM addParameterLabel emptyMethodKnot parameterLabels
+  (bs, tiedMknot, _) <- foldM (translateBlock labeling labelMap) ([], mknot0, 0) blockList
   return (Just (reverse bs), tiedMknot)
+  where
+    addParameterLabel mknot l@(ArgumentLabel _ ix) =
+      case M.lookup ix paramMap of
+        Nothing -> failure $ NoParameterAtIndex (DT.methId em) ix
+        Just param ->
+          return mknot { mknotValues = M.insert l (ParameterV param) (mknotValues mknot) }
+    addParameterLabel _ l = failure $ NonArgumentLabelInParameterList (DT.methId em) (show l)
 
 data MethodKnot = MethodKnot { mknotValues :: Map Label SSA.Value
                              , mknotBlocks :: Map BlockNumber SSA.BasicBlock
@@ -743,21 +751,6 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
 isFallthroughEdge :: (JumpCondition, BlockNumber) -> Bool
 isFallthroughEdge (Fallthrough, _) = True
 isFallthroughEdge _ = False
-
-{-
-data ConstArg
-  = Const4 Int32
-  | Const16 Int32
-  | Const32 Int32
-  | ConstHigh16 Int32
-  | ConstWide16 Int64
-  | ConstWide32 Int64
-  | ConstWide Int64
-  | ConstWideHigh16 Int64
-  | ConstString StringId
-  | ConstStringJumbo StringId
-  | ConstClass TypeId
--}
 
 getConstant :: (Failure DecodeError f) => DT.ConstArg -> KnotMonad f SSA.Value
 getConstant ca =
