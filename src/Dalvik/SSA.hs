@@ -776,10 +776,9 @@ makePhi :: (Failure DecodeError f)
            -> KnotMonad f ([SSA.Instruction], MethodKnot)
 makePhi labeling tiedMknot (insns, mknot) lbl@(PhiLabel _ _ _) = do
   phiId <- freshId
-  --  Map Label (Set Label)
   let ivs = labelingPhiIncomingValues labeling lbl
       p = SSA.Phi { SSA.instructionId = phiId
-                  , SSA.instructionType = undefined
+                  , SSA.instructionType = SSA.UnknownType
                   , SSA.phiValues = map labelToIncoming ivs
                   }
   return (p : insns, mknot { mknotValues = M.insert lbl (InstructionV p) (mknotValues mknot) })
