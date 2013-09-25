@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Dalvik.SSA where
 
 import Control.Arrow ( first )
@@ -18,6 +19,7 @@ import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word (Word16)
 
+import Dalvik.AccessFlags as DT
 import Dalvik.Instruction as DT
 import Dalvik.Types as DT
 import Dalvik.SSA.BasicBlocks
@@ -27,33 +29,50 @@ import Dalvik.SSA.Internal.Names
 
 toSSA :: (MonadFix f, Failure DecodeError f) => DT.DexFile -> f SSA.DexFile
 toSSA df = do
-  -- FIXME: Might want to put references to the appropriate class
-  -- in ReferenceType - then we would need to add the type map into
-  -- the knot tying process
   dexIdentifierBS <- getStr df (dexThisId df)
-  Knot { knotClasses = cmap } <- mfix $ \knot ->
-    liftM fst $ evalRWST tieKnot knot (initialKnotState df)
+  Knot { knotClasses = cmap } <- mfix (tieKnot df)
   return SSA.DexFile { dexIdentifier = BS.unpack dexIdentifierBS
                      , SSA.dexClasses = M.elems cmap
                      }
 
-tieKnot :: (MonadFix f, Failure DecodeError f) => KnotMonad f Knot
-tieKnot = do
-  df <- gets knotDexFile
-  knot' <- foldM translateType emptyKnot $ M.toList (DT.dexTypeNames df)
-  foldM translateClass knot' $ M.toList (DT.dexClasses df)
+tieKnot :: (MonadFix f, Failure DecodeError f) => DT.DexFile -> Knot -> f Knot
+tieKnot df tiedKnot = do
+  knot' <- foldM (translateType df) emptyKnot $ M.toList (DT.dexTypeNames df)
+  liftM fst $ evalRWST startTranslation (tiedKnot, knot') (initialKnotState df)
+  where
+    startTranslation = do
+      knot <- asks initialEnv
+      knot' <- foldM translateFieldRef knot $ M.toList (DT.dexFields df)
+      knot'' <- foldM translateMethodRef knot' $ M.toList (DT.dexMethods df)
+      local (const (tiedKnot, knot'')) (translateClasses knot'')
+    translateClasses knot = foldM translateClass knot $ M.toList (DT.dexClasses df)
 
-type KnotMonad f = RWST Knot () KnotState f
+tiedEnv :: (Knot, Knot) -> Knot
+tiedEnv = fst
 
+initialEnv :: (Knot, Knot) -> Knot
+initialEnv = snd
+
+type KnotMonad f = RWST (Knot, Knot) () KnotState f
+
+-- | Before we start tying the knot, types, fields, and methodRefs are
+-- all completely defined.
 data Knot = Knot { knotClasses :: Map DT.TypeId SSA.Class
-                 , knotMethods :: Map DT.MethodId SSA.Method
+                 , knotMethodDefs :: Map DT.MethodId SSA.Method
+                 , knotMethodRefs :: Map DT.MethodId SSA.MethodRef
                  , knotFields :: Map DT.FieldId SSA.Field
                  , knotTypes :: Map DT.TypeId SSA.Type
                  }
 
+getMethodRef :: (Failure DecodeError f) => DT.MethodId -> KnotMonad f SSA.MethodRef
+getMethodRef mid = do
+  mrefs <- asks (knotMethodRefs . initialEnv)
+  maybe (failure (NoMethodAtIndex mid)) return $ M.lookup mid mrefs
+
 emptyKnot :: Knot
 emptyKnot  = Knot { knotClasses = M.empty
-                  , knotMethods = M.empty
+                  , knotMethodDefs = M.empty
+                  , knotMethodRefs = M.empty
                   , knotFields = M.empty
                   , knotTypes = M.empty
                   }
@@ -68,11 +87,11 @@ initialKnotState = KnotState 0
 -- | FIXME: Attach the Class to ReferenceTypes.  This will require some changes
 -- to the test suite...
 translateType :: (Failure DecodeError f)
-                 => Knot
+                 => DT.DexFile
+                 -> Knot
                  -> (DT.TypeId, DT.StringId)
-                 -> KnotMonad f Knot
-translateType m (tid, _) = do
-  df <- gets knotDexFile
+                 -> f Knot
+translateType df m (tid, _) = do
   tname <- getTypeName df tid
   ty <- parseTypeName tname
   return m { knotTypes = M.insert tid ty (knotTypes m) }
@@ -86,7 +105,7 @@ lookupClass :: (Failure DecodeError f)
                => DT.TypeId
                -> KnotMonad f (Maybe SSA.Class)
 lookupClass tid = do
-  klasses <- asks knotClasses
+  klasses <- asks (knotClasses . tiedEnv)
   return $ M.lookup tid klasses
 
 getTranslatedClass :: (Failure DecodeError f)
@@ -104,8 +123,8 @@ translateClass k (tid, klass) = do
   cid <- freshId
   cname <- getStr' $ classSourceNameId klass
   parent <- lookupClass (classSuperId klass)
-  staticFields <- mapM translateField (DT.classStaticFields klass)
-  instanceFields <- mapM translateField (DT.classInstanceFields klass)
+  staticFields <- mapM (translateField k) (DT.classStaticFields klass)
+  instanceFields <- mapM (translateField k) (DT.classInstanceFields klass)
   directMethods <- mapM translateMethod (DT.classDirectMethods klass)
   virtualMethods <- mapM translateMethod (DT.classVirtualMethods klass)
   itypes <- mapM getTranslatedType (DT.classInterfaces klass)
@@ -664,9 +683,46 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
                                     , branchFallthrough = getFinalBlock tiedMknot ft
                                     }
       return (b : insns, mknot)
-    
+    DT.Invoke ikind _isVarArg mId argRegs -> do
+      srcLbls <- mapM (srcLabelForReg labeling) argRegs
+      case ikind of
+        DT.Virtual -> translateVirtualInvoke MethodInvokeVirtual mId srcLbls
+        DT.Super -> translateVirtualInvoke MethodInvokeSuper mId srcLbls
+        DT.Interface -> translateVirtualInvoke MethodInvokeInterface mId srcLbls
+        DT.Direct -> translateDirectInvoke MethodInvokeDirect mId srcLbls
+        DT.Static -> translateDirectInvoke MethodInvokeStatic mId srcLbls
+
   where
     bbs = labelingBasicBlocks labeling
+    translateVirtualInvoke ikind mid argLbls = do
+      iid <- freshId
+      mref <- getMethodRef mid
+      let i = SSA.InvokeVirtual { instructionId = iid
+                                , instructionType = methodRefReturnType mref
+                                , invokeVirtualKind = ikind
+                                , invokeVirtualMethod = mref
+                                , invokeArguments = map (getFinalValue tiedMknot) argLbls
+                                }
+      possibleDestination <- resultSavedAs labeling nextInst
+      case possibleDestination of
+        Nothing -> return (i : insns, mknot)
+        Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
+    translateDirectInvoke ikind mid argLbls = do
+      iid <- freshId
+      mref <- getMethodRef mid
+      mdef <- getTranslatedMethod mid
+      let i = SSA.InvokeDirect { instructionId = iid
+                               , instructionType = methodRefReturnType mref
+                               , invokeDirectKind = ikind
+                               , invokeDirectMethod = mref
+                               , invokeDirectMethodDef = mdef
+                               , invokeArguments = map (getFinalValue tiedMknot) argLbls
+                               }
+      possibleDestination <- resultSavedAs labeling nextInst
+      case possibleDestination of
+        Nothing -> return (i : insns, mknot)
+        Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
+
 
 isFallthroughEdge :: (JumpCondition, BlockNumber) -> Bool
 isFallthroughEdge (Fallthrough, _) = True
@@ -763,18 +819,24 @@ getRawField' fid = do
   df <- gets knotDexFile
   lift $ getField df fid
 
-
+-- | We do not consult the tied knot for types since we can translate
+-- them all up-front.
 getTranslatedType :: (Failure DecodeError f) => DT.TypeId -> KnotMonad f SSA.Type
 getTranslatedType tid = do
-  ts <- asks knotTypes
-  let t = M.lookup tid ts
-  maybe (error ("No SSA type for " ++ show tid)) return t
+  ts <- asks (knotTypes . initialEnv)
+  case M.lookup tid ts of
+    Nothing -> failure $ NoTypeAtIndex tid
+    Just t -> return t
 
 getTranslatedField :: (Failure DecodeError f) => DT.FieldId -> KnotMonad f SSA.Field
 getTranslatedField fid = do
-  fs <- asks knotFields
-  let f = M.lookup fid fs
-  maybe (error ("No SSA field for " ++ show fid)) return f
+  fs <- asks (knotFields . initialEnv)
+  maybe (failure (NoFieldAtIndex fid)) return $ M.lookup fid fs
+
+getTranslatedMethod :: (Failure DecodeError f) => DT.MethodId -> KnotMonad f (Maybe SSA.Method)
+getTranslatedMethod mid = do
+  ms <- asks (knotMethodDefs . tiedEnv)
+  return $  M.lookup mid ms
 
 -- | This does not touch the tied knot and is safe to call from
 -- anywhere (since Types are translated first).
@@ -784,18 +846,45 @@ getFieldType fid = do
   let Just rawField = M.lookup fid rawFields
   getTranslatedType (DT.fieldTypeId rawField)
 
-translateField :: (Failure DecodeError f) => DT.EncodedField -> KnotMonad f SSA.Field
-translateField ef = do
-  f <- getRawField' (DT.fieldId ef)
+translateFieldRef :: (Failure DecodeError f)
+                     => Knot
+                     -> (DT.FieldId, DT.Field)
+                     -> KnotMonad f Knot
+translateFieldRef knot (fid, f) = do
   fname <- getStr' (DT.fieldNameId f)
   ftype <- getTranslatedType (DT.fieldTypeId f)
-  klass <- getTranslatedClass (DT.fieldClassId f)
-  return SSA.Field { SSA.fieldId = fromIntegral $ DT.fieldId ef
-                   , SSA.fieldAccessFlags = DT.fieldAccessFlags ef
-                   , SSA.fieldName = fname
-                   , SSA.fieldType = ftype
-                   , SSA.fieldClass = klass
-                   }
+  klass <- getTranslatedType (DT.fieldClassId f)
+  let fld = SSA.Field { SSA.fieldId = fromIntegral fid
+                      , SSA.fieldName = fname
+                      , SSA.fieldType = ftype
+                      , SSA.fieldClass = klass
+                      }
+  return knot { knotFields = M.insert fid fld (knotFields knot) }
+
+translateMethodRef :: (Failure DecodeError f)
+                      => Knot
+                      -> (DT.MethodId, DT.Method)
+                      -> KnotMonad f Knot
+translateMethodRef knot (mid, m) = do
+  proto <- getRawProto' (DT.methProtoId m)
+  mname <- getStr' (DT.methNameId m)
+  rt <- getTranslatedType (DT.protoRet proto)
+  cid <- getTranslatedType (DT.methClassId m)
+  ptypes <- mapM getTranslatedType (DT.protoParams proto)
+
+  let mref = SSA.MethodRef { SSA.methodRefId = fromIntegral mid
+                           , SSA.methodRefClass = cid
+                           , SSA.methodRefName = mname
+                           , SSA.methodRefReturnType = rt
+                           , SSA.methodRefParameterTypes = ptypes
+                           }
+  return knot { knotMethodRefs = M.insert mid mref (knotMethodRefs knot) }
+
+translateField :: (Failure DecodeError f) => Knot -> DT.EncodedField -> KnotMonad f (DT.AccessFlags, SSA.Field)
+translateField knot ef = do
+  case M.lookup (DT.fieldId ef) (knotFields knot) of
+    Nothing -> failure $ NoFieldAtIndex (DT.fieldId ef)
+    Just fref -> return (DT.fieldAccessFlags ef, fref)
 
 freshId :: (Failure DecodeError f) => KnotMonad f Int
 freshId = do

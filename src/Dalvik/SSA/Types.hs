@@ -192,14 +192,22 @@ data Instruction = Return { instructionId :: UniqueId
                             }
                  | InvokeVirtual { instructionId :: UniqueId
                                  , instructionType :: Type
-                                 , invokeVirtualMethod :: InvokeVirtualMethod
+                                 , invokeVirtualKind :: InvokeVirtualKind
+                                 , invokeVirtualMethod :: MethodRef
                                  , invokeArguments :: [Value]
                                  }
                  | InvokeDirect { instructionId :: UniqueId
                                 , instructionType :: Type
-                                , invokeDirectMethod :: InvokeDirectMethod
+                                , invokeDirectKind :: InvokeDirectKind
+                                , invokeDirectMethod :: MethodRef
+                                , invokeDirectMethodDef :: Maybe Method
                                 , invokeArguments :: [Value]
                                 }
+                   -- ^ We have to refer to the invoked method in this
+                   -- case by a Ref because it might not have a
+                   -- definition in this dex file.  However, we do
+                   -- include the definition of the invoked method if
+                   -- it is available.
                  | Phi { instructionId :: UniqueId
                        , instructionType :: Type
                        , phiValues :: [(BasicBlock, Value)]
@@ -225,15 +233,14 @@ data Class = Class { classId :: UniqueId
                    , classInterfaces :: [Type]
                    , classDirectMethods :: [Method]
                    , classVirtualMethods :: [Method]
-                   , classStaticFields :: [Field]
-                   , classInstanceFields :: [Field]
+                   , classStaticFields :: [(AccessFlags, Field)]
+                   , classInstanceFields :: [(AccessFlags, Field)]
                    }
 
 data Field = Field { fieldId :: UniqueId
                    , fieldName :: String
                    , fieldType :: Type
-                   , fieldAccessFlags :: AccessFlags
-                   , fieldClass :: Class
+                   , fieldClass :: Type
                    }
 
 -- | Field IDs are unique among fields (but could overlap with IDs of
@@ -244,12 +251,17 @@ instance Eq Field where
 instance Ord Field where
   compare = compare `on` fieldId
 
-data MethodRef = ClassMethodRef Class Int
+data MethodRef = MethodRef { methodRefId :: UniqueId
+                           , methodRefClass :: Type
+                           , methodRefReturnType :: Type
+                           , methodRefParameterTypes :: [Type]
+                           , methodRefName :: String
+                           }
 
 
-data InvokeDirectMethod = MethodInvokeStatic
-                        | MethodInvokeDirect
+data InvokeDirectKind = MethodInvokeStatic
+                      | MethodInvokeDirect
 
-data InvokeVirtualMethod = MethodInvokeInterface
-                         | MethodInvokeSuper
-                         | MethodInvokeVirtual
+data InvokeVirtualKind = MethodInvokeInterface
+                       | MethodInvokeSuper
+                       | MethodInvokeVirtual
