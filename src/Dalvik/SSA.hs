@@ -151,7 +151,7 @@ translateMethod em = do
   rt <- getTranslatedType (DT.protoRet proto)
 
   df <- gets knotDexFile
-  -- [(Maybe BS.ByteString, DT.TypeId)]
+
   paramList <- lift $ getParamList df em
   paramMap <- foldM makeParameter M.empty (zip [0..] paramList)
 
@@ -478,9 +478,8 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
           return (i : insns, mknot)
         Get _ -> do
           dstLbl <- dstLabelForReg labeling dstOrSrc
-          t <- getFieldType field
           let i = SSA.InstanceGet { instructionId = iid
-                                  , instructionType = t
+                                  , instructionType = SSA.fieldType f
                                   , instanceOpReference = getFinalValue tiedMknot refLbl
                                   , instanceOpField = f
                                   }
@@ -498,10 +497,9 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
                                 }
           return (s : insns, mknot)
         Get _ -> do
-          t <- getFieldType fid
           dstLbl <- dstLabelForReg labeling dstOrSrc
           let s = SSA.StaticGet { instructionId = sid
-                                , instructionType = t
+                                , instructionType = SSA.fieldType f
                                 , staticOpField = f
                                 }
           return (s : insns, addInstMapping mknot dstLbl s)
@@ -824,14 +822,6 @@ getTranslatedMethod :: (Failure DecodeError f) => DT.MethodId -> KnotMonad f (Ma
 getTranslatedMethod mid = do
   ms <- asks (knotMethodDefs . tiedEnv)
   return $  M.lookup mid ms
-
--- | This does not touch the tied knot and is safe to call from
--- anywhere (since Types are translated first).
-getFieldType :: (Failure DecodeError f) => DT.FieldId -> KnotMonad f SSA.Type
-getFieldType fid = do
-  rawFields <- gets (DT.dexFields . knotDexFile)
-  let Just rawField = M.lookup fid rawFields
-  getTranslatedType (DT.fieldTypeId rawField)
 
 translateFieldRef :: (Failure DecodeError f)
                      => Knot
