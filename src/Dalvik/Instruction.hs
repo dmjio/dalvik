@@ -178,9 +178,9 @@ data Instruction
   | FBinopAssign Binop Bool Reg4 Reg4
   | BinopLit16 Binop Reg4 Reg4 Int16
   | BinopLit8 Binop Reg8 Reg8 Int8
-  | PackedSwitchData Int32 [Word16]      -- TODO: Int32
-  | SparseSwitchData [Word16] [Word16]   -- TODO: Int32
-  | ArrayData Word16 Word32 [Word16] -- TODO
+  | PackedSwitchData Int32 [Int32]
+  | SparseSwitchData [Int32] [Int32]
+  | ArrayData Word16 Word32 [Int64]
     deriving (Eq, Ord, Show)
 
 insnUnitCount :: Instruction -> Int
@@ -640,19 +640,60 @@ signExt32 w =
 iparser :: Word8 -> IFormatParser
 iparser = (iparseTable!) . fromIntegral
 
+dataToInt8List :: (Failure DecodeError f) => [Word16] -> f [Int8]
+dataToInt8List ws = go ws
+  where
+    go [] = return []
+    go (w:rest) = do
+      r <- go rest
+      let (b1, b2) = splitWord16 w
+      return $ fromIntegral b1 : fromIntegral b2 : r
+
+dataToInt32List :: (Failure DecodeError f) => [Word16] -> f [Int32]
+dataToInt32List ws = go ws
+  where
+    go [] = return []
+    go (w1:w2:rest) = do
+      r <- go rest
+      return $ combine16 w2 w1 : r
+    go _ = failure $ InvalidArrayDataList 2 ws
+
+-- FIXME What is the right order here to correctly decode an int64?
+dataToInt64List :: (Failure DecodeError f) => [Word16] -> f [Int64]
+dataToInt64List ws = go ws
+  where
+    go [] = return []
+    go (w1:w2:w3:w4:rest) = do
+      r <- go rest
+      return $ combine16' w1 w2 w3 w4 : r
+    go _ = failure $ InvalidArrayDataList 4 ws
+
 decodeInstructions :: (Failure DecodeError f) => [Word16] -> f [Instruction]
 decodeInstructions [] = return []
-decodeInstructions (0x0100 : sz : k : k' : ws) =
-  liftM (PackedSwitchData key ts :) $ decodeInstructions ws'
+decodeInstructions (0x0100 : sz : k : k' : ws) = do
+  ts' <- dataToInt32List ts
+  liftM (PackedSwitchData key ts' :) $ decodeInstructions ws'
     where key = combine16 k' k
           (ts, ws') = splitAt (2 * fromIntegral sz) ws
-decodeInstructions (0x0200 : sz : ws) =
-  liftM (SparseSwitchData ks ts :) $ decodeInstructions ws''
+decodeInstructions (0x0200 : sz : ws) = do
+  ks' <- dataToInt32List ks
+  ts' <- dataToInt32List ts
+  liftM (SparseSwitchData ks' ts' :) $ decodeInstructions ws''
     where (ks, ws') = splitAt sz' ws
           (ts, ws'') = splitAt sz' ws'
           sz' = fromIntegral $ 2 * sz
-decodeInstructions (0x0300 : esz : sz : sz' : ws) =
-  liftM (ArrayData esz size vs :) $ decodeInstructions ws'
+decodeInstructions (0x0300 : esz : sz : sz' : ws) = do
+  vs' <- case esz of
+    -- In this case, we take the number of elements we need because we
+    -- are splitting uint16s.  If there are supposed to be an odd
+    -- number of data elements, we will have an extra from the unused
+    -- byte in the last uint16.
+    1 -> liftM (take (fromIntegral size) . map fromIntegral) $ dataToInt8List vs
+    2 -> return $ map fromIntegral vs
+    4 -> liftM (map fromIntegral) $ dataToInt32List vs
+    8 -> dataToInt64List vs
+    _ -> failure $ InvalidArrayDataElementSize esz
+  liftM (ArrayData esz size vs' :) $ decodeInstructions ws'
     where size = combine16 sz' sz
           count = ((size * fromIntegral esz) + 1) `div` 2
           (vs, ws') = splitAt (fromIntegral count) ws
@@ -687,7 +728,7 @@ decodeInstructions (w : ws) = liftM2 (:) insn (decodeInstructions ws'')
         (IF35c  fn, w1 : w2 : ws') ->
           if b <= 5
             then (return $ fn w1 (take (fromIntegral b) [d, e, f, g, a]), ws')
-            else (failure $ InvalidBForIF35cEncoding b, ws') -- fail "invalid B value for IF35c encoding", ws')
+            else (failure $ InvalidBForIF35cEncoding b, ws')
           where (g, f, e, d) = splitWord16' w2
         (IF3rc  fn, w1 : w2 : ws') ->
           (return $ fn w1 [w2..((w2 + fromIntegral aa) - 1)],  ws')

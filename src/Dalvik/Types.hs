@@ -25,6 +25,8 @@ data DecodeError = PrematureEnd Word8 Word16
                  | TypeDecodeError String BS.ByteString
                  | NonPhiLabelInBlockHeader String
                  | MoveExceptionOutsideOfHandler String
+                 | InvalidArrayDataList Int [Word16]
+                 | InvalidArrayDataElementSize Word16
                  deriving (Eq, Ord, Show)
 
 decodeErrorAsString :: DecodeError -> String
@@ -56,6 +58,10 @@ decodeErrorAsString (NonPhiLabelInBlockHeader s) =
   printf "Non Phi label in basic block header: %s" s
 decodeErrorAsString (MoveExceptionOutsideOfHandler s) =
   printf "move-exception appears outside of an exception handling block: %s" s
+decodeErrorAsString (InvalidArrayDataList eltSz ws) =
+  printf "Could not decode array data list (%d bytes per element): %s" eltSz (show ws)
+decodeErrorAsString (InvalidArrayDataElementSize esz) =
+  printf "Invalid array data element size in array-data-payload: %d" esz
 
 data DexHeader =
   DexHeader
