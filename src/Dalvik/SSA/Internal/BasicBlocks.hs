@@ -13,7 +13,7 @@
 --
 -- This module attempts to abstract all of these details in a
 -- reasonable way.
-module Dalvik.SSA.BasicBlocks (
+module Dalvik.SSA.Internal.BasicBlocks (
   BasicBlocks,
   BlockNumber,
   TypeName,

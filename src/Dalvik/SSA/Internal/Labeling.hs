@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 -- | This module implements SSA value numbering over the low-level Dalvik IR
 --
@@ -33,12 +35,13 @@
 -- >   r4 <- phi(r3, r1)
 -- >   r3 <- binop add r4 r2
 -- >   br (r4 < 100) loop
-module Dalvik.SSA.Labeling (
+module Dalvik.SSA.Internal.Labeling (
   -- * Data Types
   Label(..),
   Labeling(..),
   ExceptionRange(..),
   FromRegister(..),
+  labelMethod,
   labelInstructions,
   labelingInstructionAt,
   labelingPhiIncomingValues,
@@ -47,6 +50,7 @@ module Dalvik.SSA.Labeling (
   generatedLabelsAreUnique
   ) where
 
+import Control.Failure
 import Control.Monad ( filterM, forM_, liftM, void )
 import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString as BS
@@ -67,8 +71,10 @@ import Data.Word ( Word8, Word16 )
 import Text.PrettyPrint as PP
 import Text.Printf
 
-import Dalvik.Instruction
-import Dalvik.SSA.BasicBlocks
+import Dalvik.Types as DT
+import Dalvik.Instruction as DT
+import Dalvik.SSA.Internal.BasicBlocks
+import Dalvik.SSA.Internal.RegisterAssignment
 
 -- | Types of label.  Arguments and Phi nodes have special labels
 -- carrying extra information.
@@ -210,6 +216,36 @@ emptyLabelState argRegs =
 
 labelingInstructionAt :: Labeling -> Int -> Maybe Instruction
 labelingInstructionAt l = (labelingInstructions l V.!?)
+
+labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
+labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
+labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
+  insts <- DT.decodeInstructions (codeInsns codeItem)
+  regMap <- methodRegisterAssignment dx em
+  ers <- methodExceptionRanges dx em
+  return $ labelInstructions regMap ers insts
+
+-- | Parse the try/catch description tables for this 'EncodedMethod'
+-- from the DexFile.  The tables are reduced to summaries
+-- ('ExceptionRange') that are easier to work with.
+methodExceptionRanges :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [ExceptionRange]
+methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
+methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
+  mapM toExceptionRange (codeTryItems codeItem)
+  where
+    catches = V.fromList $ codeHandlers codeItem
+    toExceptionRange tryItem = do
+      let hOffset = fromIntegral $ tryHandlerOff tryItem
+      case V.findIndex ((==hOffset) . chHandlerOff) catches of
+        Nothing ->failure $ NoHandlerAtOffset hOffset
+        Just cix -> do
+          let Just ch = catches V.!? cix
+          typeNames <- mapM (\(tix, off) -> liftM (, off) (getTypeName dx tix)) (chHandlers ch)
+          return ExceptionRange { erOffset = tryStartAddr tryItem
+                                , erCount = tryInsnCount tryItem
+                                , erCatch = typeNames
+                                , erCatchAll = chAllAddr ch
+                                }
 
 -- | Label a stream of raw Dalvik instructions with SSA numbers,
 -- adding phi nodes at the beginning of appropriate basic blocks.

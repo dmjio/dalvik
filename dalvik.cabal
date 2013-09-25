@@ -45,11 +45,12 @@ Library
                      Dalvik.Parser
                      Dalvik.Printer
                      Dalvik.SSA
-                     Dalvik.SSA.Labeling
                      Dalvik.Types
+                     Dalvik.SSA.Internal.BasicBlocks,
+                     Dalvik.SSA.Internal.Labeling,
                      Dalvik.SSA.Internal.Names,
+                     Dalvik.SSA.Internal.RegisterAssignment,
                      Dalvik.SSA.Types
-    Other-Modules: Dalvik.SSA.BasicBlocks
     GHC-Options: -Wall -O1
     GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
 

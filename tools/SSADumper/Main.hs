@@ -1,8 +1,7 @@
 module Main ( main ) where
 
 import qualified Dalvik.Types as DT
-import Dalvik.SSA ( labelMethod )
-import Dalvik.SSA.Labeling
+import Dalvik.SSA.Internal.Labeling
 
 import Tests.Dalvik.DexLoaders ( readAsDex, getEncodedMethod )
 

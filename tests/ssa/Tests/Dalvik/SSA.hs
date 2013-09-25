@@ -4,7 +4,7 @@ module Tests.Dalvik.SSA ( tests ) where
 import qualified Data.ByteString as BS
 import Data.Word (Word16)
 import qualified Dalvik.Types as DT
-import Dalvik.SSA (methodRegisterAssignment, getParamListTypeNames)
+import Dalvik.SSA.Internal.RegisterAssignment
 
 import Tests.Dalvik.DexLoaders (DexReader, memoIO, readAsDex, getEncodedMethod)
 

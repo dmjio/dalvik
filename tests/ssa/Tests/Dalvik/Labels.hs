@@ -7,8 +7,7 @@ import Data.Maybe ( fromMaybe )
 import qualified Data.Set as S
 import Dalvik.Instruction
 import qualified Dalvik.Types as DT
-import Dalvik.SSA ( labelMethod )
-import Dalvik.SSA.Labeling
+import Dalvik.SSA.Internal.Labeling
 
 import Tests.Dalvik.DexLoaders ( DexReader, memoIO, readAsDex, getEncodedMethod )
 
