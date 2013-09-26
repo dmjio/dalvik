@@ -177,6 +177,20 @@ translateMethod em = do
                     , SSA.methodBody = body
                     }
 
+makeParameter :: (Failure DecodeError f)
+                 => Map Int Parameter
+                 -> (Int, (Maybe BS.ByteString, DT.TypeId))
+                 -> KnotMonad f (Map Int Parameter)
+makeParameter m (ix, (name, tid)) = do
+  pid <- freshId
+  t <- getTranslatedType tid
+  let p = SSA.Parameter { SSA.parameterId = pid
+                        , SSA.parameterType = t
+                        , SSA.parameterName = maybe ("%arg" ++ show ix) BS.unpack name
+                        , SSA.parameterIndex = ix
+                        }
+  return $ M.insert ix p m
+
 translateMethodBody :: (MonadFix f, Failure DecodeError f)
                        => DT.DexFile
                        -> Map Int Parameter
@@ -865,19 +879,6 @@ makePhi labeling tiedMknot (insns, mknot) lbl@(PhiLabel _ _ _) = do
 makePhi _ _ _ lbl = failure $ NonPhiLabelInBlockHeader $ show lbl
 
 
-makeParameter :: (Failure DecodeError f)
-                 => Map Int Parameter
-                 -> (Int, (Maybe BS.ByteString, DT.TypeId))
-                 -> KnotMonad f (Map Int Parameter)
-makeParameter m (ix, (name, tid)) = do
-  pid <- freshId
-  t <- getTranslatedType tid
-  let p = SSA.Parameter { SSA.parameterId = pid
-                        , SSA.parameterType = t
-                        , SSA.parameterName = fmap BS.unpack name
-                        , SSA.parameterIndex = ix
-                        }
-  return $ M.insert ix p m
 
 -- | We do not consult the tied knot for types since we can translate
 -- them all up-front.

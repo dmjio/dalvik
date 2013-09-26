@@ -209,7 +209,7 @@ data Instruction = Return { instructionId :: UniqueId
 
 data Parameter = Parameter { parameterId :: UniqueId
                            , parameterType :: Type
-                           , parameterName :: Maybe String
+                           , parameterName :: String
                            , parameterIndex :: Int
                            }
 
