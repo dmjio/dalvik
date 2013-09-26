@@ -129,7 +129,10 @@ translateClass :: (MonadFix f, Failure DT.DecodeError f)
 translateClass k (tid, klass) = do
   cid <- freshId
   cname <- getStr' $ DT.classSourceNameId klass
-  parent <- lookupClass (DT.classSuperId klass)
+  parent <- case DT.classSuperId klass of
+    (-1) -> return Nothing
+    sid -> liftM Just $ getTranslatedType sid
+  parentRef <- lookupClass (DT.classSuperId klass)
   staticFields <- mapM (translateField k) (DT.classStaticFields klass)
   instanceFields <- mapM (translateField k) (DT.classInstanceFields klass)
   directMethods <- mapM translateMethod (DT.classDirectMethods klass)
@@ -138,6 +141,7 @@ translateClass k (tid, klass) = do
   let c = Class { classId = cid
                     , className = cname
                     , classParent = parent
+                    , classParentReference = parentRef
                     , classInterfaces = itypes
                     , classStaticFields = staticFields
                     , classInstanceFields = instanceFields

@@ -320,7 +320,8 @@ instance Hashable Method where
 
 data Class = Class { classId :: UniqueId
                    , className :: String
-                   , classParent :: Maybe Class
+                   , classParent :: Maybe Type
+                   , classParentReference :: Maybe Class
                    , classInterfaces :: [Type]
                    , classDirectMethods :: [Method]
                    , classVirtualMethods :: [Method]
