@@ -317,14 +317,11 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
     DT.Move1 DT.MException dst -> do
       eid <- freshId
       lbl <- dstLabel dst
-      case basicBlockHandlesException (labelingBasicBlocks labeling) bnum of
-        Just exname -> do
-          ty <- parseTypeName exname
-          let e = MoveException { instructionId = eid
-                                    , instructionType = ty
-                                    }
-          return (e : insns, addInstMapping mknot lbl e)
-        Nothing -> failure $ DT.MoveExceptionOutsideOfHandler (show inst)
+      exceptionType <- typeOfHandledException labeling bnum
+      let e = MoveException { instructionId = eid
+                            , instructionType = exceptionType
+                            }
+      return (e : insns, addInstMapping mknot lbl e)
     DT.Move1 _ _ -> return acc
     DT.ReturnVoid -> do
       rid <- freshId
@@ -773,6 +770,15 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
         Nothing -> return (i : insns, mknot)
         Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
 
+-- | Look up the exception handled in the given block, if any.  If the
+-- block is not listed in a handler descriptor, that means this is a
+-- finally block.  All we know in that case is that we have some
+-- Throwable.
+typeOfHandledException :: (Failure DT.DecodeError f) => Labeling -> BlockNumber -> KnotMonad f Type
+typeOfHandledException labeling bnum =
+  case basicBlockHandlesException (labelingBasicBlocks labeling) bnum of
+    Just exname -> parseTypeName exname
+    Nothing -> parseTypeName "Ljava/lang/Throwable;"
 
 isFallthroughEdge :: (JumpCondition, BlockNumber) -> Bool
 isFallthroughEdge (Fallthrough, _) = True
@@ -909,8 +915,10 @@ getTranslatedField fid = do
 getTranslatedMethod :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f (Maybe Method)
 getTranslatedMethod mid = do
   ms <- asks (knotMethodDefs . tiedEnv)
-  return $  M.lookup mid ms
+  return $ M.lookup mid ms
 
+-- | Translate an entry from the DexFile fields map.  These do not
+-- contain access flags, but have everything else.
 translateFieldRef :: (Failure DT.DecodeError f)
                      => Knot
                      -> (DT.FieldId, DT.Field)

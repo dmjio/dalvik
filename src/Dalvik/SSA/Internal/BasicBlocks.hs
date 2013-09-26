@@ -200,9 +200,13 @@ exceptionBlockTypes toInstIdx bnumMap =
   where
     addBlockHandlerTypes m er = L.foldl' addHandlerType m (erCatch er)
     addHandlerType m (name, offset) =
+      -- If the index isn't found in bnumMap, that means the handler
+      -- is dead code (no exceptions can actually reach it at
+      -- runtime).
       let instIdx = toInstIdx (fromIntegral offset)
-          Just bnum = bnumMap V.!? instIdx
-      in M.insert bnum name m
+      in case bnumMap V.!? instIdx of
+        Nothing -> m
+        Just bnum -> M.insert bnum name m
 
 -- | Test if the instruction at the given index into the instruction
 -- stream ends a basic block.  This covers both explicit block ends
