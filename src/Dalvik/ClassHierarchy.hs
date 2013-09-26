@@ -6,6 +6,7 @@ module Dalvik.ClassHierarchy (
   simpleClassName,
   qualifiedClassName,
   renderClassName,
+  humanClassName,
   -- * Class Hierarchy Analysis
   CHA,
   classHierarchyAnalysis,
@@ -14,7 +15,7 @@ module Dalvik.ClassHierarchy (
 
 import Control.Failure
 import Control.Monad ( foldM, liftM )
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS
 import Data.Hashable
 import Data.Map
 import qualified Data.Map as M
@@ -41,6 +42,10 @@ qualifiedClassName namespace name = ClassName (namespace ++ [name])
 renderClassName :: ClassName -> BS.ByteString
 renderClassName (ClassName components) =
   mconcat [ "L", BS.intercalate "/" components, ";" ]
+
+humanClassName :: ClassName -> String
+humanClassName (ClassName components) =
+  BS.unpack $ BS.intercalate "." components
 
 -- | The result of a class hierarchy analysis
 data CHA = CHA (Map BS.ByteString BS.ByteString)

@@ -22,6 +22,7 @@ module Dalvik.SSA.Types (
   LL.IfOp(..),
   LL.Binop(..),
   LL.Unop(..),
+  LL.CType(..),
   module Dalvik.AccessFlags
   ) where
 
@@ -103,7 +104,7 @@ data Type = VoidType
           | UnknownType
             -- ^ We use this in cases where we can't deduce a type
             -- during the SSA translation
-          deriving (Eq, Ord, Show)
+          deriving (Eq, Ord)
 
 instance Hashable Type where
   hashWithSalt s VoidType = hashWithSalt s (1 :: Int)
@@ -320,6 +321,7 @@ instance Hashable Method where
 
 data Class = Class { classId :: UniqueId
                    , className :: String
+                   , classAccessFlags :: AccessFlags
                    , classParent :: Maybe Type
                    , classParentReference :: Maybe Class
                    , classInterfaces :: [Type]

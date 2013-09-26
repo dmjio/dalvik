@@ -29,6 +29,7 @@ import Dalvik.SSA.Internal.BasicBlocks
 import Dalvik.SSA.Internal.Labeling
 import Dalvik.SSA.Internal.Names
 import Dalvik.SSA.Internal.RegisterAssignment
+import Dalvik.SSA.Internal.Pretty ()
 
 toSSA :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> f DexFile
 toSSA df = do
@@ -139,15 +140,16 @@ translateClass k (tid, klass) = do
   virtualMethods <- mapM translateMethod (DT.classVirtualMethods klass)
   itypes <- mapM getTranslatedType (DT.classInterfaces klass)
   let c = Class { classId = cid
-                    , className = cname
-                    , classParent = parent
-                    , classParentReference = parentRef
-                    , classInterfaces = itypes
-                    , classStaticFields = staticFields
-                    , classInstanceFields = instanceFields
-                    , classDirectMethods = directMethods
-                    , classVirtualMethods = virtualMethods
-                    }
+                , className = cname
+                , classAccessFlags = DT.classAccessFlags klass
+                , classParent = parent
+                , classParentReference = parentRef
+                , classInterfaces = itypes
+                , classStaticFields = staticFields
+                , classInstanceFields = instanceFields
+                , classDirectMethods = directMethods
+                , classVirtualMethods = virtualMethods
+                }
 
   return k { knotClasses = M.insert tid c (knotClasses k) }
 
