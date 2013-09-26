@@ -15,6 +15,7 @@ module Dalvik.ClassHierarchy (
 import Control.Failure
 import Control.Monad ( foldM, liftM )
 import qualified Data.ByteString as BS
+import Data.Hashable
 import Data.Map
 import qualified Data.Map as M
 import Data.Monoid
@@ -27,6 +28,9 @@ import Dalvik.Types
 -- > Ljava/lang/Object;
 data ClassName = ClassName [BS.ByteString]
                deriving (Eq, Ord, Show)
+
+instance Hashable ClassName where
+  hashWithSalt s (ClassName cs) = hashWithSalt s cs
 
 simpleClassName :: BS.ByteString -> ClassName
 simpleClassName name = ClassName [name]

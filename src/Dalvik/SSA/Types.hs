@@ -26,6 +26,7 @@ module Dalvik.SSA.Types (
   ) where
 
 import Data.Function ( on )
+import Data.Hashable
 import Data.Int ( Int64 )
 import Data.Vector ( Vector )
 
@@ -43,12 +44,42 @@ data Value = InstructionV Instruction
            | ConstantV Constant
            | ParameterV Parameter
 
+instance Eq Value where
+  (==) = (==) `on` valueId
+
+instance Ord Value where
+  compare = compare `on` valueId
+
+instance Hashable Value where
+  hashWithSalt s = hashWithSalt s . valueId
+
+
+valueId :: Value -> UniqueId
+valueId (InstructionV i) = instructionId i
+valueId (ConstantV c) = constantId c
+valueId (ParameterV p) = parameterId p
+
+valueType :: Value -> Type
+valueType (InstructionV i) = instructionType i
+valueType (ConstantV c) = constantType c
+valueType (ParameterV p) = parameterType p
+
+
 -- FIXME: For now, all numeric constants are integer types because we
 -- can't tell (without a type inference pass) what type a constant
 -- really is.  Dalvik is untyped.
 data Constant = ConstantInt !UniqueId !Int64
               | ConstantString !UniqueId String
               | ConstantClass !UniqueId Type
+
+instance Eq Constant where
+  (==) = (==) `on` constantId
+
+instance Ord Constant where
+  compare = compare `on` constantId
+
+instance Hashable Constant where
+  hashWithSalt s = hashWithSalt s . constantId
 
 constantId :: Constant -> Int
 constantId (ConstantInt i _) = i
@@ -68,21 +99,25 @@ data Type = VoidType
           | CharType
           | BooleanType
           | ArrayType Type
-          | ReferenceType ClassName -- Class
+          | ReferenceType ClassName
           | UnknownType
             -- ^ We use this in cases where we can't deduce a type
             -- during the SSA translation
           deriving (Eq, Ord, Show)
 
-valueId :: Value -> UniqueId
-valueId (InstructionV i) = instructionId i
-valueId (ConstantV c) = constantId c
-valueId (ParameterV p) = parameterId p
-
-valueType :: Value -> Type
-valueType (InstructionV i) = instructionType i
-valueType (ConstantV c) = constantType c
-valueType (ParameterV p) = parameterType p
+instance Hashable Type where
+  hashWithSalt s VoidType = hashWithSalt s (1 :: Int)
+  hashWithSalt s ByteType = hashWithSalt s (2 :: Int)
+  hashWithSalt s ShortType = hashWithSalt s (3 :: Int)
+  hashWithSalt s IntType = hashWithSalt s (4 :: Int)
+  hashWithSalt s LongType = hashWithSalt s (5 :: Int)
+  hashWithSalt s FloatType = hashWithSalt s (6 :: Int)
+  hashWithSalt s DoubleType = hashWithSalt s (7 :: Int)
+  hashWithSalt s CharType = hashWithSalt s (8 :: Int)
+  hashWithSalt s BooleanType = hashWithSalt s (9 :: Int)
+  hashWithSalt s (ArrayType t) = s `hashWithSalt` (10 :: Int) `hashWithSalt` t
+  hashWithSalt s (ReferenceType cname) = s `hashWithSalt` (11 :: Int) `hashWithSalt` cname
+  hashWithSalt s UnknownType = hashWithSalt s (12 :: Int)
 
 -- | A basic block containing 'Instruction's.  We maintain a count of
 -- the phi nodes in the block so that we can efficiently slice out
@@ -91,6 +126,15 @@ data BasicBlock = BasicBlock { basicBlockId :: UniqueId
                              , basicBlockInstructions :: Vector Instruction
                              , basicBlockPhiCount :: Int
                              }
+
+instance Eq BasicBlock where
+  (==) = (==) `on` basicBlockId
+
+instance Ord BasicBlock where
+  compare = compare `on` basicBlockId
+
+instance Hashable BasicBlock where
+  hashWithSalt s = hashWithSalt s . basicBlockId
 
 type UniqueId = Int
 
@@ -228,11 +272,29 @@ data Instruction = Return { instructionId :: UniqueId
                        , phiValues :: [(BasicBlock, Value)]
                        }
 
+instance Eq Instruction where
+  (==) = (==) `on` instructionId
+
+instance Ord Instruction where
+  compare = compare `on` instructionId
+
+instance Hashable Instruction where
+  hashWithSalt s = hashWithSalt s . instructionId
+
 data Parameter = Parameter { parameterId :: UniqueId
                            , parameterType :: Type
                            , parameterName :: String
                            , parameterIndex :: Int
                            }
+
+instance Eq Parameter where
+  (==) = (==) `on` parameterId
+
+instance Ord Parameter where
+  compare = compare `on` parameterId
+
+instance Hashable Parameter where
+  hashWithSalt s = hashWithSalt s . parameterId
 
 data Method = Method { methodId :: UniqueId
                      , methodName :: String
@@ -241,6 +303,15 @@ data Method = Method { methodId :: UniqueId
                      , methodParameters :: [Parameter]
                      , methodBody :: Maybe [BasicBlock]
                      }
+
+instance Eq Method where
+  (==) = (==) `on` methodId
+
+instance Ord Method where
+  compare = compare `on` methodId
+
+instance Hashable Method where
+  hashWithSalt s = hashWithSalt s . methodId
 
 data Class = Class { classId :: UniqueId
                    , className :: String
@@ -251,6 +322,15 @@ data Class = Class { classId :: UniqueId
                    , classStaticFields :: [(AccessFlags, Field)]
                    , classInstanceFields :: [(AccessFlags, Field)]
                    }
+
+instance Eq Class where
+  (==) = (==) `on` classId
+
+instance Ord Class where
+  compare = compare `on` classId
+
+instance Hashable Class where
+  hashWithSalt s = hashWithSalt s . classId
 
 data Field = Field { fieldId :: UniqueId
                    , fieldName :: String
@@ -266,6 +346,9 @@ instance Eq Field where
 instance Ord Field where
   compare = compare `on` fieldId
 
+instance Hashable Field where
+  hashWithSalt s = hashWithSalt s . fieldId
+
 data MethodRef = MethodRef { methodRefId :: UniqueId
                            , methodRefClass :: Type
                            , methodRefReturnType :: Type
@@ -273,10 +356,30 @@ data MethodRef = MethodRef { methodRefId :: UniqueId
                            , methodRefName :: String
                            }
 
+instance Eq MethodRef where
+  (==) = (==) `on` methodRefId
+
+instance Ord MethodRef where
+  compare = compare `on` methodRefId
+
+instance Hashable MethodRef where
+  hashWithSalt s = hashWithSalt s . methodRefId
 
 data InvokeDirectKind = MethodInvokeStatic
                       | MethodInvokeDirect
+                      deriving (Eq, Ord, Show)
+
+instance Hashable InvokeDirectKind where
+  hashWithSalt s MethodInvokeStatic = hashWithSalt s (1 :: Int)
+  hashWithSalt s MethodInvokeDirect = hashWithSalt s (2 :: Int)
 
 data InvokeVirtualKind = MethodInvokeInterface
                        | MethodInvokeSuper
                        | MethodInvokeVirtual
+                       deriving (Eq, Ord, Show)
+
+instance Hashable InvokeVirtualKind where
+  hashWithSalt s MethodInvokeInterface = hashWithSalt s (1 :: Int)
+  hashWithSalt s MethodInvokeSuper = hashWithSalt s (2 :: Int)
+  hashWithSalt s MethodInvokeVirtual = hashWithSalt s (3 :: Int)
+
