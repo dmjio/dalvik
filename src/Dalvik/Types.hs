@@ -1,11 +1,14 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
 module Dalvik.Types where
 
+import Control.Exception as E
 import Control.Failure
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import Data.Int
 import Data.Map (Map)
+import Data.Typeable
 import Data.Word
 import Text.Printf
 
@@ -31,7 +34,9 @@ data DecodeError = PrematureEnd Word8 Word16
                  | NoLabelForExpectedRegister String Word16 Int
                  | NoParameterAtIndex MethodId Int
                  | NonArgumentLabelInParameterList MethodId String
-                 deriving (Eq, Ord, Show)
+                 deriving (Eq, Ord, Show, Typeable)
+
+instance Exception DecodeError
 
 decodeErrorAsString :: DecodeError -> String
 decodeErrorAsString (PrematureEnd opcode w) =
