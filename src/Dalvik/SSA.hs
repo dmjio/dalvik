@@ -177,8 +177,8 @@ translateMethod em = do
   paramList <- lift $ getParamList df em
   paramMap <- foldM makeParameter M.empty (zip [0..] paramList)
 
-  (body, _) <- mfix $ \(_, labelMap) ->
-    translateMethodBody df paramMap labelMap em
+  (body, _) <- mfix $ \tiedKnot ->
+    translateMethodBody df paramMap (snd tiedKnot) em
 
   return Method { methodId = fromIntegral (DT.methId em)
                     , methodName = mname
@@ -209,14 +209,14 @@ translateMethodBody :: (MonadFix f, Failure DT.DecodeError f)
                        -> DT.EncodedMethod
                        -> KnotMonad f (Maybe [BasicBlock], MethodKnot)
 translateMethodBody _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, emptyMethodKnot)
-translateMethodBody df paramMap labelMap em = do
+translateMethodBody df paramMap tiedMknot em = do
   labeling <- lift $ labelMethod df em
   let parameterLabels = labelingParameters labeling
       bbs = labelingBasicBlocks labeling
       blockList = basicBlocksAsList bbs
   mknot0 <- foldM addParameterLabel emptyMethodKnot parameterLabels
-  (bs, tiedMknot, _) <- foldM (translateBlock labeling labelMap) ([], mknot0, 0) blockList
-  return (Just (reverse bs), tiedMknot)
+  (bs, resultKnot, _) <- foldM (translateBlock labeling tiedMknot) ([], mknot0, 0) blockList
+  return (Just (reverse bs), resultKnot)
   where
     addParameterLabel mknot l@(ArgumentLabel _ ix) =
       case M.lookup ix paramMap of
