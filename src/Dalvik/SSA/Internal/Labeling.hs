@@ -73,6 +73,7 @@ import Text.Printf
 import Dalvik.Types as DT
 import Dalvik.Instruction as DT
 import Dalvik.SSA.Internal.BasicBlocks
+import Dalvik.SSA.Internal.Names
 import Dalvik.SSA.Internal.RegisterAssignment
 
 -- | Types of label.  Arguments and Phi nodes have special labels
@@ -270,7 +271,7 @@ labelInstructions argRegs ers is = fst $ evalRWS label' e0 s0
     nameAnonArgs (ix, (name, reg)) =
       case name of
         Just name' -> (name', reg)
-        Nothing -> ("%arg" `mappend` fromString (show ix), reg)
+        Nothing -> (generateNameForParameter ix, reg)
 
 -- | An environment to carry state for the labeling algorithm
 type SSALabeller = RWS LabelEnv () LabelState

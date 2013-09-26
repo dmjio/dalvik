@@ -186,7 +186,7 @@ makeParameter m (ix, (name, tid)) = do
   t <- getTranslatedType tid
   let p = SSA.Parameter { SSA.parameterId = pid
                         , SSA.parameterType = t
-                        , SSA.parameterName = maybe ("%arg" ++ show ix) BS.unpack name
+                        , SSA.parameterName = maybe (generateNameForParameter ix) BS.unpack name
                         , SSA.parameterIndex = ix
                         }
   return $ M.insert ix p m

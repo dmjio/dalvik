@@ -1,15 +1,25 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Dalvik.SSA.Internal.Names (
+  generateNameForParameter,
   parseTypeName
   ) where
 
 import Control.Failure
 import Data.Attoparsec.ByteString.Char8
 import Data.ByteString.Char8 ( ByteString )
+import Data.Monoid
+import Data.String ( IsString, fromString )
 import Dalvik.ClassHierarchy
 import Dalvik.SSA.Types
 import Dalvik.Types ( DecodeError(..) )
 
+-- | Create a new name for an unnamed parameter.  Parameters do not
+-- have names in the bytecode if the dex file was compiled without
+-- debug information.
+generateNameForParameter :: (Monoid a, IsString a) => Int -> a
+generateNameForParameter ix = fromString "%arg" <> fromString (show ix)
+
+-- | Parse a raw Dalvik type descriptor string into a structured 'Type'
 parseTypeName :: (Failure DecodeError f) => ByteString -> f Type
 parseTypeName bs =
   case parseOnly p bs of
