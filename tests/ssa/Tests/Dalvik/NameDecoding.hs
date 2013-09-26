@@ -8,7 +8,7 @@ import qualified Test.HUnit as T
 
 import Dalvik.ClassHierarchy
 import Dalvik.SSA.Internal.Names
-import Dalvik.SSA.Types
+import Dalvik.SSA
 
 tests :: Test
 tests = T.testGroup "Java name decoding tests" $ map makeTest
