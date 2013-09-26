@@ -59,11 +59,9 @@ import qualified Data.IntSet as IS
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
-import Data.Monoid
 import qualified Data.List as L
 import Data.Set ( Set )
 import qualified Data.Set as S
-import Data.String ( fromString )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word ( Word8, Word16 )

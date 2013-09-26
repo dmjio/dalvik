@@ -47,11 +47,13 @@ getParamList df meth
 -- instance method (non-static)
 --
 -- For example, when given the following method:
+--
 -- > public Object stringID(String s) {
 -- >        return s;
 -- > }
 --
 -- this method would return:
+--
 -- > Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")]
 getParamListTypeNames :: (Failure DecodeError f)
                          => DT.DexFile

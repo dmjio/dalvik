@@ -1,8 +1,29 @@
-module Dalvik.SSA.Types --  (
-  -- Instruction(..),
-  -- LL.CmpOp(..),
-  -- ) where
-  where
+{-# OPTIONS_HADDOCK hide #-}
+module Dalvik.SSA.Types (
+  DexFile(..),
+  Type(..),
+  Class(..),
+  Field(..),
+  Method(..),
+  Parameter(..),
+  BasicBlock(..),
+  MethodRef(..),
+  UniqueId,
+  Value(..),
+  valueId,
+  valueType,
+  Constant(..),
+  constantId,
+  constantType,
+  Instruction(..),
+  InvokeDirectKind(..),
+  InvokeVirtualKind(..),
+  LL.CmpOp(..),
+  LL.IfOp(..),
+  LL.Binop(..),
+  LL.Unop(..),
+  module Dalvik.AccessFlags
+  ) where
 
 import Data.Function ( on )
 import Data.Int ( Int64 )
