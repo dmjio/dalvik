@@ -33,11 +33,13 @@ import Dalvik.SSA.Internal.Pretty ()
 
 toSSA :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> f DexFile
 toSSA df = do
-  dexIdentifierBS <- DT.getStr df (DT.dexThisId df)
+  dexIdentifierStr <- case DT.dexThisId df of
+    (-1) -> return "<none>"
+    tid -> liftM BS.unpack $ DT.getStr df tid
   Knot { knotClasses = cmap } <- mfix (tieKnot df)
-  return DexFile { dexIdentifier = BS.unpack dexIdentifierBS
-                     , dexClasses = M.elems cmap
-                     }
+  return DexFile { dexIdentifier = dexIdentifierStr
+                 , dexClasses = M.elems cmap
+                 }
 
 tieKnot :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> Knot -> f Knot
 tieKnot df tiedKnot = do
