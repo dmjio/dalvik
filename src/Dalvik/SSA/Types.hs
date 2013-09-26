@@ -122,7 +122,12 @@ instance Hashable Type where
 -- | A basic block containing 'Instruction's.  We maintain a count of
 -- the phi nodes in the block so that we can efficiently slice out
 -- either instructions or phi nodes for separate processing.
+--
+-- The 'basicBlockNumber' is the local identifier (within a method) of
+-- a 'BasicBlock'.  The unique ID is unique among all 'BasicBlock's in
+-- the 'DexFile'.
 data BasicBlock = BasicBlock { basicBlockId :: UniqueId
+                             , basicBlockNumber :: Int
                              , basicBlockInstructions :: Vector Instruction
                              , basicBlockPhiCount :: Int
                              }

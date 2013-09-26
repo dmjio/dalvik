@@ -245,9 +245,10 @@ translateBlock labeling tiedMknot (bs, mknot, indexCounter) (bnum, insts) = do
   (phis, mknot') <- foldM (makePhi labeling tiedMknot) ([], mknot) blockPhis
   (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip3 [indexCounter..] insts' nexts)
   let b = BasicBlock { basicBlockId = bid
-                         , basicBlockInstructions = V.fromList $ phis ++ reverse insns
-                         , basicBlockPhiCount = length phis
-                         }
+                     , basicBlockNumber = bnum
+                     , basicBlockInstructions = V.fromList $ phis ++ reverse insns
+                     , basicBlockPhiCount = length phis
+                     }
   return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') }, indexCounter + length insts')
 
 -- FIXME: We could insert unconditional branches at the end of any
