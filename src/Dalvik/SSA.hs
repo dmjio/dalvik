@@ -732,14 +732,14 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
                                     }
       return (b : insns, mknot)
     DT.Invoke ikind _isVarArg mId argRegs -> do
-      srcLbls <- mapM srcLabel argRegs
+      argRegs' <- filterWidePairs mId ikind argRegs
+      srcLbls <- mapM srcLabel argRegs'
       case ikind of
         DT.Virtual -> translateVirtualInvoke MethodInvokeVirtual mId srcLbls
         DT.Super -> translateVirtualInvoke MethodInvokeSuper mId srcLbls
         DT.Interface -> translateVirtualInvoke MethodInvokeInterface mId srcLbls
         DT.Direct -> translateDirectInvoke MethodInvokeDirect mId srcLbls
         DT.Static -> translateDirectInvoke MethodInvokeStatic mId srcLbls
-
   where
     dstLabel :: (Failure DT.DecodeError f, FromRegister r) => r -> KnotMonad f Label
     dstLabel = dstLabelForReg labeling instIndex
@@ -774,6 +774,46 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
       case possibleDestination of
         Nothing -> return (i : insns, mknot)
         Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
+
+-- | When wide values (longs or doubles) are passed as parameters to
+-- methods, *both* registers appear as arguments to the invoke
+-- instruction.  This is different than in other instructions, where
+-- only the first register is referenced.  We can't do a label/value
+-- lookup on the second register since we aren't accounting for them
+-- (and don't want them in the argument lists anyway).
+--
+-- This function filters out the second register in each wide argument
+-- pair.
+filterWidePairs :: (Failure DT.DecodeError f) => DT.MethodId -> DT.InvokeKind -> [DT.Reg16] -> KnotMonad f [DT.Reg16]
+filterWidePairs mId ikind argRegs = do
+  m <- getRawMethod' mId
+  p <- getRawProto' (DT.methProtoId m)
+  -- If this is an instance method, be sure to always save the first
+  -- argument (since it doesn't appear in the prototype).  To do that,
+  -- we have to look up the class of the method and then iterate
+  -- through all of the EncodedMethods until we find it.  Lame.
+  case ikind of
+    DT.Static -> go (DT.protoParams p) argRegs
+    _ -> do
+      let (this:rest) = argRegs
+      rest' <- go (DT.protoParams p) rest
+      return (this : rest')
+  where
+    -- After the types are exhausted, the rest of the arguments must
+    -- be varargs, which are explicitly boxed in the IR.
+    go [] rest = return rest
+    go (tid:tids) (r1:rest) = do
+      argTy <- getTranslatedType tid
+      case argTy of
+        LongType -> liftM (r1:) $ dropNextReg tids rest
+        DoubleType -> liftM (r1:) $ dropNextReg tids rest
+        _ -> do
+          rest' <- go tids rest
+          return (r1 : rest')
+    go _ [] = failure $ DT.ArgumentTypeMismatch mId argRegs
+    dropNextReg _ [] = failure $ DT.ArgumentTypeMismatch mId argRegs
+    dropNextReg tids (_:rest) = go tids rest
+
 
 -- | Look up the exception handled in the given block, if any.  If the
 -- block is not listed in a handler descriptor, that means this is a

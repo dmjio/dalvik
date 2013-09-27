@@ -33,6 +33,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | NoLabelForExpectedRegister String Word16 Int
                  | NoParameterAtIndex MethodId Int
                  | NonArgumentLabelInParameterList MethodId String
+                 | ArgumentTypeMismatch MethodId [Reg16]
                  deriving (Eq, Ord, Show, Typeable)
 
 instance Exception DecodeError
@@ -76,7 +77,8 @@ decodeErrorAsString (NoParameterAtIndex mix ix) =
   printf "No parameter at expected argument list index %d in method %d" ix mix
 decodeErrorAsString (NonArgumentLabelInParameterList mix lbl) =
   printf "Non-argument typed label (%s) in argument label list for method %d" lbl mix
-
+decodeErrorAsString (ArgumentTypeMismatch mId argRegs) =
+  printf "Wide argument with not enough registers remaining (%s) in call to %d" (show argRegs) mId
 
 data DexHeader =
   DexHeader
