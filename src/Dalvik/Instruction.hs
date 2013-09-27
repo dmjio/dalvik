@@ -234,9 +234,10 @@ insnUnitCount i =
     FBinopAssign {} -> 1
     BinopLit16 {} -> 2
     BinopLit8 {} -> 2
-    PackedSwitchData _ ts -> length ts + 4
-    SparseSwitchData _ ts -> (length ts * 2) + 2
-    ArrayData _ _ vs -> length vs + 4
+    PackedSwitchData _ ts -> (length ts `div` 2) + 4
+    SparseSwitchData _ ts -> length ts + 2
+    ArrayData wid elts _ ->
+      fromIntegral ((fromIntegral wid * elts + 1) `div` 2) + 4
 
 splitWord8 :: Word8 -> (Word4, Word4)
 splitWord8 w = (fromIntegral $ w `shiftR` 4, fromIntegral $ w .&. 0x0F)
