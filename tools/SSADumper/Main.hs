@@ -1,8 +1,10 @@
 module Main ( main ) where
 
 import Options.Applicative
+import System.FilePath ( takeExtension )
 import Text.Printf ( printf )
 
+import Dalvik.Apk
 import qualified Dalvik.Types as DT
 import Dalvik.SSA.Internal.Labeling
 import Dalvik.SSA
@@ -77,7 +79,7 @@ realMain Options { optCommand =
                                    , labelMethodName = method
                                    , labelTypeSignature = sig
                                    } } = do
-  Right dexFile <- readAsDex fileName
+  Right dexFile <- readAnything fileName
   case getEncodedMethod dexFile klass method sig of
     Nothing -> error ("Could not find method: " ++ toStr klass method sig)
     Just m ->
@@ -87,9 +89,14 @@ realMain Options { optCommand =
 realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyClassName = Nothing
                                               } } = do
-  Right dexFile <- readAsDex fileName
+  Right dexFile <- readAnything fileName
   ssaDex <- toSSA dexFile
   print ssaDex
+
+readAnything :: FilePath -> IO (Either String DT.DexFile)
+readAnything fileName
+  | takeExtension fileName == ".java" = readAsDex fileName
+  | otherwise = loadDexFromAnyIO fileName
 
 toStr :: String -> String -> String -> String
 toStr []      m sig = printf "%s%s" m sig
