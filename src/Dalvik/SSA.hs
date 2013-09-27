@@ -89,20 +89,22 @@ emptyKnot  = Knot { knotClasses = M.empty
                   , knotTypes = M.empty
                   }
 
-data KnotState = KnotState { knotIdSrc :: Int
-                           , knotDexFile :: DT.DexFile
-                           , knotStringCache :: Map DT.StringId Value
-                           , knotIntCache :: Map Int64 Value
-                           , knotClassConstantCache :: Map DT.TypeId Value
-                           }
+data KnotState =
+  KnotState { knotIdSrc :: Int
+            , knotDexFile :: DT.DexFile
+            , knotStringCache :: Map DT.StringId Value
+            , knotIntCache :: Map Int64 Value
+            , knotClassConstantCache :: Map DT.TypeId Value
+            }
 
 initialKnotState :: DT.DexFile -> KnotState
-initialKnotState df = KnotState { knotIdSrc = 0
-                                , knotDexFile = df
-                                , knotStringCache = M.empty
-                                , knotIntCache = M.empty
-                                , knotClassConstantCache = M.empty
-                                }
+initialKnotState df =
+  KnotState { knotIdSrc = 0
+            , knotDexFile = df
+            , knotStringCache = M.empty
+            , knotIntCache = M.empty
+            , knotClassConstantCache = M.empty
+            }
 
 translateType :: (Failure DT.DecodeError f)
                  => DT.DexFile
