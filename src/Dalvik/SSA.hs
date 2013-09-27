@@ -885,9 +885,9 @@ makePhi labeling tiedMknot (insns, mknot) lbl@(PhiLabel _ _ _) = do
   phiId <- freshId
   let ivs = labelingPhiIncomingValues labeling lbl
       p = Phi { instructionId = phiId
-                  , instructionType = UnknownType
-                  , phiValues = map labelToIncoming ivs
-                  }
+              , instructionType = UnknownType
+              , phiValues = map labelToIncoming ivs
+              }
   return (p : insns, mknot { mknotValues = M.insert lbl (InstructionV p) (mknotValues mknot) })
   where
     labelToIncoming (incBlock, incLbl) =
