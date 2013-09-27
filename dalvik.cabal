@@ -76,6 +76,7 @@ executable SSADumper
                  temporary,
                  directory,
                  bytestring,
+                 optparse-applicative,
                  containers
   main-is: Main.hs
   hs-source-dirs: tests/ssa, tools/SSADumper
