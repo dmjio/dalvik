@@ -248,10 +248,8 @@ translateBlock labeling tiedMknot (bs, mknot, indexCounter) (bnum, insts) = do
   bid <- freshId
   let blockPhis = M.findWithDefault [] bnum $ labelingBlockPhis labeling
       insts' = V.toList insts
-      -- The last instruction has no successor
-      nexts = drop 1 (map Just insts') ++ [Nothing]
   (phis, mknot') <- foldM (makePhi labeling tiedMknot) ([], mknot) blockPhis
-  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip3 [indexCounter..] insts' nexts)
+  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip [indexCounter..] insts')
   let b = BasicBlock { basicBlockId = bid
                      , basicBlockNumber = bnum
                      , basicBlockInstructions = V.fromList $ phis ++ reverse insns
@@ -299,9 +297,9 @@ translateInstruction :: forall f . (Failure DT.DecodeError f)
                         -> MethodKnot
                         -> BlockNumber
                         -> ([Instruction], MethodKnot)
-                        -> (Int, DT.Instruction, Maybe DT.Instruction)
+                        -> (Int, DT.Instruction)
                         -> KnotMonad f ([Instruction], MethodKnot)
-translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst, nextInst) =
+translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst) =
   case inst of
     -- These instructions do not show up in SSA form
     DT.Nop -> return acc
@@ -426,7 +424,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
       -- We have to check the next instruction to see if the result of
       -- this instruction is saved anywhere.  If it is, the
       -- instruction introduces a new SSA value (the new array).
-      possibleDestination <- resultSavedAs labeling instIndex nextInst
+      possibleDestination <- resultSavedAs labeling instIndex
       case possibleDestination of
         Nothing -> return (n : insns, mknot)
         Just dstLbl -> return (n : insns, addInstMapping mknot dstLbl n)
@@ -443,7 +441,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
       -- We have to check the next instruction to see if the result of
       -- this instruction is saved anywhere.  If it is, the
       -- instruction introduces a new SSA value (the new array).
-      possibleDestination <- resultSavedAs labeling instIndex nextInst
+      possibleDestination <- resultSavedAs labeling instIndex
       case possibleDestination of
         Nothing -> return (n : insns, mknot)
         Just dstLbl -> return (n : insns, addInstMapping mknot dstLbl n)
@@ -750,7 +748,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
                                 , invokeVirtualMethod = mref
                                 , invokeArguments = map (getFinalValue tiedMknot) argLbls
                                 }
-      possibleDestination <- resultSavedAs labeling instIndex nextInst
+      possibleDestination <- resultSavedAs labeling instIndex
       case possibleDestination of
         Nothing -> return (i : insns, mknot)
         Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
@@ -765,7 +763,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
                                , invokeDirectMethodDef = mdef
                                , invokeArguments = map (getFinalValue tiedMknot) argLbls
                                }
-      possibleDestination <- resultSavedAs labeling instIndex nextInst
+      possibleDestination <- resultSavedAs labeling instIndex
       case possibleDestination of
         Nothing -> return (i : insns, mknot)
         Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
@@ -853,10 +851,11 @@ unaryOpType o =
 
 -- | We pass in the index of the instruction that might be returning a
 -- value, not the index of the next instruction.
-resultSavedAs :: (Failure DT.DecodeError f) => Labeling -> Int -> Maybe DT.Instruction -> KnotMonad f (Maybe Label)
-resultSavedAs labeling ix (Just (DT.Move1 _ dst)) =
-  liftM Just $ dstLabelForReg labeling (ix + 1) dst
-resultSavedAs _ _ _ = return Nothing
+resultSavedAs :: (Failure DT.DecodeError f) => Labeling -> Int -> KnotMonad f (Maybe Label)
+resultSavedAs labeling ix
+  | Just (DT.Move1 _ dst) <- labelingInstructions labeling V.!? (ix + 1) =
+    liftM Just $ dstLabelForReg labeling (ix + 1) dst
+  | otherwise = return Nothing
 
 -- | look up the type of a labeled value.  Note that we MUST only look
 -- at values that are already defined.  Looking in the "final" tied
