@@ -50,6 +50,7 @@ module Dalvik.SSA.Internal.Labeling (
   generatedLabelsAreUnique
   ) where
 
+import Control.Arrow ( second )
 import Control.Failure
 import Control.Monad ( filterM, forM_, liftM, void )
 import Control.Monad.Trans.RWS.Strict
@@ -652,6 +653,7 @@ tryRemoveTrivialPhi phi = do
 replacePhiBy :: [Use] -> Label -> Label -> SSALabeller ()
 replacePhiBy uses oldPhi trivialValue = do
   modify $ \s -> s { phiOperands = M.map (S.map replacePhiUses) (phiOperands s)
+                   , phiOperandSources = M.mapKeys (second replacePhiUses) (phiOperandSources s)
                    , currentDefinition = fmap (fmap replacePhiUses) (currentDefinition s)
                    }
   -- Note that we do nothing right now in the phi use case.  This is
