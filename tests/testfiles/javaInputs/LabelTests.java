@@ -609,4 +609,18 @@ class LabelTests {
 
     return arr;
   }
+
+  public String passLongToStaticCallee(long val) {
+    return String.valueOf(val);
+  }
+
+  public String passLongToVirtualCallee(StringBuilder sb, long val) {
+    sb.append(val);
+    return sb.toString();
+  }
+
+  public int varargsTest(int i1, long l2) {
+    System.out.format("%d%d\n", i1, l2);
+    return i1 + (int)l2;
+  }
 }
