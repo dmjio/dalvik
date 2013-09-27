@@ -234,8 +234,8 @@ insnUnitCount i =
     FBinopAssign {} -> 1
     BinopLit16 {} -> 2
     BinopLit8 {} -> 2
-    PackedSwitchData _ ts -> (length ts `div` 2) + 4
-    SparseSwitchData _ ts -> length ts + 2
+    PackedSwitchData _ ts -> (length ts * 2) + 4
+    SparseSwitchData vs ts -> (length ts + length vs) * 2 + 2
     ArrayData wid elts _ ->
       fromIntegral ((fromIntegral wid * elts + 1) `div` 2) + 4
 
