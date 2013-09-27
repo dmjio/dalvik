@@ -304,14 +304,16 @@ label' = do
                      , labelingWriteRegs = instructionResultLabels s
                      , labelingPhis = phiOperands s
                      , labelingPhiSources = phiOperandSources s
-                     , labelingBlockPhis = foldr addPhiForBlock M.empty $ M.keys (phiOperands s)
+                     , labelingBlockPhis = foldr (addPhiForBlock s) M.empty $ M.keys (phiOperands s)
                      , labelingBasicBlocks = bbs
                      , labelingInstructions = ivec
                      , labelingParameters = argLabels
                      }
   where
-    addPhiForBlock p@(PhiLabel bnum _ _) m = M.insertWith (++) bnum [p] m
-    addPhiForBlock _ m = m
+    addPhiForBlock s p@(PhiLabel bnum _ _) m
+      | Just ivs <- M.lookup p (phiOperands s), not (S.null ivs) = M.insertWith (++) bnum [p] m
+      | otherwise = m
+    addPhiForBlock _ _ m = m
 
 -- | Label instructions and, if they end a block, mark the block as filled.
 --
