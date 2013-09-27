@@ -576,6 +576,20 @@ class LabelTests {
   }
 
   /**
+     This test catches a regression in `insnCodeUnits`.  Multiple
+     adjacent fill-array-data-payload instructions expose the error
+     and will lead to an explosion while translating to SSA form.
+   */
+  public int[] newArrayFilledUncheckedMulti(int x) {
+    if(x < 0)
+      return new int[] {1,2,3,4};
+    else if(x == 0)
+      return new int[] {6,7,8,9};
+    else
+      return new int[] {10,11,12,13};
+  }
+
+  /**
      fill-array-data could never be executed on a null pointer from
      compiler-generated code.  Hand-generated code could do it,
      though, and the verifier can't check that.
