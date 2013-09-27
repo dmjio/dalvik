@@ -164,7 +164,7 @@ prettyInstructionDoc i =
             VoidType -> PP.empty
             _ -> instBindDoc i
       in beginning <+> PP.text "invoke" <+> prettyVirtualKindDoc k <+>
-           prettyMethodRefDoc m <+> prettyArgumentList vs
+           prettyMethodRefDoc m <> prettyArgumentList vs
     InvokeDirect { invokeDirectKind = k
                  , invokeDirectMethod = m
                  , invokeArguments = vs
@@ -173,7 +173,7 @@ prettyInstructionDoc i =
             VoidType -> PP.empty
             _ -> instBindDoc i
       in beginning <+> PP.text "invoke" <+> prettyDirectKindDoc k <+>
-           prettyMethodRefDoc m <+> prettyArgumentList vs
+           prettyMethodRefDoc m <> prettyArgumentList vs
     Phi { phiValues = ivs } ->
       instBindDoc i <+> PP.text "phi" <+>
         arrayLiteralDoc (map phiValueDoc ivs)
@@ -308,9 +308,9 @@ prettyMethodDoc Method { methodBody = mblocks
                        } =
   case mblocks of
     Nothing -> intro
-    Just blocks -> intro $+$ PP.vcat (map prettyBlockDoc blocks) $+$ end
+    Just blocks -> intro <+> PP.char '{' $+$ PP.vcat (map prettyBlockDoc blocks) $+$ end
   where
-    intro = prettyTypeDoc rt <+> PP.text mname <> prettyFormalList ps <+> PP.text (flagsString AMethod flags) <+> PP.char '{'
+    intro = prettyTypeDoc rt <+> PP.text mname <> prettyFormalList ps <+> PP.text (flagsString AMethod flags)
     end = PP.char '}'
 
 prettyFieldDefDoc :: (AccessFlags, Field) -> Doc
