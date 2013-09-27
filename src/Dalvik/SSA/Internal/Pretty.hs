@@ -328,12 +328,12 @@ prettyClassDoc klass =
     virtual = PP.vcat (instanceFields ++ virtualMethods)
     directMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classDirectMethods klass)
     virtualMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classVirtualMethods klass)
-    body = PP.nest 2 (static $+$ virtual)
+    body = PP.nest 2 (static $+$ PP.text "" $+$ virtual)
     super = case classParent klass of
       Nothing -> PP.empty
       Just sc -> PP.text "Superclass:" <+> prettyTypeDoc sc
     interfaces = PP.text "Interfaces:" $+$
-                   PP.nest 2 (PP.vcat (map prettyTypeDoc (classInterfaces klass)))
+                   PP.nest 2 (PP.vcat (map prettyTypeDoc (classInterfaces klass))) $+$ PP.text ""
     meta = PP.nest 2 (super $+$ interfaces)
     end = PP.char '}'
 
