@@ -25,7 +25,8 @@ import qualified Dalvik.AccessFlags as DT
 import qualified Dalvik.Instruction as DT
 import qualified Dalvik.Types as DT
 import Dalvik.SSA.Types
-import Dalvik.SSA.Internal.BasicBlocks
+import Dalvik.SSA.Types as SSA
+import Dalvik.SSA.Internal.BasicBlocks as BB
 import Dalvik.SSA.Internal.Labeling
 import Dalvik.SSA.Internal.Names
 import Dalvik.SSA.Internal.RegisterAssignment
@@ -254,8 +255,12 @@ translateBlock labeling tiedMknot (bs, mknot, indexCounter) (bnum, insts) = do
                      , basicBlockNumber = bnum
                      , basicBlockInstructions = V.fromList $ phis ++ reverse insns
                      , basicBlockPhiCount = length phis
+                     , SSA.basicBlockSuccessors = map (getFinalBlock tiedMknot) $ BB.basicBlockSuccessors bbs bnum
+                     , SSA.basicBlockPredecessors = map (getFinalBlock tiedMknot) $ BB.basicBlockPredecessors bbs bnum
                      }
   return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') }, indexCounter + length insts')
+  where
+    bbs = labelingBasicBlocks labeling
 
 -- FIXME: We could insert unconditional branches at the end of any
 -- basic blocks that fallthrough without an explicit transfer

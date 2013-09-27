@@ -131,6 +131,8 @@ data BasicBlock = BasicBlock { basicBlockId :: UniqueId
                              , basicBlockNumber :: Int
                              , basicBlockInstructions :: Vector Instruction
                              , basicBlockPhiCount :: Int
+                             , basicBlockSuccessors :: [BasicBlock]
+                             , basicBlockPredecessors :: [BasicBlock]
                              }
 
 instance Eq BasicBlock where

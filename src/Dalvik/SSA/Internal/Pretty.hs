@@ -290,10 +290,14 @@ prettyFormalParamDoc p = prettyTypeDoc (parameterType p) <+> PP.text (parameterN
 prettyBlockDoc :: BasicBlock -> Doc
 prettyBlockDoc BasicBlock { basicBlockNumber = bnum
                           , basicBlockInstructions = insns
+                          , basicBlockPredecessors = pblocks
                           } =
-  (PP.int (bnum) <> PP.char ':') $+$ PP.nest 2 insnDoc
+  (PP.int (bnum) <> PP.text ":\t ;" <+> preds) $+$ PP.nest 2 insnDoc
   where
     insnDoc = PP.vcat $ map prettyInstructionDoc $ V.toList insns
+    preds = case pblocks of
+      [] -> PP.text "no predecessors"
+      _ -> arrayLiteralDoc $ map (PP.int . basicBlockNumber) pblocks
 
 prettyMethodDoc :: Method -> Doc
 prettyMethodDoc Method { methodBody = mblocks
