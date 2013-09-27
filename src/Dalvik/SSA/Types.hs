@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_HADDOCK hide #-}
 module Dalvik.SSA.Types (
   DexFile(..),
@@ -10,8 +12,9 @@ module Dalvik.SSA.Types (
   MethodRef(..),
   UniqueId,
   Value(..),
-  valueId,
-  valueType,
+  IsValue(..),
+  FromValue(..),
+  CastException(..),
   Constant(..),
   constantId,
   constantType,
@@ -26,9 +29,12 @@ module Dalvik.SSA.Types (
   module Dalvik.AccessFlags
   ) where
 
+import Control.Exception ( Exception )
+import Control.Failure
 import Data.Function ( on )
 import Data.Hashable
 import Data.Int ( Int64 )
+import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 
 import Dalvik.AccessFlags
@@ -36,6 +42,7 @@ import Dalvik.ClassHierarchy
 -- Low-level instructions
 import qualified Dalvik.Instruction as LL
 
+-- | A Dalvik Dex file represented in SSA form.
 data DexFile =
   DexFile { dexIdentifier :: String
           , dexClasses :: [Class]
@@ -54,16 +61,29 @@ instance Ord Value where
 instance Hashable Value where
   hashWithSalt s = hashWithSalt s . valueId
 
+-- | A common interface to the three 'Value'-like types.
+class IsValue a where
+  valueType :: a -> Type
+  valueId :: a -> UniqueId
 
-valueId :: Value -> UniqueId
-valueId (InstructionV i) = instructionId i
-valueId (ConstantV c) = constantId c
-valueId (ParameterV p) = parameterId p
+instance IsValue Value where
+  valueId (InstructionV i) = instructionId i
+  valueId (ConstantV c) = constantId c
+  valueId (ParameterV p) = parameterId p
 
-valueType :: Value -> Type
-valueType (InstructionV i) = instructionType i
-valueType (ConstantV c) = constantType c
-valueType (ParameterV p) = parameterType p
+  valueType (InstructionV i) = instructionType i
+  valueType (ConstantV c) = constantType c
+  valueType (ParameterV p) = parameterType p
+
+-- | Convenient and safe casting from 'Value' to a concrete type
+-- (either 'Constant', 'Instruction', or 'Parameter').
+class FromValue a where
+  fromValue :: (Failure CastException f) => Value -> f a
+
+data CastException = CastException String
+                   deriving (Eq, Ord, Show, Typeable)
+
+instance Exception CastException
 
 
 -- FIXME: For now, all numeric constants are integer types because we
@@ -89,6 +109,14 @@ constantId (ConstantClass i _) = i
 
 constantType :: Constant -> Type
 constantType _ = UnknownType
+
+instance IsValue Constant where
+  valueId = constantId
+  valueType = constantType
+
+instance FromValue Constant where
+  fromValue (ConstantV c) = return c
+  fromValue _ = failure $ CastException "Not a Constant"
 
 data Type = VoidType
           | ByteType
@@ -289,6 +317,14 @@ instance Ord Instruction where
 instance Hashable Instruction where
   hashWithSalt s = hashWithSalt s . instructionId
 
+instance IsValue Instruction where
+  valueId = instructionId
+  valueType = instructionType
+
+instance FromValue Instruction where
+  fromValue (InstructionV i) = return i
+  fromValue _ = failure $ CastException "Not an Instruction"
+
 data Parameter = Parameter { parameterId :: UniqueId
                            , parameterType :: Type
                            , parameterName :: String
@@ -303,6 +339,14 @@ instance Ord Parameter where
 
 instance Hashable Parameter where
   hashWithSalt s = hashWithSalt s . parameterId
+
+instance IsValue Parameter where
+  valueId = parameterId
+  valueType = parameterType
+
+instance FromValue Parameter where
+  fromValue (ParameterV p) = return p
+  fromValue _ = failure $ CastException "Not a Parameter"
 
 data Method = Method { methodId :: UniqueId
                      , methodName :: String

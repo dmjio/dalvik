@@ -32,6 +32,10 @@ import Dalvik.SSA.Internal.Names
 import Dalvik.SSA.Internal.RegisterAssignment
 import Dalvik.SSA.Internal.Pretty ()
 
+-- | Convert a 'Dalvik.Types.DexFile' into SSA form.  The result is a
+-- different DexFile with as many references as possible resolved and
+-- instructions in SSA form.  Some simple dead code elimination is
+-- performed.
 toSSA :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> f DexFile
 toSSA df = do
   dexIdentifierStr <- case DT.dexThisId df of
