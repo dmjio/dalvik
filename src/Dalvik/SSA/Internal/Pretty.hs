@@ -326,8 +326,8 @@ prettyClassDoc klass =
     instanceFields = map prettyFieldDefDoc (classInstanceFields klass)
     static = PP.vcat (staticFields ++ directMethods)
     virtual = PP.vcat (instanceFields ++ virtualMethods)
-    directMethods = map prettyMethodDoc (classDirectMethods klass)
-    virtualMethods = map prettyMethodDoc (classVirtualMethods klass)
+    directMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classDirectMethods klass)
+    virtualMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classVirtualMethods klass)
     body = PP.nest 2 (static $+$ virtual)
     super = case classParent klass of
       Nothing -> PP.empty
