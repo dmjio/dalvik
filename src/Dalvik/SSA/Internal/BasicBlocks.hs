@@ -156,8 +156,13 @@ makeEnv ivec ers =
     revMap acc ix off = M.insert off ix acc
     addHandler r m =
       let s = resolveOffsetFrom env0 0 $ fromIntegral $ erOffset r
-          e = resolveOffsetFrom env0 s $ fromIntegral $ erCount r
+          rest = V.drop s ivec
+          e = s + V.ifoldr findLastCoveredIndex id rest (fromIntegral (erCount r))
       in IM.insert (IM.ClosedInterval s e) r m
+    findLastCoveredIndex ix inst rest shortsLeft
+      | shortsLeft <= 0 = error "Ran past the end of a function trying to find handler coverage"
+      | shortsLeft == insnUnitCount inst = ix
+      | otherwise = rest (shortsLeft - insnUnitCount inst)
 
 resolveOffsetFrom :: BBEnv
                   -> Int -- ^ Index of the branch instruction

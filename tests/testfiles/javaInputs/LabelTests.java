@@ -593,7 +593,14 @@ class LabelTests {
      fill-array-data could never be executed on a null pointer from
      compiler-generated code.  Hand-generated code could do it,
      though, and the verifier can't check that.
+
+     NOTE: Apparently this test isn't useful.  The compiler inserts a
+     fill-array instruction after the allocation, but the fill array
+     is not guarded by the try block.  Apparently there is some
+     guarantee provided by the compiler here that means there can't be
+     an NPE.
    */
+  /*
   public Object newArrayFilledCheckedNPE() {
     Object o;
 
@@ -606,7 +613,7 @@ class LabelTests {
 
     return o;
   }
-
+  */
   public Object newMultiArrayUnchecked(short x1, short x2) {
     short[][] arr = new short[x1][x2];
     return arr;
