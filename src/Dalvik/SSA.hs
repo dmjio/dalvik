@@ -121,9 +121,11 @@ translateType df m (tid, _) = do
   return m { knotTypes = M.insert tid ty (knotTypes m) }
 
 getStr' :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f String
-getStr' sid = do
-  df <- gets knotDexFile
-  liftM BS.unpack $ lift $ DT.getStr df sid
+getStr' sid
+  | sid == -1 = error "Missing string bt"
+  | otherwise = do
+    df <- gets knotDexFile
+    liftM BS.unpack $ lift $ DT.getStr df sid
 
 lookupClass :: (Failure DT.DecodeError f)
                => DT.TypeId
@@ -138,7 +140,9 @@ translateClass :: (MonadFix f, Failure DT.DecodeError f)
                   -> KnotMonad f Knot
 translateClass k (tid, klass) = do
   cid <- freshId
-  cname <- getStr' $ DT.classSourceNameId klass
+  cname <- case DT.classSourceNameId klass of
+    (-1) -> return "<unnamed>"
+    snid -> getStr' snid
   parent <- case DT.classSuperId klass of
     (-1) -> return Nothing
     sid -> liftM Just $ getTranslatedType sid
