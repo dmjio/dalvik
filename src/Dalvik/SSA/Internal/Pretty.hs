@@ -1,4 +1,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+-- | This module defines a pretty printer for the SSA-based IR.
+--
+-- All of this is very subject to change.
 module Dalvik.SSA.Internal.Pretty where
 
 import Data.Int ( Int64 )
