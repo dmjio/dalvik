@@ -226,7 +226,7 @@ translateMethodBody df paramMap tiedMknot em = do
       bbs = labelingBasicBlocks labeling
       blockList = basicBlocksAsList bbs
   mknot0 <- foldM addParameterLabel emptyMethodKnot parameterLabels
-  (bs, resultKnot, _) <- foldM (translateBlock labeling tiedMknot) ([], mknot0, 0) blockList
+  (bs, resultKnot) <- foldM (translateBlock labeling tiedMknot) ([], mknot0) blockList
   return (Just (reverse bs), resultKnot)
   where
     addParameterLabel mknot l@(ArgumentLabel _ ix) =
@@ -252,15 +252,15 @@ emptyMethodKnot = MethodKnot M.empty M.empty
 translateBlock :: (Failure DT.DecodeError f)
                   => Labeling
                   -> MethodKnot
-                  -> ([BasicBlock], MethodKnot, Int)
-                  -> (BlockNumber, Vector DT.Instruction)
-                  -> KnotMonad f ([BasicBlock], MethodKnot, Int)
-translateBlock labeling tiedMknot (bs, mknot, indexCounter) (bnum, insts) = do
+                  -> ([BasicBlock], MethodKnot)
+                  -> (BlockNumber, Int, Vector DT.Instruction)
+                  -> KnotMonad f ([BasicBlock], MethodKnot)
+translateBlock labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
   bid <- freshId
   let blockPhis = M.findWithDefault [] bnum $ labelingBlockPhis labeling
       insts' = V.toList insts
   (phis, mknot') <- foldM (makePhi labeling tiedMknot) ([], mknot) blockPhis
-  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip [indexCounter..] insts')
+  (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum) ([], mknot') (zip [indexStart..] insts')
   let b = BasicBlock { basicBlockId = bid
                      , basicBlockNumber = bnum
                      , basicBlockInstructions = V.fromList $ phis ++ reverse insns
@@ -268,7 +268,7 @@ translateBlock labeling tiedMknot (bs, mknot, indexCounter) (bnum, insts) = do
                      , SSA.basicBlockSuccessors = map (getFinalBlock tiedMknot) $ BB.basicBlockSuccessors bbs bnum
                      , SSA.basicBlockPredecessors = map (getFinalBlock tiedMknot) $ BB.basicBlockPredecessors bbs bnum
                      }
-  return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') }, indexCounter + length insts')
+  return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') })
   where
     bbs = labelingBasicBlocks labeling
 

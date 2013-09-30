@@ -773,7 +773,6 @@ filterWidePairs df mId ikind argRegs = do
     -- be varargs, which are explicitly boxed in the IR.
     go [] rest = return rest
     go (tid:tids) (r1:rest) = do
-      -- getTypeName :: (Failure DecodeError f) => DexFile -> TypeId -> f BS.ByteString
       tyName <- DT.getTypeName df tid
       case BS.unpack tyName of
         "J" -> liftM (r1:) $ dropNextReg tids rest
@@ -832,11 +831,11 @@ phiForBlock bid l =
 -- basically for debugging.
 prettyLabeling :: Labeling -> String
 prettyLabeling l =
-  render $ PP.vcat $ snd $ L.mapAccumL prettyBlock 0 $ basicBlocksAsList bbs
+  render $ PP.vcat $ map prettyBlock $ basicBlocksAsList bbs
   where
     bbs = labelingBasicBlocks l
     ivec = labelingInstructions l
-    prettyBlock blockOff (bid, insts) =
+    prettyBlock (bid, blockOff, insts) =
       let header = PP.text ";; " PP.<> PP.int bid PP.<> PP.text (show (basicBlockPredecessors bbs bid))
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labelingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
@@ -844,7 +843,7 @@ prettyLabeling l =
                                   not (null vals)
                                 ]
           body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ zip [blockOff..] $ V.toList insts)
-      in (blockOff + V.length insts, header $+$ PP.nest 2 body)
+      in header $+$ PP.nest 2 body
     branchTargets i = fromMaybe "??" $ do
       ix <- V.elemIndex i ivec
       srcBlock <- instructionBlockNumber bbs ix

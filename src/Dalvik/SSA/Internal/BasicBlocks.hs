@@ -40,7 +40,7 @@ import qualified Data.IntervalMap.Strict as IM
 import qualified Data.List as L
 import Data.Map ( Map )
 import qualified Data.Map as M
-import Data.Maybe ( fromMaybe, isJust, mapMaybe )
+import Data.Maybe ( fromMaybe, isJust )
 import qualified Data.Set as S
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
@@ -69,12 +69,25 @@ data ExceptionRange =
 -- | Unique (within a method) basic block identifiers
 type BlockNumber = Int
 
+-- | A simple type alias for dealing with these low-level BasicBlocks.
+-- The first element is the number of the block (starts from zero).
+-- The second element is the index (into the instruction stream) of
+-- the first instruction in the BasicBlock.  The last element are the
+-- instructions comprising the BasicBlock.
+--
+-- We store the index of the first instruction so that we can recover
+-- the index of each instruction in the block.  We can't reconstruct
+-- it without some stored information because dead code could be
+-- eliminated from the middle of the instruction stream, leaving gaps
+-- that we cannot account for otherwise.
+type BlockDescriptor = (BlockNumber, Int, Vector Instruction)
+
 -- | An opaque abstraction of basic blocks for the low-level Dalvik IR (Dalvik.Instruction)
 data BasicBlocks =
-  BasicBlocks { bbBlocks :: Vector (BlockNumber, Vector Instruction)
+  BasicBlocks { bbBlocks :: Vector (BlockNumber, Int, Vector Instruction)
                 -- ^ The actual Basic Blocks.  These are *slices* out
                 -- of the original Instruction vector.
-              , bbFromInstruction :: Vector BlockNumber
+              , bbFromInstruction :: IntervalMap Int BlockNumber
                 -- ^ One entry per instruction, the reverse mapping
               , bbPredecessors :: Vector [BlockNumber]
                 -- ^ One entry per basic block
@@ -117,7 +130,7 @@ basicBlockHandlesException :: BasicBlocks -> BlockNumber -> Maybe BS.ByteString
 basicBlockHandlesException bbs bnum = M.lookup bnum (bbBlockExceptionTypes bbs)
 
 -- | Extract the basic blocks into a more directly-usable form.
-basicBlocksAsList :: BasicBlocks -> [(BlockNumber, Vector Instruction)]
+basicBlocksAsList :: BasicBlocks -> [(BlockNumber, Int, Vector Instruction)]
 basicBlocksAsList = V.toList . bbBlocks
 
 type Handlers = IntervalMap Int ExceptionRange
@@ -179,25 +192,25 @@ resolveOffsetFrom env src off = ix
 findBasicBlocks :: Vector Instruction -> [ExceptionRange] -> BasicBlocks
 findBasicBlocks ivec ers =
   BasicBlocks { bbBlocks = bvec
-              , bbFromInstruction = bmapVec
+              , bbFromInstruction = bnumMap
               , bbPredecessors = preds
               , bbSuccessors = succs
               , bbBlockEnds = blockEnds
               , bbBlockExceptionTypes =
-                exceptionBlockTypes (resolveOffsetFrom env 0) bmapVec ers
+                exceptionBlockTypes (resolveOffsetFrom env 0) bnumMap ers
               , bbBranchTargets = btargets
               , bbEnv = env
               }
   where
     env = makeEnv ivec ers
-    (preds, succs, btargets) = buildPredecessors env bvec bmapVec blockEnds
+    (preds, succs, btargets) = buildPredecessors env bvec bnumMap blockEnds
     (bvec, bnumMap) = splitIntoBlocks env
-    bmapVec = buildInstructionBlockMap bnumMap
-    blockEnds = M.foldrWithKey collectEnds IS.empty bnumMap
-    collectEnds (_, e) _ = IS.insert e
+    blockEnds = IM.foldrWithKey collectEnds IS.empty bnumMap
+    collectEnds i _ = let (IM.ClosedInterval _ e) = i in IS.insert e
+
 
 exceptionBlockTypes :: (Int -> Int)
-                       -> Vector BlockNumber
+                       -> IntervalMap Int BlockNumber
                        -> [ExceptionRange]
                        -> Map BlockNumber BS.ByteString
 exceptionBlockTypes toInstIdx bnumMap =
@@ -209,9 +222,9 @@ exceptionBlockTypes toInstIdx bnumMap =
       -- is dead code (no exceptions can actually reach it at
       -- runtime).
       let instIdx = toInstIdx (fromIntegral offset)
-      in case bnumMap V.!? instIdx of
-        Nothing -> m
-        Just bnum -> M.insert bnum name m
+      in case IM.containing bnumMap instIdx of
+        [(_, bnum)] -> M.insert bnum name m
+        _ -> m
 
 -- | Test if the instruction at the given index into the instruction
 -- stream ends a basic block.  This covers both explicit block ends
@@ -224,12 +237,15 @@ instructionEndsBlock bbs ix = IS.member ix $ bbBlockEnds bbs
 
 -- | Get the block number for an instruction
 instructionBlockNumber :: BasicBlocks -> Int -> Maybe BlockNumber
-instructionBlockNumber bbs = (bbFromInstruction bbs V.!?)
+instructionBlockNumber bbs ix =
+  case IM.containing (bbFromInstruction bbs) ix of
+    [(_, bnum)] -> Just bnum
+    _ -> Nothing
 
 -- | Get the basic block ID for the instruction at the given index.
 basicBlockForInstruction :: BasicBlocks -> Int -> BlockNumber
 basicBlockForInstruction bbs ix =
-  let Just bnum = bbFromInstruction bbs V.!? ix
+  let [(_, bnum)] = IM.containing (bbFromInstruction bbs) ix
   in bnum
 
 basicBlockPredecessors :: BasicBlocks -> BlockNumber -> [BlockNumber]
@@ -245,8 +261,8 @@ basicBlockSuccessors bbs bid =
 -- Iterate over the block list and find the targets of the terminator.
 -- Build up a reverse Map and then transform it to a Vector at the end.
 buildPredecessors :: BBEnv
-                  -> Vector (BlockNumber, Vector Instruction)
-                  -> Vector BlockNumber
+                  -> Vector BlockDescriptor
+                  -> IntervalMap Int BlockNumber
                   -> IntSet
                   -> (Vector [BlockNumber], Vector [BlockNumber], Map BlockNumber [(JumpCondition, BlockNumber)])
 buildPredecessors env bvec bmap blockEnds =
@@ -266,64 +282,59 @@ buildPredecessors env bvec bmap blockEnds =
         IS.member ix blockEnds &&
         ix < V.length ivec - 1 =
         let target = ix + 1
-            Just termBlock = bmap V.!? ix
-            Just targetBlock = bmap V.!? target
+            [(_, termBlock)] = IM.containing bmap ix
+            [(_, targetBlock)] = IM.containing bmap target
         in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
             M.insertWith S.union termBlock (S.singleton targetBlock) sm,
             bts)
            -- We only update the branch targets map in this branch
            -- because we only need to know target information for
            -- explicit branch instructions.
-      | otherwise = fromMaybe m $ do
-          targets <- terminatorAbsoluteTargets env ix inst
-          termBlock <- bmap V.!? ix
-          let instIndexToBlockNum (cond, tix) = do
-                bnum <- bmap V.!? tix
-                return (cond, bnum)
-              targetBlocks = mapMaybe instIndexToBlockNum targets
-              addSuccsPreds (p, s, b) (condition, targetBlock) =
-                (M.insertWith S.union targetBlock (S.singleton termBlock) p,
-                 M.insertWith S.union termBlock (S.singleton targetBlock) s,
-                 M.insertWith (++) termBlock [(condition, targetBlock)] b)
-          return $ L.foldl' addSuccsPreds m targetBlocks
-
-buildInstructionBlockMap :: Map (Int, Int) BlockNumber -> Vector BlockNumber
-buildInstructionBlockMap =
-  V.fromList . map snd . L.sort . concatMap fromRange . M.toList
-  where
-    fromRange ((start, end), bnum) = zip [start..end] (repeat bnum)
-
+           --
+           -- If this is a terminator and there is no block mapping
+           -- for it, that means that the terminator instruction is in
+           -- dead code.
+      | Just targets <- terminatorAbsoluteTargets env ix inst
+      , [(_, termBlock)] <- IM.containing bmap ix =
+        let instIndexToBlockNum (cond, tix) =
+              let [(_, bnum)] = IM.containing bmap tix
+              in (cond, bnum)
+            targetBlocks = map instIndexToBlockNum targets
+            addSuccsPreds (p, s, b) (condition, targetBlock) =
+              (M.insertWith S.union targetBlock (S.singleton termBlock) p,
+               M.insertWith S.union termBlock (S.singleton targetBlock) s,
+               M.insertWith (++) termBlock [(condition, targetBlock)] b)
+        in L.foldl' addSuccsPreds m targetBlocks
+      | otherwise = m
 
 -- Splitting into blocks
 
 -- Scan through the instruction vector and end a block if either: 1) @ix@ is a terminator
 -- or 2) @ix + 1@ starts a block.
-splitIntoBlocks :: BBEnv
-                -> (Vector (BlockNumber, Vector Instruction),
-                    Map (Int, Int) BlockNumber)
-splitIntoBlocks env = (V.indexed (V.fromList (reverse blocks)), blockRanges)
+splitIntoBlocks :: BBEnv -> (Vector BlockDescriptor, IntervalMap Int BlockNumber)
+splitIntoBlocks env = (V.fromList (reverse blocks), blockRanges)
   where
     ivec = envInstVec env
-    (blocks, blockRanges, _) = V.ifoldl' splitInstrs ([], M.empty, blockBeginnings) ivec
+    (blocks, blockRanges, _, _) = V.ifoldl' splitInstrs ([], IM.empty, blockBeginnings, 0) ivec
     blockBeginnings = V.ifoldl' (addTargetIndex env) (IS.singleton 0) ivec
-    splitInstrs :: ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
+    splitInstrs :: ([BlockDescriptor], IntervalMap Int BlockNumber, IntSet, Int)
                    -> Int
                    -> Instruction
-                   -> ([Vector Instruction], Map (Int, Int) BlockNumber, IntSet)
-    splitInstrs acc@(bs, ranges, blockStarts) ix inst
+                   -> ([BlockDescriptor], IntervalMap Int BlockNumber, IntSet, Int)
+    splitInstrs acc@(bs, ranges, blockStarts, bnum) ix inst
     -- If we have no more block starts OR if the next block start is
     -- after the current instruction, that means we are translating
     -- dead code and it doesn't need to be turned into a block.
       | IS.null blockStarts || blockStart > ix = acc
       | isTerminator env ix inst || (ix + 1) `IS.member` blockStarts =
         let len = ix - blockStart + 1
-        in (V.slice blockStart len ivec : bs,
-            M.insert (blockStart, ix) bnum ranges,
-            blockStarts')
+        in ((bnum, blockStart, V.slice blockStart len ivec) : bs,
+            IM.insert (IM.ClosedInterval blockStart ix) bnum ranges,
+            blockStarts',
+            bnum + 1)
       | otherwise = acc
       where
         (blockStart, blockStarts') = IS.deleteFindMin blockStarts
-        bnum = M.size ranges
 
 -- | If the instruction is a jump, add all of its possible target
 -- indices (absolute, based from 0) to the Set.  While data loss is
