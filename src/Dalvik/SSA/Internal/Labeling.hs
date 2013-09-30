@@ -215,10 +215,15 @@ emptyLabelState argRegs =
       let l = ArgumentLabel name lno
       in (M.insertWith M.union reg (M.singleton 0 l) m, lno + 1)
 
-
+-- | Look up the low-level Dalvik instruction at the given index into
+-- the original instruction stream.
 labelingInstructionAt :: Labeling -> Int -> Maybe Instruction
 labelingInstructionAt l = (labelingInstructions l V.!?)
 
+-- | Compute SSA value labels for each register at each instruction in
+-- the given method.  We also compute some extra information about
+-- parameters and phi nodes that are required for a complete SSA
+-- transformation.
 labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
 labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
@@ -464,12 +469,14 @@ labelInstruction df (ix, inst) = do
     -- These two read and write from the dest register
     IBinopAssign _ w dst src -> rrs [src, dst] >> rw w dst
     FBinopAssign _ w dst src -> rrs [src, dst] >> rw w dst
+    -- The literal binop variants do not work on wide types
     BinopLit16 _ dst src _ -> rr src >> rw False dst
     BinopLit8 _ dst src _ -> rr src >> rw False dst
     PackedSwitchData _ _ -> return ()
     SparseSwitchData _ _ -> return ()
     ArrayData _ _ _ -> return ()
 
+-- | True if the unary op works over a wide type
 unopWide :: DT.Unop -> Bool
 unopWide o =
   case o of
@@ -478,10 +485,12 @@ unopWide o =
     DT.NegDouble -> True
     _ -> False
 
+-- | True if we are reading or writing a wide value
 accessWide :: Maybe DT.AccessType -> Bool
 accessWide (Just DT.AWide) = True
 accessWide _ = False
 
+-- | True if the constant being loaded is wide (will occupy two registers)
 constWide :: DT.ConstArg -> Bool
 constWide carg =
   case carg of
@@ -490,11 +499,6 @@ constWide carg =
     DT.ConstWide _ -> True
     DT.ConstWideHigh16 _ -> True
     _ -> False
-
--- FIXME: wide operations overwrite labels and basically undefine
--- them...  We have to model wide operations (with appropriate clears)
--- and perform a similar trick to Dalvik.SSA to ignore the second
--- register in wide pairs passed to invokes.
 
 -- | Looks up the mapping for this register at this instruction (from
 -- the mutable @currentDefinition@) and record the label mapping for
@@ -548,7 +552,6 @@ freshPhi bn = do
         }
   return l
 
-
 -- | Used for instructions that write to a register.  These always
 -- define a new value.  From the paper, this is:
 --
@@ -562,6 +565,14 @@ writeRegister wide (fromRegister -> reg) block = do
 
 -- | Write a register with the provided label, instead of allocating a
 -- fresh one.
+--
+-- If the register is wide, we also clear the definition of the second
+-- register in the pair (always the next register).  We must do this,
+-- otherwise there will be "dangling" definitions where a register
+-- pair has been written on one branch, and on a different branch an
+-- old definition that was overwritten will appear to be live.  These
+-- phantom definitions show up in phi nodes and cannot be resolved
+-- (since they never existed in that predecessor branch).
 writeRegisterLabel :: (Failure DecodeError f, FromRegister a) => Bool -> a -> BlockNumber -> Label -> SSALabeller f ()
 writeRegisterLabel wide (fromRegister -> reg) block l = do
   s <- get
@@ -600,6 +611,8 @@ readRegisterRecursive reg block = do
     False -> makeIncomplete reg block
     True -> globalNumbering reg block
 
+-- | When a block isn't sealed yet, we add a dummy phi empty phi node.
+-- It will be filled in (or eliminated) once the block is sealed.
 makeIncomplete :: (Failure DecodeError f) => Word16 -> BlockNumber -> SSALabeller f Label
 makeIncomplete r b = do
   p <- freshPhi b
@@ -618,9 +631,9 @@ globalNumbering r b = do
       p <- freshPhi b
       writeRegisterLabel False r b p
       addPhiOperands r b p
-  writeRegisterLabel False r b l -- FIXME is it okay to say this isn't
-                                 -- wide?  I guess nothing has really
-                                 -- been written right here...
+  -- FIXME is it okay to say this isn't wide?  I guess nothing has
+  -- really been written right here...
+  writeRegisterLabel False r b l
   return l
 
 -- | Check if a basic block is filled
@@ -735,6 +748,10 @@ trivialPhiValue phi = do
         _ -> return Nothing
     Nothing -> return Nothing
 
+-- | > appendPhiOperand phi bnum operand
+--
+-- Adds an @operand@ (that came from basic block @bnum@) to a @phi@
+-- node.
 appendPhiOperand :: (Failure DecodeError f) => Label -> BlockNumber -> Label -> SSALabeller f ()
 appendPhiOperand phi bnum operand = modify appendOperand
   where
@@ -753,6 +770,10 @@ appendPhiOperand phi bnum operand = modify appendOperand
 --
 -- This function filters out the second register in each wide argument
 -- pair.
+--
+-- This prevents us from accidentally processing these extra registers
+-- and generating empty/undefined phi labels.  We need this both for
+-- the labeling and the SSA translation phases.
 filterWidePairs :: (Failure DecodeError f) => DT.DexFile -> DT.MethodId -> DT.InvokeKind -> [DT.Reg16] -> f [DT.Reg16]
 filterWidePairs df mId ikind argRegs = do
   m <- getMethod df mId
@@ -788,11 +809,13 @@ filterWidePairs df mId ikind argRegs = do
 -- real functions.  They just extract the BasicBlocks object from the
 -- environment.
 
+-- | A wrapper around 'basicBlockPredecessors' handling the environment lookup
 basicBlockPredecessorsM :: (Failure DecodeError f) => BlockNumber -> SSALabeller f [BlockNumber]
 basicBlockPredecessorsM bid = do
   bbs <- asks envBasicBlocks
   return $ basicBlockPredecessors bbs bid
 
+-- | A wrapper around 'basicBlockSuccessors' handling the environment lookup
 basicBlockSuccessorsM :: (Failure DecodeError f) => BlockNumber -> SSALabeller f [BlockNumber]
 basicBlockSuccessorsM bid = do
   bbs <- asks envBasicBlocks
