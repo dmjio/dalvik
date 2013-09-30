@@ -33,7 +33,6 @@ module Dalvik.SSA.Internal.BasicBlocks (
   BlockNumber,
   TypeName,
   ExceptionRange(..),
-  JumpCondition(..),
   -- * Primary entry point
   findBasicBlocks,
   -- * Block-oriented queries
@@ -42,6 +41,7 @@ module Dalvik.SSA.Internal.BasicBlocks (
   basicBlockSuccessors,
   basicBlocksAsList,
   basicBlockHandlesException,
+  JumpCondition(..),
   basicBlockBranchTargets,
   -- * Instruction-oriented queries
   instructionBlockNumber,
@@ -138,6 +138,9 @@ instructionAtRawOffsetFrom bbs ix offset =
   where
     targetIndex = resolveOffsetFrom (bbEnv bbs) ix (fromIntegral offset)
 
+-- | Find the targets of the terminator (or fallthrough) instruction
+-- in the named basic block.  Each target is tagged with the condition
+-- under which that branch is taken.
 basicBlockBranchTargets :: BasicBlocks -> BlockNumber -> [(JumpCondition, BlockNumber)]
 basicBlockBranchTargets bbs bnum = ts
   where
