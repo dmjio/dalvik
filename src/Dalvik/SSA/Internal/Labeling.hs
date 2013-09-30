@@ -42,7 +42,6 @@ module Dalvik.SSA.Internal.Labeling (
   ExceptionRange(..),
   FromRegister(..),
   labelMethod,
-  labelInstructions,
   labelingInstructionAt,
   labelingPhiIncomingValues,
   filterWidePairs,
