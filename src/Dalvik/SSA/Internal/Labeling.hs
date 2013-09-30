@@ -480,8 +480,8 @@ unopWide o =
     _ -> False
 
 accessWide :: Maybe DT.AccessType -> Bool
-accessWide Nothing = False
-accessWide (Just t) = t == DT.AWide
+accessWide (Just DT.AWide) = True
+accessWide _ = False
 
 constWide :: DT.ConstArg -> Bool
 constWide carg =
