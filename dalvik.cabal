@@ -65,7 +65,7 @@ Executable Dexdumper
   hs-source-dirs: tools/Dexdumper
   Main-Is: Main.hs
   GHC-Options: -Wall -O1
-  GHC-Prof-Options: -prof -fprof-auto -fprof-cafs
+  GHC-Prof-Options: -prof -fprof-auto -fprof-cafs -rtsopts
 
 executable SSADumper
   default-language: Haskell2010
@@ -80,7 +80,7 @@ executable SSADumper
                  containers
   main-is: Main.hs
   hs-source-dirs: tests/ssa, tools/SSADumper
-  ghc-options: -Wall -O1
+  ghc-options: -Wall -O1 -rtsopts
 
 test-suite SSALabels
   default-language: Haskell2010
