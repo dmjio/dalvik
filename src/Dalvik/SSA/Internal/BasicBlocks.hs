@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
--- | Split an 'Instruction' stream into basic blocks.
+-- | Split a stream of raw Dalvik 'Instruction's into basic blocks.
 --
 -- This is a support module for the SSA labelling module.
 --
@@ -12,20 +12,38 @@
 -- block beginnings.
 --
 -- This module attempts to abstract all of these details in a
--- reasonable way.
+-- reasonable way.  This module supports:
+--
+--  * Getting a list of basic blocks.
+--
+--  * Querying the control flow graph (with efficient access to predecessors and successors).
+--
+--  * Figuring out which basic block an 'Instruction' came from.
+--
+--  * Resolving relative 'Instruction' offsets into absolute indices into the 'Instruction' stream.
+--
+--  * Determining what types of exceptions are handled in a basic block if that block is a catch handler.
+--
+-- Note that the construction of the control flow graph eliminates
+-- some forms of dead code, notably exception handlers that cannot be
+-- reached.
 module Dalvik.SSA.Internal.BasicBlocks (
+  -- * Types
   BasicBlocks,
   BlockNumber,
   TypeName,
   ExceptionRange(..),
   JumpCondition(..),
+  -- * Primary entry point
+  findBasicBlocks,
+  -- * Block-oriented queries
   basicBlockForInstruction,
   basicBlockPredecessors,
   basicBlockSuccessors,
   basicBlocksAsList,
   basicBlockHandlesException,
   basicBlockBranchTargets,
-  findBasicBlocks,
+  -- * Instruction-oriented queries
   instructionBlockNumber,
   instructionEndsBlock,
   instructionAtRawOffsetFrom
@@ -188,7 +206,8 @@ resolveOffsetFrom env src off = ix
 
 -- | Examine the instruction stream and break it into basic blocks.
 -- This includes control flow information (block predecessors and
--- successors).
+-- successors).  The 'BasicBlocks' object is opaque and can be queried
+-- with the other functions exported from this module.
 findBasicBlocks :: Vector Instruction -> [ExceptionRange] -> BasicBlocks
 findBasicBlocks ivec ers =
   BasicBlocks { bbBlocks = bvec
@@ -203,10 +222,10 @@ findBasicBlocks ivec ers =
               }
   where
     env = makeEnv ivec ers
-    (preds, succs, btargets) = buildPredecessors env bvec bnumMap blockEnds
     (bvec, bnumMap) = splitIntoBlocks env
     blockEnds = IM.foldrWithKey collectEnds IS.empty bnumMap
     collectEnds i _ = let (IM.ClosedInterval _ e) = i in IS.insert e
+    (preds, succs, btargets) = buildCFG env bvec bnumMap blockEnds
 
 
 exceptionBlockTypes :: (Int -> Int)
@@ -258,14 +277,24 @@ basicBlockSuccessors bbs bid =
   let Just ss = bbSuccessors bbs V.!? bid
   in ss
 
--- Iterate over the block list and find the targets of the terminator.
--- Build up a reverse Map and then transform it to a Vector at the end.
-buildPredecessors :: BBEnv
-                  -> Vector BlockDescriptor
-                  -> IntervalMap Int BlockNumber
-                  -> IntSet
-                  -> (Vector [BlockNumber], Vector [BlockNumber], Map BlockNumber [(JumpCondition, BlockNumber)])
-buildPredecessors env bvec bmap blockEnds =
+-- | Iterate over the block list and construct a control flow graph.
+--
+-- The control flow graph is encoded simply as just vectors of
+-- predecessors and successors.  Each of these vectors has one entry
+-- for each basic block: a list of predecessors or successors.
+--
+-- While building the control flow graph, we also record the targets
+-- of each branch instruction.  Targets are basic block numbers.  This
+-- information is easiest to gather while constructing the CFG, so we
+-- do so here even though it is not exactly part of the CFG.
+--
+-- See note [CFG Construction] for details
+buildCFG :: BBEnv
+            -> Vector BlockDescriptor
+            -> IntervalMap Int BlockNumber
+            -> IntSet
+            -> (Vector [BlockNumber], Vector [BlockNumber], Map BlockNumber [(JumpCondition, BlockNumber)])
+buildCFG env bvec bmap blockEnds =
   (V.generate (V.length bvec) getPreds,
    V.generate (V.length bvec) getSuccs,
    branchTargets)
@@ -273,27 +302,25 @@ buildPredecessors env bvec bmap blockEnds =
     ivec = envInstVec env
     getPreds ix = S.toList $ fromMaybe S.empty $ M.lookup ix predMap
     getSuccs ix = S.toList $ fromMaybe S.empty $ M.lookup ix succMap
-    (predMap, succMap, branchTargets) = V.ifoldl' addTermSuccs (M.empty, M.empty, M.empty) ivec
-    addTermSuccs m@(pm, sm, bts) ix inst
-      -- @inst@ is a fallthrough instruction that implicitly ends a block,
-      -- so we need to make an entry for it.  We don't make an entry for the
-      -- last instruction in the function.
-      | not (isTerminator env ix inst) &&
-        IS.member ix blockEnds &&
-        ix < V.length ivec - 1 =
+    (predMap, succMap, branchTargets) =
+      V.ifoldl' addBlockInfo (M.empty, M.empty, M.empty) ivec
+    addBlockInfo m@(pm, sm, bts) ix inst
+      -- @inst@ is a fallthrough instruction that implicitly ends a
+      -- block, so we need to make an entry for it.  We don't need to
+      -- update the branchTargets map in this branch because we only
+      -- need to record those for explicit branches.  Fallthrough targets
+      -- are always obvious.
+      | not (isTerminator env ix inst) && IS.member ix blockEnds =
         let target = ix + 1
             [(_, termBlock)] = IM.containing bmap ix
             [(_, targetBlock)] = IM.containing bmap target
         in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
             M.insertWith S.union termBlock (S.singleton targetBlock) sm,
             bts)
-           -- We only update the branch targets map in this branch
-           -- because we only need to know target information for
-           -- explicit branch instructions.
-           --
-           -- If this is a terminator and there is no block mapping
-           -- for it, that means that the terminator instruction is in
-           -- dead code.
+      -- If this is a terminator and there is no block mapping for it,
+      -- that means that the terminator instruction is in dead code
+      -- (so we can ignore it).  Otherwise, record CFG information and
+      -- the branch targets.
       | Just targets <- terminatorAbsoluteTargets env ix inst
       , [(_, termBlock)] <- IM.containing bmap ix =
         let instIndexToBlockNum (cond, tix) =
@@ -307,10 +334,36 @@ buildPredecessors env bvec bmap blockEnds =
         in L.foldl' addSuccsPreds m targetBlocks
       | otherwise = m
 
+
 -- Splitting into blocks
 
 -- Scan through the instruction vector and end a block if either: 1) @ix@ is a terminator
 -- or 2) @ix + 1@ starts a block.
+
+-- | Scan through the instruction stream and construct basic blocks.
+-- Basic blocks end if the current instruction is a terminator or if
+-- the next instruction is the target of a branch (in which case the
+-- current instruction implicitly falls through to the new block).
+--
+-- The algorithm is as follows:
+--
+--  1) Figure out where each basic block begins with one pass over the
+--  instruction stream.  Blocks begin at each terminator instruction
+--  target (so we can't know all targets without examining all
+--  terminator instructions).
+--
+--  2) Fold over the instructions in a separate pass, creating basic
+--  blocks whenever we either hit a terminator instruction OR if the
+--  next instruction begins a new block (by virtue of being a branch
+--  target).  Basic blocks are just slices out of the original
+--  instruction stream.  The bounds of each basic block (indices into
+--  the instruction stream) are stored in an IntervalMap so that we
+--  can efficiently look up which block a given instruction is in.
+--  Since the IntervalMap contains only non-overlapping regions,
+--  lookups are @log(N)@ where @N@ is the number of basic blocks.
+--
+-- This function takes care of dead code elimination (see the first
+-- guard in @splitInstrs@).
 splitIntoBlocks :: BBEnv -> (Vector BlockDescriptor, IntervalMap Int BlockNumber)
 splitIntoBlocks env = (V.fromList (reverse blocks), blockRanges)
   where
@@ -351,16 +404,29 @@ addTargetIndex env acc ix inst =
     Nothing -> acc
     Just targets -> L.foldl' (flip IS.insert) acc (map snd targets)
 
-data JumpCondition = Unconditional
-                   | Fallthrough
-                   | SwitchCase Int64
-                   | Conditional
-                   | Exceptional
+-- | These are tags describing the condition under which each branch
+-- is taken.
+data JumpCondition = Unconditional -- ^ Always taken
+                   | Fallthrough   -- ^ A fallthrough (e.g., taken when a conditional branch test fails)
+                   | SwitchCase Int64 -- ^ Taken if the switch value is equal to the included 'Int64'
+                   | Conditional -- ^ Taken if a conditional branch test evaluates to True
+                   | Exceptional -- ^ Taken if an exception is thrown
                    deriving (Eq, Ord, Show)
 
--- | Find the absolute target indices (into the instruction vector) for each
--- block terminator instruction.  The conditional branches have explicit
--- targets, but can also allow execution to fall through.
+-- | Find the absolute target indices (into the instruction vector)
+-- for each block terminator instruction.  The conditional branches
+-- have explicit targets, but can also allow execution to fall
+-- through.
+--
+-- This function also accounts for exceptional control flow.
+-- Primitive instructions that can raise exceptions (due to null
+-- pointers, out of memory conditions, arithmetic exceptions, etc)
+-- become terminator instructions if they are guarded by a try/catch
+-- block that is capable of handling their types of exceptions.
+-- Invoke instructions are terminators if there are *any* exception
+-- handlers in scope.  Note that we can refine that model and make the
+-- CFG more precise by looking at some more dalvik metadata that
+-- records what checked exception types each method can throw.
 terminatorAbsoluteTargets :: BBEnv -> Int -> Instruction -> Maybe [(JumpCondition, Int)]
 terminatorAbsoluteTargets env ix inst =
   case inst of
@@ -413,6 +479,11 @@ terminatorAbsoluteTargets env ix inst =
 -- | Traverse handlers that are in scope from innermost to outermost.
 -- If any matches the exception type thrown by this instruction, take
 -- that as a handler for the exception.
+--
+-- See the environment, but exception handlers are stored in an
+-- interval map (the interval is the range of instructions covered by
+-- a try block, and the value payload is the list of exception
+-- handlers handled by that block).
 relevantHandlersInScope :: BBEnv -> Int -> Instruction -> [Int]
 relevantHandlersInScope env ix inst =
   case relevantExceptions of
@@ -515,24 +586,3 @@ isTerminator :: BBEnv -> Int -> Instruction -> Bool
 isTerminator env ix inst =
   isJust $ terminatorAbsoluteTargets env ix inst
 
-{- Note [Exceptional Control Flow]
-
-1) Discover try nesting
-
-2) Write a function, nearestHandler :: Int -> Maybe ExceptionRange
-
-   Returns Nothing if the instruction is not guarded.  A variant of
-   this would be to just note the active handler chain at every
-   instruction.  That is probably better
-
-3) If the nearest handler can handle a NullPointerException, each
-instruction that can dereference a pointer gets an edge to the NPE
-handler.  Similarly for the IndexOutOfBounds exceptions.  ArithmeticException after division...
-
-Invokes can transfer execution to any type of handler.  We might be
-able to do a respectable job of narrowing things down by examining the
-throws clause of a method and routing more precise handlers later.
-
-Once execution is in a catch block, everything should be fine.
-
--}
