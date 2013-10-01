@@ -237,7 +237,7 @@ labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
 -- ('ExceptionRange') that are easier to work with.
 methodExceptionRanges :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [ExceptionRange]
 methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
-methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) = do
+methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) =
   mapM toExceptionRange (codeTryItems codeItem)
   where
     catches = V.fromList $ codeHandlers codeItem
@@ -273,7 +273,7 @@ labelInstructions df argRegs ers is = liftM fst $ evalRWST (label' df) e0 s0
     s0 = emptyLabelState argRegs'
     e0 = emptyEnv argRegs' ers ivec
     ivec = V.fromList is
-    argRegs' = map nameAnonArgs (zip [0..] argRegs)
+    argRegs' = zipWith (curry nameAnonArgs) [0..] argRegs
     nameAnonArgs :: (Int, (Maybe BS.ByteString, Word16)) -> (BS.ByteString, Word16)
     nameAnonArgs (ix, (name, reg)) =
       case name of
@@ -297,7 +297,7 @@ label' df = do
   -- that argument in 'readRegister'.  In cases where there is a loop
   -- backedge to the entry block, this is not actually the case (a phi
   -- is required).
-  forM_ (M.toList argRegs) $ \(regNo, _) -> do
+  forM_ (M.toList argRegs) $ \(regNo, _) ->
     makeIncomplete regNo 0
 
   -- This is the actual labeling step
@@ -308,15 +308,15 @@ label' df = do
   s <- get
   bbs <- asks envBasicBlocks
   argLabels <- asks (M.elems . envRegisterAssignment)
-  return $ Labeling { labelingReadRegs = instructionLabels s
-                     , labelingWriteRegs = instructionResultLabels s
-                     , labelingPhis = phiOperands s
-                     , labelingPhiSources = phiOperandSources s
-                     , labelingBlockPhis = foldr (addPhiForBlock s) M.empty $ M.keys (phiOperands s)
-                     , labelingBasicBlocks = bbs
-                     , labelingInstructions = ivec
-                     , labelingParameters = argLabels
-                     }
+  return Labeling { labelingReadRegs = instructionLabels s
+                  , labelingWriteRegs = instructionResultLabels s
+                  , labelingPhis = phiOperands s
+                  , labelingPhiSources = phiOperandSources s
+                  , labelingBlockPhis = foldr (addPhiForBlock s) M.empty $ M.keys (phiOperands s)
+                  , labelingBasicBlocks = bbs
+                  , labelingInstructions = ivec
+                  , labelingParameters = argLabels
+                  }
   where
     addPhiForBlock s p@(PhiLabel bnum _ _) m
       | Just ivs <- M.lookup p (phiOperands s), not (S.null ivs) = M.insertWith (++) bnum [p] m
@@ -365,7 +365,7 @@ sealBlock :: (Failure DecodeError f) => BlockNumber -> SSALabeller f ()
 sealBlock block = do
   iphis <- gets incompletePhis
   let blockPhis = maybe [] M.toList $ M.lookup block iphis
-  forM_ blockPhis $ \(reg, l) -> do
+  forM_ blockPhis $ \(reg, l) ->
     addPhiOperands reg block l
   modify makeSealed
   where
@@ -861,10 +861,10 @@ prettyLabeling l =
       let header = PP.text ";; " PP.<> PP.int bid PP.<> PP.text (show (basicBlockPredecessors bbs bid))
           blockPhis = filter (phiForBlock bid . fst) $ M.toList (labelingPhis l)
           blockPhiDoc = PP.vcat [ PP.text (printf "$%d = phi(%s)" phiL (show vals))
-                                | (PhiLabel _ _ phiL, (S.toList -> vals)) <- blockPhis,
+                                | (PhiLabel _ _ phiL, S.toList -> vals) <- blockPhis,
                                   not (null vals)
                                 ]
-          body = blockPhiDoc $+$ (PP.vcat $ map prettyInst $ zip [blockOff..] $ V.toList insts)
+          body = blockPhiDoc $+$ (PP.vcat $ zipWith (curry prettyInst) [blockOff..] $ V.toList insts)
       in header $+$ PP.nest 2 body
     branchTargets i = fromMaybe "??" $ do
       ix <- V.elemIndex i ivec

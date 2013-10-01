@@ -490,7 +490,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
     DT.FilledNewArray tid srcRegs -> do
       nid <- freshId
       t <- getTranslatedType tid
-      lbls <- mapM (srcLabel) srcRegs
+      lbls <- mapM srcLabel srcRegs
       c <- getConstantInt (length srcRegs)
       let n = NewArray { instructionId = nid
                            , instructionType = t
@@ -507,7 +507,7 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
     DT.FilledNewArrayRange tid srcRegs -> do
       nid <- freshId
       t <- getTranslatedType tid
-      lbls <- mapM (srcLabel) srcRegs
+      lbls <- mapM srcLabel srcRegs
       c <- getConstantInt (length srcRegs)
       let n = NewArray { instructionId = nid
                            , instructionType = t
@@ -1032,7 +1032,7 @@ translateMethodRef knot (mid, m) = do
   return knot { knotMethodRefs = M.insert mid mref (knotMethodRefs knot) }
 
 translateField :: (Failure DT.DecodeError f) => Knot -> DT.EncodedField -> KnotMonad f (DT.AccessFlags, Field)
-translateField knot ef = do
+translateField knot ef =
   case M.lookup (DT.fieldId ef) (knotFields knot) of
     Nothing -> failure $ DT.NoFieldAtIndex (DT.fieldId ef)
     Just fref -> return (DT.fieldAccessFlags ef, fref)

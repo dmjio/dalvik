@@ -300,7 +300,7 @@ prettyBlockDoc BasicBlock { basicBlockNumber = bnum
                           , basicBlockInstructions = insns
                           , basicBlockPredecessors = pblocks
                           } =
-  (PP.int (bnum) <> PP.text ":\t ;" <+> preds) $+$ PP.nest 2 insnDoc
+  (PP.int bnum <> PP.text ":\t ;" <+> preds) $+$ PP.nest 2 insnDoc
   where
     insnDoc = PP.vcat $ map prettyInstructionDoc $ V.toList insns
     preds = case pblocks of
