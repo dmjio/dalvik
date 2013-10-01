@@ -224,6 +224,8 @@ labelingInstructionAt l = (labelingInstructions l V.!?)
 -- the given method.  We also compute some extra information about
 -- parameters and phi nodes that are required for a complete SSA
 -- transformation.
+--
+-- See note [Overview] for details
 labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
 labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
 labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
@@ -941,3 +943,53 @@ generatedLabelsAreUnique =
     checkRepeats (_, l) (marked, foundRepeat)
       | S.member l marked = (marked, False)
       | otherwise = (S.insert l marked, foundRepeat)
+
+{- Note [Overview]
+
+This implementation of SSA value numbering closely follows the linked
+paper.  This note tries to provide a high-level view of the algorithm.
+The algorithm runs forward over the instruction stream, visiting each
+instruction once.  As it proceeds, it modifies the current register
+state, held in the State record
+
+> currentDefinition :: Map Word16 (Map BlockNumber Label)
+
+This is a map of registers to their definitions in each basic block.
+Definitions are SSA labels that are referenced at that point.  This
+map is destructively modified by each instruction.  We largely use
+@readRegister@, @writeRegister@, and @writeRegisterLabel@ to access
+this map.  We also maintain two other maps:
+
+> instructionLabels :: Map Int (Map Word16 Label)
+> instructionResultLabels :: Map Int Label
+
+These record the labels referenced by each low-level Dalvik
+instruction.  @instructionLabels@ are the labels that each instruction
+reads.  @instructionResultLabels@ are the labels that instructions
+*produce*.  We have to track these separately because some
+instructions read from and write to the same register.  Note that once
+an entry is made in either of these maps, it never changes (except
+when we eliminate trivial phi nodes).  These are also the main
+features of the @Labeling@ result.
+
+The basic idea of the algorithm is that, for a given instruction, we
+determine what values it references (to populate @instructionLabels@)
+by determining what label each register it refers to currently
+contains (based on @currentDefinition@).  If there was a definition
+earlier in the current basic block, we take that.  This is local value
+numbering.  Otherwise, we look at all of the predecessors of the block
+and derive the definition from them.  With a single predecessor, this
+is trivial.  Otherwise, we start introducing phi nodes.  If the block
+is sealed (i.e., all of its predecessors have been fully labeled),
+then we recursively look at each predecessor and construct a phi node.
+If there are predecessor blocks that haven't been processed yet, we
+just leave a dummy phi node to be filled in later.  Every time a basic
+block is processed, we try to seal all of its successors (since one of
+*their* predecessors has been processed) by filling in those
+stubbed-out phi nodes.
+
+Furthermore, every time we finish a phi node, we try to simplify it.
+If it is trivial, we remove it and replace it with a simpler
+definition.
+
+-}
