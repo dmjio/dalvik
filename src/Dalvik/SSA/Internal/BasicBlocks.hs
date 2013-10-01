@@ -290,8 +290,6 @@ basicBlockSuccessors bbs bid =
 -- of each branch instruction.  Targets are basic block numbers.  This
 -- information is easiest to gather while constructing the CFG, so we
 -- do so here even though it is not exactly part of the CFG.
---
--- See note [CFG Construction] for details
 buildCFG :: BBEnv
             -> Vector BlockDescriptor
             -> IntervalMap Int BlockNumber
