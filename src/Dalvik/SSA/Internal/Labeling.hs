@@ -436,7 +436,7 @@ labelInstruction df (ix, inst) = do
     LoadConst dst c -> rw (constWide c) dst
     MonitorEnter src -> rr src
     MonitorExit src -> rr src
-    CheckCast src _ -> rr src
+    CheckCast src _ -> rr src >> rw False src
     InstanceOf dst src _ -> rr src >> rw False dst
     ArrayLength dst src -> rr src >> rw False dst
     NewInstance dst _ -> rw False dst

@@ -63,18 +63,18 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "divisionCatchThrowable", "(II)I", PhiLabel 1 [0,2] 7,
        [SimpleLabel 6, SimpleLabel 9])
     , ("LLabelTests;", "divisionCatchNPE", "(II)I", SimpleLabel 6, [])
-    , ("LLabelTests;", "checkCastNoHandler", "(Ljava/lang/Object;)I", SimpleLabel 4, [])
-    , ("LLabelTests;", "checkCastHandleCCE", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
-       [SimpleLabel 4, SimpleLabel 7])
-    , ("LLabelTests;", "checkCastHandleRuntimeException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
-       [SimpleLabel 4, SimpleLabel 7])
-    , ("LLabelTests;", "checkCastHandleException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
-       [SimpleLabel 4, SimpleLabel 7])
-    , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 5,
-       [SimpleLabel 4, SimpleLabel 7])
-    , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 4, [])
-    , ("LLabelTests;", "invokeToAllHandlers", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4,5,6,7,8] 5,
-       [SimpleLabel 4, SimpleLabel 7, SimpleLabel 9, SimpleLabel 11, SimpleLabel 13, SimpleLabel 15])
+    , ("LLabelTests;", "checkCastNoHandler", "(Ljava/lang/Object;)I", SimpleLabel 5, [])
+    , ("LLabelTests;", "checkCastHandleCCE", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 6,
+       [SimpleLabel 5, SimpleLabel 8])
+    , ("LLabelTests;", "checkCastHandleRuntimeException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 6,
+       [SimpleLabel 5, SimpleLabel 8])
+    , ("LLabelTests;", "checkCastHandleException", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 6,
+       [SimpleLabel 5, SimpleLabel 8])
+    , ("LLabelTests;", "checkCastHandleThrowable", "(Ljava/lang/Object;)I", PhiLabel 2 [1,3] 6,
+       [SimpleLabel 5, SimpleLabel 8])
+    , ("LLabelTests;", "checkCastHandleArithException", "(Ljava/lang/Object;)I", SimpleLabel 5, [])
+    , ("LLabelTests;", "invokeToAllHandlers", "(Ljava/lang/Object;)I", PhiLabel 3 [2,4,5,6,7,8] 6,
+       [SimpleLabel 5, SimpleLabel 8, SimpleLabel 10, SimpleLabel 12, SimpleLabel 14, SimpleLabel 16])
     , ("LLabelTests;", "returnThisFieldNoHandler", "()I", SimpleLabel 2, [])
       -- Note that, ideally, we could use a bit more static analysis to make this
       -- test fail in a good way (since @this@ can never be NULL).
@@ -104,9 +104,9 @@ tests = T.buildTest $ do
     , ("LLabelTests;", "newArrayFilledUnchecked", "()[I", SimpleLabel 3, [])
     -- , ("LLabelTests;", "newArrayFilledCheckedNPE", "()Ljava/lang/Object;", PhiLabel 1 [0,2] 4,
     --    [SimpleLabel 3, SimpleLabel 6])
-    , ("LLabelTests;", "newMultiArrayUnchecked", "(SS)Ljava/lang/Object;", SimpleLabel 8, [])
-    , ("LLabelTests;", "newMultiArrayCheckedOOM", "(SS)Ljava/lang/Object;", PhiLabel 3 [2,4] 9,
-       [SimpleLabel 8, SimpleLabel 11])
+    , ("LLabelTests;", "newMultiArrayUnchecked", "(SS)Ljava/lang/Object;", SimpleLabel 9, [])
+    , ("LLabelTests;", "newMultiArrayCheckedOOM", "(SS)Ljava/lang/Object;", PhiLabel 3 [2,4] 10,
+       [SimpleLabel 9, SimpleLabel 13])
     ]
 
 isReturn :: Labeling -> Int -> Bool

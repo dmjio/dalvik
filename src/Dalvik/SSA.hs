@@ -429,14 +429,15 @@ translateInstruction labeling tiedMknot bnum acc@(insns, mknot) (instIndex, inst
       return (m : insns, mknot)
     DT.CheckCast src tid -> do
       cid <- freshId
-      lbl <- srcLabel src
+      srcLbl <- srcLabel src
+      dstLbl <- dstLabel src
       t <- getTranslatedType tid
       let c = CheckCast { instructionId = cid
-                            , instructionType = VoidType
-                            , castReference = getFinalValue tiedMknot lbl
-                            , castType = t
-                            }
-      return (c : insns, mknot)
+                        , instructionType = t
+                        , castReference = getFinalValue tiedMknot srcLbl
+                        , castType = t
+                        }
+      return (c : insns, addInstMapping mknot dstLbl c)
     DT.InstanceOf dst src tid -> do
       iid <- freshId
       srcLbl <- srcLabel src

@@ -76,7 +76,7 @@ prettyInstructionDoc i =
     MonitorExit { monitorReference = r } ->
       PP.text "monitor-exit" <+> valueDoc r
     CheckCast { castReference = r, castType = t } ->
-      PP.text "check-cast" <+> prettyTypeDoc (valueType r) <+>
+      instBindDoc i <+> PP.text "check-cast" <+> prettyTypeDoc (valueType r) <+>
         valueDoc r <+> PP.text "to" <+> prettyTypeDoc t
     InstanceOf { instanceOfReference = r } ->
       instBindDoc i <+> PP.text "instance-of" <+>
