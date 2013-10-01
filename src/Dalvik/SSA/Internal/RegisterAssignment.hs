@@ -75,7 +75,7 @@ methodRegisterAssignment df meth@(DT.EncodedMethod _ _ (Just code)) = do
   params <- getParamListTypeNames df meth
   return $ snd $ accumOffsets params
     where
-      accumOffsets params = foldr findOffset (codeRegs code, []) params
+      accumOffsets = foldr findOffset (codeRegs code, [])
 
       findOffset :: (Maybe BS.ByteString, BS.ByteString) ->
                     (Word16, [(Maybe BS.ByteString, Word16)]) ->
