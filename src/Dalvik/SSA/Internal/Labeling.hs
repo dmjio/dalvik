@@ -992,4 +992,26 @@ Furthermore, every time we finish a phi node, we try to simplify it.
 If it is trivial, we remove it and replace it with a simpler
 definition.
 
+
+
+= Future directions =
+
+ * Copy/constant propagation could allow some more dead code removal
+
+ * With an iterative and interleaved approach, we could actually eliminate
+   some superflouous control flow edges related to null pointer exceptions.
+   After the first time a pointer is dereferenced, we know that later
+   dereferences in the same basic block cannot fail.
+
+ * There are optimizations in the paper for producing the minimal number of
+   phi nodes in the presence of irreducable control flow.  Irreducable control
+   flow is very rare in practice (especially with compiler-generated code), so
+   this isn't very important.
+
+ * There are also a few suggestions in the paper for reducing the number of
+   trivial phi nodes that are inserted and later removed.  This isn't a huge
+   issue, but it could speed things up a little.  An easier speedup is marked
+   with a FIXME above - our approach to replacing phi nodes could be made more
+   efficient with an index tracking more precisely where each phi node is used.
+
 -}
