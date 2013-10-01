@@ -1,3 +1,26 @@
+/**
+
+   There are a few tests that I want to add that are difficult to
+   construct.  We don't have the source for the original methods
+   that demonstrated these issues.
+
+   1) A test where a wide value (long or double) is stored in a
+   register pair (v1, v2) and v2 is later re-used on a different
+   branch for a non-wide type.  If register pairs aren't properly
+   handled, this can cause phantom empty phi nodes to pop up as
+   arguments to other phi nodes because there is a phantom definition
+   in v2 that should have been overwritten by the use of (v1, v2) as a
+   wide register pair.
+
+   2) An example where part of an exception handler is eliminated as
+   dead code in the *middle* of the instruction stream.  This happens
+   when the java compiler decides to share part of a basic block, but
+   the prefix of the shared block is actually dead code (e.g., due to
+   unreachable exception handlers).  This caused a problem with the
+   way we were computing offsets into the raw Dalvik instruction
+   stream.
+
+ */
 class LabelTests {
   private int field1;
   private int field2;
