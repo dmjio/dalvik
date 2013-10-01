@@ -2,6 +2,51 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
+-- | This module defines an SSA-based IR for Dalvik.  The IR is a
+-- cyclic data structure with as many references as possible resolved
+-- for easy pattern matching.  Each value in the IR has identity
+-- through a unique identifier (identifiers are only unique among
+-- objects that can actually be compared for equality).
+--
+-- The organization of the data type parallels that of the low-level
+-- Dalvik IR defined in Dalvik.Types and Dalvik.Instruction.  A
+-- 'DexFile' is a collection of 'Class'es.  Each 'Class' has some
+-- basic metadata (parent class, interfaces, flags, etc).  They also
+-- contain their 'Method's and 'Field's.  'Field's are tagged with
+-- their flags, while 'Method' flags are embedded within the 'Method'.
+-- This is a minor inconsistency.  Note that class references (for
+-- interfaces and parent classes) are through 'Type's and not direct
+-- references.  This is because not all class definitions are
+-- available in any given Dex file (notably, most core language and
+-- Android platform classes are missing).  Direct references are
+-- provided where possible.
+--
+-- 'Method's record basic metadata, along with a list of 'Parameter's
+-- and possibly a method body.  Method bodies are present provided the
+-- method is not abstract.  In the body of a 'Method', instructions
+-- reference 'Value's.  A 'Value' can be 1) another 'Instruction', 2)
+-- a 'Constant', or 3) a 'Parameter'.  The wrapper type 'Value' allows
+-- us to refer to these constructs abstractly.  A 'Value' can be
+-- pattern matched on to recover its real form.  Additionally, there
+-- is a safe casting facility provided by the 'FromValue' class.
+-- These safe casts are most useful with the Maybe monad and in
+-- pattern guards.  For example, if you only care about 'Parameter's being
+-- stored into object fields, you might do something like:
+--
+-- > paramStoredInField :: Instruction -> Maybe (Parameter, Field)
+-- > paramStoredInField i = do
+-- >   InstancePut { instanceOpReference = r
+-- >               , instanceOpField = f
+-- >               } <- fromValue i
+-- >   p@Parameter {} <- fromValue r
+-- >   return (p, f)
+--
+-- Obviously, this can also be accomplished with regular pattern
+-- matching, but this style can be more convenient and restrict
+-- nesting to more manageable levels.
+--
+-- The entry point to this module is 'toSSA', which converts Dalvik
+-- into SSA form.
 module Dalvik.SSA (
   toSSA,
   module Dalvik.SSA.Types
@@ -35,7 +80,22 @@ import Dalvik.SSA.Internal.Pretty ()
 -- | Convert a 'Dalvik.Types.DexFile' into SSA form.  The result is a
 -- different DexFile with as many references as possible resolved and
 -- instructions in SSA form.  Some simple dead code elimination is
--- performed.
+-- performed (unreachable exception handlers are removed).
+--
+-- The parameterized return type allows callers to choose how they
+-- want to handle translation errors.  This function can be called purely
+-- with the errors being returned via 'Either' or 'Maybe':
+--
+-- > maybe (error "Could not translate dex file") analyzeProgram dexfile
+--
+-- > either print analyzeProgram dexFile
+--
+-- Callers can also call 'toSSA' in the 'IO' monad and accept errors as
+-- 'Exception's.
+--
+-- > main = do
+-- >   dexfile = ...
+-- >   ssafile <- toSSA dexfile
 toSSA :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> f DexFile
 toSSA df = do
   dexIdentifierStr <- case DT.dexThisId df of
