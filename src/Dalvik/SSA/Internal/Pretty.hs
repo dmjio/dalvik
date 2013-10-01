@@ -4,6 +4,7 @@
 -- All of this is very subject to change.
 module Dalvik.SSA.Internal.Pretty where
 
+import Data.ByteString ( ByteString )
 import Data.Int ( Int64 )
 import qualified Data.List as L
 import Data.Monoid ( mconcat )
@@ -11,7 +12,11 @@ import qualified Data.Vector as V
 import Text.PrettyPrint as PP
 
 import Dalvik.ClassHierarchy
+import Dalvik.MUTF8
 import Dalvik.SSA.Types
+
+safeString :: ByteString -> Doc
+safeString = PP.text . decodeMUTF8
 
 prettyTypeDoc :: Type -> Doc
 prettyTypeDoc t =
@@ -30,13 +35,13 @@ prettyTypeDoc t =
     UnknownType -> PP.text "<unknown>"
 
 prettyParameterDoc :: Parameter -> Doc
-prettyParameterDoc p = PP.char '%' <> PP.text (parameterName p)
+prettyParameterDoc p = PP.char '%' <> safeString (parameterName p)
 
 prettyConstantDoc :: Constant -> Doc
 prettyConstantDoc c =
   case c of
     ConstantInt _ i -> PP.text (show i)
-    ConstantString _ s -> PP.doubleQuotes $ PP.text s
+    ConstantString _ s -> PP.doubleQuotes $ safeString s
     ConstantClass _ klass -> prettyTypeDoc klass <> PP.text ".class"
 
 valueDoc :: Value -> Doc
@@ -186,7 +191,7 @@ phiValueDoc (bb, v) =
   PP.parens $ blockIdDoc bb <> PP.char ',' <+> valueDoc v
 
 prettyMethodRefDoc :: MethodRef -> Doc
-prettyMethodRefDoc = PP.text . methodRefName
+prettyMethodRefDoc = safeString . methodRefName
 
 prettyVirtualKindDoc :: InvokeVirtualKind -> Doc
 prettyVirtualKindDoc k =
@@ -202,11 +207,11 @@ prettyDirectKindDoc k =
     MethodInvokeDirect -> PP.text "direct"
 
 bareFieldDoc :: Field -> Doc
-bareFieldDoc f = PP.text (fieldName f)
+bareFieldDoc = safeString . fieldName
 
 -- | Pretty print a field being referenced from an instruction
 prettyStaticFieldRefDoc :: Field -> Doc
-prettyStaticFieldRefDoc f = prettyTypeDoc (fieldClass f) <> PP.char '.' <> PP.text (fieldName f)
+prettyStaticFieldRefDoc f = prettyTypeDoc (fieldClass f) <> PP.char '.' <> safeString (fieldName f)
 
 binaryOpDoc :: Binop -> Doc
 binaryOpDoc op =
@@ -288,7 +293,7 @@ prettyFormalList :: [Parameter] -> Doc
 prettyFormalList = PP.parens . commaSepList . map prettyFormalParamDoc
 
 prettyFormalParamDoc :: Parameter -> Doc
-prettyFormalParamDoc p = prettyTypeDoc (parameterType p) <+> PP.text (parameterName p)
+prettyFormalParamDoc p = prettyTypeDoc (parameterType p) <+> safeString (parameterName p)
 
 prettyBlockDoc :: BasicBlock -> Doc
 prettyBlockDoc BasicBlock { basicBlockNumber = bnum
@@ -313,18 +318,18 @@ prettyMethodDoc Method { methodBody = mblocks
     Nothing -> intro
     Just blocks -> intro <+> PP.char '{' $+$ PP.vcat (map prettyBlockDoc blocks) $+$ end
   where
-    intro = prettyTypeDoc rt <+> PP.text mname <> prettyFormalList ps <+> PP.text (flagsString AMethod flags)
+    intro = prettyTypeDoc rt <+> safeString mname <> prettyFormalList ps <+> PP.text (flagsString AMethod flags)
     end = PP.char '}'
 
 prettyFieldDefDoc :: (AccessFlags, Field) -> Doc
 prettyFieldDefDoc (flags, fld) =
-  prettyTypeDoc (fieldType fld) <+> PP.text (fieldName fld) <+> PP.text (flagsString AField flags)
+  prettyTypeDoc (fieldType fld) <+> safeString (fieldName fld) <+> PP.text (flagsString AField flags)
 
 prettyClassDoc :: Class -> Doc
 prettyClassDoc klass =
   header $+$ meta $+$ body $+$ end
   where
-    header = PP.text (flagsString AClass (classAccessFlags klass)) <+> PP.text "class" <+> PP.text (className klass) <+> PP.char '{'
+    header = PP.text (flagsString AClass (classAccessFlags klass)) <+> PP.text "class" <+> safeString (className klass) <+> PP.char '{'
     staticFields = map prettyFieldDefDoc (classStaticFields klass)
     instanceFields = map prettyFieldDefDoc (classInstanceFields klass)
     static = PP.vcat (staticFields ++ directMethods)
@@ -342,7 +347,7 @@ prettyClassDoc klass =
 
 prettyDexDoc :: DexFile -> Doc
 prettyDexDoc df =
-  PP.text (dexIdentifier df) $+$
+  safeString (dexIdentifier df) $+$
     PP.vcat (map prettyClassDoc (dexClasses df))
 
 instance Show Instruction where

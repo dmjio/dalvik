@@ -100,7 +100,7 @@ toSSA :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> f DexFile
 toSSA df = do
   dexIdentifierStr <- case DT.dexThisId df of
     (-1) -> return "<none>"
-    tid -> liftM BS.unpack $ DT.getStr df tid
+    tid -> DT.getStr df tid
   Knot { knotClasses = cmap } <- mfix (tieKnot df)
   return DexFile { dexIdentifier = dexIdentifierStr
                  , dexClasses = M.elems cmap
@@ -180,12 +180,12 @@ translateType df m (tid, _) = do
   ty <- parseTypeName tname
   return m { knotTypes = M.insert tid ty (knotTypes m) }
 
-getStr' :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f String
+getStr' :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f BS.ByteString
 getStr' sid
   | sid == -1 = error "Missing string bt"
   | otherwise = do
     df <- gets knotDexFile
-    liftM BS.unpack $ lift $ DT.getStr df sid
+    lift $ DT.getStr df sid
 
 lookupClass :: (Failure DT.DecodeError f)
                => DT.TypeId
@@ -268,7 +268,7 @@ makeParameter m (ix, (name, tid)) = do
   t <- getTranslatedType tid
   let p = Parameter { parameterId = pid
                         , parameterType = t
-                        , parameterName = maybe (generateNameForParameter ix) BS.unpack name
+                        , parameterName = fromMaybe (generateNameForParameter ix) name
                         , parameterIndex = ix
                         }
   return $ M.insert ix p m

@@ -31,6 +31,7 @@ module Dalvik.SSA.Types (
 
 import Control.Exception ( Exception )
 import Control.Failure
+import qualified Data.ByteString as BS
 import Data.Function ( on )
 import Data.Hashable
 import Data.Int ( Int64 )
@@ -44,7 +45,7 @@ import qualified Dalvik.Instruction as LL
 
 -- | A Dalvik Dex file represented in SSA form.
 data DexFile =
-  DexFile { dexIdentifier :: String
+  DexFile { dexIdentifier :: BS.ByteString
           , dexClasses :: [Class]
           }
 
@@ -90,7 +91,7 @@ instance Exception CastException
 -- can't tell (without a type inference pass) what type a constant
 -- really is.  Dalvik is untyped.
 data Constant = ConstantInt !UniqueId !Int64
-              | ConstantString !UniqueId String
+              | ConstantString !UniqueId BS.ByteString
               | ConstantClass !UniqueId Type
 
 instance Eq Constant where
@@ -327,7 +328,7 @@ instance FromValue Instruction where
 
 data Parameter = Parameter { parameterId :: UniqueId
                            , parameterType :: Type
-                           , parameterName :: String
+                           , parameterName :: BS.ByteString
                            , parameterIndex :: Int
                            }
 
@@ -349,7 +350,7 @@ instance FromValue Parameter where
   fromValue _ = failure $ CastException "Not a Parameter"
 
 data Method = Method { methodId :: UniqueId
-                     , methodName :: String
+                     , methodName :: BS.ByteString
                      , methodReturnType :: Type
                      , methodAccessFlags :: AccessFlags
                      , methodParameters :: [Parameter]
@@ -366,7 +367,7 @@ instance Hashable Method where
   hashWithSalt s = hashWithSalt s . methodId
 
 data Class = Class { classId :: UniqueId
-                   , className :: String
+                   , className :: BS.ByteString
                    , classAccessFlags :: AccessFlags
                    , classParent :: Maybe Type
                    , classParentReference :: Maybe Class
@@ -387,7 +388,7 @@ instance Hashable Class where
   hashWithSalt s = hashWithSalt s . classId
 
 data Field = Field { fieldId :: UniqueId
-                   , fieldName :: String
+                   , fieldName :: BS.ByteString
                    , fieldType :: Type
                    , fieldClass :: Type
                    }
@@ -407,7 +408,7 @@ data MethodRef = MethodRef { methodRefId :: UniqueId
                            , methodRefClass :: Type
                            , methodRefReturnType :: Type
                            , methodRefParameterTypes :: [Type]
-                           , methodRefName :: String
+                           , methodRefName :: BS.ByteString
                            }
 
 instance Eq MethodRef where
