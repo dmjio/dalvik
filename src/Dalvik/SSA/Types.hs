@@ -19,6 +19,7 @@ module Dalvik.SSA.Types (
   constantId,
   constantType,
   Instruction(..),
+  stripCasts,
   InvokeDirectKind(..),
   InvokeVirtualKind(..),
   LL.CmpOp(..),
@@ -35,6 +36,7 @@ import qualified Data.ByteString as BS
 import Data.Function ( on )
 import Data.Hashable
 import Data.Int ( Int64 )
+import Data.Maybe ( fromMaybe )
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 
@@ -438,3 +440,8 @@ instance Hashable InvokeVirtualKind where
   hashWithSalt s MethodInvokeSuper = hashWithSalt s (2 :: Int)
   hashWithSalt s MethodInvokeVirtual = hashWithSalt s (3 :: Int)
 
+-- | Strip any cast instructions off of the given 'Value'
+stripCasts :: Value -> Value
+stripCasts v = fromMaybe v $ do
+  CheckCast { castReference = r } <- fromValue v
+  return (stripCasts r)
