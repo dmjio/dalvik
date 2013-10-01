@@ -365,6 +365,13 @@ buildCFG env bvec bmap blockEnds =
 --
 -- This function takes care of dead code elimination (see the first
 -- guard in @splitInstrs@).
+--
+-- This function returns two values: the vector of BasicBlocks that
+-- were constructed and an interval map.  The interval map records,
+-- for ranges of instructions, which basic block they belong to.  This
+-- is a reverse mapping from instruction index to block number.  There
+-- can be gaps in the interval map (due to dead code elimination).
+-- The intervals are non-overlapping since blocks are not nested.
 splitIntoBlocks :: BBEnv -> (Vector BlockDescriptor, IntervalMap Int BlockNumber)
 splitIntoBlocks env = (V.fromList (reverse blocks), blockRanges)
   where
