@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_HADDOCK hide #-}
 module Dalvik.SSA.Types (
   DexFile(..),
@@ -68,6 +69,7 @@ instance Hashable Value where
 class IsValue a where
   valueType :: a -> Type
   valueId :: a -> UniqueId
+  toValue :: a -> Value
 
 instance IsValue Value where
   valueId (InstructionV i) = instructionId i
@@ -77,6 +79,8 @@ instance IsValue Value where
   valueType (InstructionV i) = instructionType i
   valueType (ConstantV c) = constantType c
   valueType (ParameterV p) = parameterType p
+
+  toValue = id
 
 -- | Convenient and safe casting from 'Value' to a concrete type
 -- (either 'Constant', 'Instruction', or 'Parameter').
@@ -116,6 +120,7 @@ constantType _ = UnknownType
 instance IsValue Constant where
   valueId = constantId
   valueType = constantType
+  toValue = ConstantV
 
 instance FromValue Constant where
   fromValue (ConstantV c) = return c
@@ -323,6 +328,7 @@ instance Hashable Instruction where
 instance IsValue Instruction where
   valueId = instructionId
   valueType = instructionType
+  toValue = InstructionV
 
 instance FromValue Instruction where
   fromValue (InstructionV i) = return i
@@ -346,6 +352,7 @@ instance Hashable Parameter where
 instance IsValue Parameter where
   valueId = parameterId
   valueType = parameterType
+  toValue = ParameterV
 
 instance FromValue Parameter where
   fromValue (ParameterV p) = return p
@@ -441,7 +448,7 @@ instance Hashable InvokeVirtualKind where
   hashWithSalt s MethodInvokeVirtual = hashWithSalt s (3 :: Int)
 
 -- | Strip any cast instructions off of the given 'Value'
-stripCasts :: Value -> Value
-stripCasts v = fromMaybe v $ do
+stripCasts :: (IsValue a) => a -> Value
+stripCasts (toValue -> v) = fromMaybe v $ do
   CheckCast { castReference = r } <- fromValue v
   return (stripCasts r)
