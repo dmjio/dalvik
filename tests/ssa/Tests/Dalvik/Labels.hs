@@ -1,4 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
+-- | This module defines tests for the SSA labeling code.
+--
+-- Each test description describes the method to label (class, method,
+-- signature) and expected results of the labeling.  Each method is
+-- analyzed individually, with SSA value labels being assigned to each
+-- value.  The expected result of each test is the label of the value
+-- returned by the return instruction.  If the returned label is a phi
+-- label, we additionally check to make sure that the values referenced by
+-- that phi node are correct (by checking thee labels).  Only one level of
+-- phi label checking is done - we don't recursively check everything.
 module Tests.Dalvik.Labels ( tests ) where
 
 import qualified Data.List as L
