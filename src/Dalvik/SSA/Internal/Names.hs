@@ -1,9 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 module Dalvik.SSA.Internal.Names (
   generateNameForParameter,
-  parseTypeName
+  parseTypeName,
+  parseMethodSignature
   ) where
 
+import Control.Applicative
 import Control.Failure
 import Data.Attoparsec.ByteString.Char8
 import Data.ByteString.Char8 ( ByteString )
@@ -26,8 +28,26 @@ parseTypeName bs =
     Left err -> failure $ TypeDecodeError err bs
     Right t -> return t
 
+-- | Parse Java method type signatures of the form:
+--
+-- > (t1t2)rt
+parseMethodSignature :: (Failure DecodeError f) => ByteString -> f ([Type], Type)
+parseMethodSignature bs =
+  case parseOnly pSig bs of
+    Left err -> failure $ TypeDecodeError err bs
+    Right sig -> return sig
+
 primType :: Type -> Parser Type
 primType t = endOfInput >> return t
+
+pSig :: Parser ([Type], Type)
+pSig = do
+  _ <- char '('
+  ptypes <- many p
+  _ <- char ')'
+  rt <- p
+  endOfInput
+  return (ptypes, rt)
 
 p :: Parser Type
 p = do

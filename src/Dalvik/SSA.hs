@@ -49,7 +49,8 @@
 -- into SSA form.
 module Dalvik.SSA (
   toSSA,
-  module Dalvik.SSA.Types
+  module Dalvik.SSA.Types,
+  module Dalvik.SSA.Util
   ) where
 
 import Control.Failure
@@ -71,6 +72,7 @@ import qualified Dalvik.Instruction as DT
 import qualified Dalvik.Types as DT
 import Dalvik.SSA.Types
 import Dalvik.SSA.Types as SSA
+import Dalvik.SSA.Util
 import Dalvik.SSA.Internal.BasicBlocks as BB
 import Dalvik.SSA.Internal.Labeling
 import Dalvik.SSA.Internal.Names
