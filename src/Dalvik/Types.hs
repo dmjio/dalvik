@@ -4,10 +4,15 @@ module Dalvik.Types where
 
 import Control.Exception as E
 import Control.Failure
+import Control.Monad ( guard )
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
 import Data.Int
+import qualified Data.List as L
 import Data.Map (Map)
+import Data.Maybe ( fromMaybe )
+import Data.Monoid
+import Data.String ( fromString )
 import Data.Typeable
 import Data.Word
 import Text.Printf
@@ -317,3 +322,20 @@ findString dex t =
 
 isStatic :: EncodedMethod -> Bool
 isStatic (EncodedMethod _ flags _) = hasAccessFlag ACC_STATIC flags
+
+getEncodedMethod :: DexFile -> String -> String -> String -> Maybe EncodedMethod
+getEncodedMethod dx className methodName typeSig = do
+  let classes = Map.elems $ dexClasses dx
+  c <- L.find (maybe False (==fromString className) . getTypeName dx . classId) classes
+  let ms = classDirectMethods c ++ classVirtualMethods c
+  L.find checkMethod ms
+  where
+    checkMethod encMeth = fromMaybe False $ do
+      m <- getMethod dx (methId encMeth)
+      mname <- getStr dx (methNameId m)
+      guard (mname == fromString methodName)
+      p <- getProto dx (methProtoId m)
+      rstr <- getTypeName dx (protoRet p)
+      pstrs <- mapM (getTypeName dx) (protoParams p)
+      let msig = mconcat [ fromString "(", mconcat pstrs, fromString ")", rstr ]
+      return $ fromString typeSig == msig

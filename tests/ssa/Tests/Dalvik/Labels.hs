@@ -5,11 +5,11 @@ import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
 import qualified Data.Set as S
+
+import Dalvik.Apk
 import Dalvik.Instruction
 import qualified Dalvik.Types as DT
 import Dalvik.SSA.Internal.Labeling
-
-import Tests.Dalvik.DexLoaders ( DexReader, memoIO, readAsDex, getEncodedMethod )
 
 import System.FilePath ((</>))
 import Text.Printf (printf)
@@ -23,7 +23,7 @@ javaInputs = "./tests/testfiles/javaInputs"
 
 tests :: Test
 tests = T.buildTest $ do
-  getDex <- memoIO readAsDex
+  getDex <- memoIO loadDexFromAnyIO
   return $ T.testGroup "SSA Label tests" $ map (getLabelTests getDex (javaInputs </> "LabelTests.java"))
     [ ("LLabelTests;", "localCopies", "(II)I", ArgumentLabel "%arg1" 1, [])
     , ("LLabelTests;", "simpleBranch", "(II)I", PhiLabel 1 [0,2] 7,
@@ -136,7 +136,7 @@ checkReturnValue l expected phiExpected = fromMaybe (T.assertFailure "No return 
 getLabelTests :: DexReader -> FilePath -> (String, String, String, Label, [Label]) -> Test
 getLabelTests getDex file (klass, method, sig, oracle, oracle') =
   testWithDexFile getDex ("CheckReturn: " ++ toStr klass method sig) file $ \dexFile ->
-    case getEncodedMethod dexFile klass method sig of
+    case DT.getEncodedMethod dexFile klass method sig of
       Nothing -> T.assertFailure ("Could not find method: " ++ toStr klass method sig)
       Just m ->
         case labelMethod dexFile m of

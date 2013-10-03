@@ -3,10 +3,9 @@ module Tests.Dalvik.SSA ( tests ) where
 
 import qualified Data.ByteString as BS
 import Data.Word (Word16)
+import Dalvik.Apk
 import qualified Dalvik.Types as DT
 import Dalvik.SSA.Internal.RegisterAssignment
-
-import Tests.Dalvik.DexLoaders (DexReader, memoIO, readAsDex, getEncodedMethod)
 
 import System.FilePath ((</>))
 import Text.Printf (printf)
@@ -20,7 +19,7 @@ javaInputs = "./tests/testfiles/javaInputs"
 
 tests :: Test
 tests = T.buildTest $ do
-  getDex <- memoIO readAsDex
+  getDex <- memoIO loadDexFromAnyIO
   return $ T.testGroup "SSA tests" $ [
          T.testGroup "Method Register Assignment" $ map (getParamListTests getDex)
               [ ( "LTest;", "intLongAdd", "(IJ)J" -- static method.
@@ -96,7 +95,7 @@ tests = T.buildTest $ do
 getParamListTests :: DexReader -> (String, String, String, FilePath, Maybe [(Maybe BS.ByteString, BS.ByteString)]) -> Test
 getParamListTests getDex (clas, method, sig, file, oracle) =
   testWithDexFile getDex ("getParamListTypeNames: " ++ toStr clas method sig) file $ \dexFile ->
-    case getEncodedMethod dexFile clas method sig of
+    case DT.getEncodedMethod dexFile clas method sig of
       Nothing -> assertFailure ("Could not find method: "++toStr clas method sig)
       Just  m -> oracle @=? getParamListTypeNames dexFile m
 
@@ -104,14 +103,14 @@ getParamListTests getDex (clas, method, sig, file, oracle) =
 methRegTests :: DexReader -> (String, String, String, FilePath, Maybe [(Maybe BS.ByteString, Word16)]) -> Test
 methRegTests getDex (clas, method, sig, file, oracle) =
   testWithDexFile getDex ("Arg assignments: " ++ toStr clas method sig) file $ \dexFile ->
-    case getEncodedMethod dexFile clas method sig of
+    case DT.getEncodedMethod dexFile clas method sig of
       Nothing -> assertFailure ("Could not find method: "++toStr clas method sig)
       Just  m -> oracle @=? methodRegisterAssignment dexFile m
 
 findEncMethodTest :: DexReader -> (String, FilePath, String, String) -> Test
 findEncMethodTest getDex (clas, method, sig, file) =
   testWithDexFile getDex ("Find " ++ toStr clas method sig) file $ \dexFile ->
-    case getEncodedMethod dexFile clas method sig of
+    case DT.getEncodedMethod dexFile clas method sig of
       Nothing -> assertFailure ("Could not find method: "++toStr clas method sig)
       Just _  -> return ()
 
