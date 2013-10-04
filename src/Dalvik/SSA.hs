@@ -221,8 +221,8 @@ translateClass k (tid, klass) = do
   parentRef <- lookupClass (DT.classSuperId klass)
   staticFields <- mapM (translateField k) (DT.classStaticFields klass)
   instanceFields <- mapM (translateField k) (DT.classInstanceFields klass)
-  directMethods <- mapM translateMethod (DT.classDirectMethods klass)
-  virtualMethods <- mapM translateMethod (DT.classVirtualMethods klass)
+  (k1, directMethods) <- foldM translateMethod (k, []) (DT.classDirectMethods klass)
+  (k2, virtualMethods) <- foldM translateMethod (k1, []) (DT.classVirtualMethods klass)
   itypes <- mapM getTranslatedType (DT.classInterfaces klass)
   let c = Class { classId = cid
                 , classType = t
@@ -234,11 +234,11 @@ translateClass k (tid, klass) = do
                 , classInterfaces = itypes
                 , classStaticFields = staticFields
                 , classInstanceFields = instanceFields
-                , classDirectMethods = directMethods
-                , classVirtualMethods = virtualMethods
+                , classDirectMethods = reverse directMethods
+                , classVirtualMethods = reverse virtualMethods
                 }
 
-  return k { knotClasses = M.insert tid c (knotClasses k) }
+  return k2 { knotClasses = M.insert tid c (knotClasses k2) }
 
 getRawMethod' :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f DT.Method
 getRawMethod' mid = do
@@ -250,8 +250,11 @@ getRawProto' pid = do
   df <- gets knotDexFile
   lift $ DT.getProto df pid
 
-translateMethod :: (MonadFix f, Failure DT.DecodeError f) => DT.EncodedMethod -> KnotMonad f Method
-translateMethod em = do
+translateMethod :: (MonadFix f, Failure DT.DecodeError f)
+                   => (Knot, [Method])
+                   -> DT.EncodedMethod
+                   -> KnotMonad f (Knot, [Method])
+translateMethod (k, acc) em = do
   m <- getRawMethod' (DT.methId em)
   proto <- getRawProto' (DT.methProtoId m)
   mname <- getStr' (DT.methNameId m)
@@ -265,13 +268,14 @@ translateMethod em = do
   (body, _) <- mfix $ \tiedKnot ->
     translateMethodBody df paramMap (snd tiedKnot) em
 
-  return Method { methodId = fromIntegral (DT.methId em)
-                    , methodName = mname
-                    , methodReturnType = rt
-                    , methodAccessFlags = DT.methAccessFlags em
-                    , methodParameters = M.elems paramMap
-                    , methodBody = body
-                    }
+  let tm = Method { methodId = fromIntegral (DT.methId em)
+                  , methodName = mname
+                  , methodReturnType = rt
+                  , methodAccessFlags = DT.methAccessFlags em
+                  , methodParameters = M.elems paramMap
+                  , methodBody = body
+                  }
+  return (k { knotMethodDefs = M.insert (DT.methId em) tm (knotMethodDefs k) }, tm : acc)
 
 makeParameter :: (Failure DT.DecodeError f)
                  => Map Int Parameter
