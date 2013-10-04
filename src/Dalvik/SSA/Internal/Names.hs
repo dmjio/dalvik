@@ -24,9 +24,14 @@ generateNameForParameter ix = fromString "%arg" <> fromString (show ix)
 -- | Parse a raw Dalvik type descriptor string into a structured 'Type'
 parseTypeName :: (Failure DecodeError f) => ByteString -> f Type
 parseTypeName bs =
-  case parseOnly p bs of
+  case parseOnly p' bs of
     Left err -> failure $ TypeDecodeError err bs
     Right t -> return t
+  where
+    p' = do
+      t <- p
+      endOfInput
+      return t
 
 -- | Parse Java method type signatures of the form:
 --
@@ -38,7 +43,7 @@ parseMethodSignature bs =
     Right sig -> return sig
 
 primType :: Type -> Parser Type
-primType t = endOfInput >> return t
+primType = return
 
 pSig :: Parser ([Type], Type)
 pSig = do
@@ -69,6 +74,5 @@ p = do
       cs <- takeWhile1 (notInClass "/;") `sepBy1` char '/'
       let c:rcomps = reverse cs
       _ <- char ';'
-      endOfInput
       return $ ReferenceType (qualifiedClassName (reverse rcomps) c)
     _ -> fail "Not a valid Java type name"
