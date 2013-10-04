@@ -8,6 +8,8 @@ module Dalvik.SSA.Types (
   Class(..),
   Field(..),
   Method(..),
+  methodSignature,
+  methodIsVirtual,
   Parameter(..),
   BasicBlock(..),
   MethodRef(..),
@@ -365,6 +367,18 @@ data Method = Method { methodId :: UniqueId
                      , methodParameters :: [Parameter]
                      , methodBody :: Maybe [BasicBlock]
                      }
+
+methodIsVirtual :: Method -> Bool
+methodIsVirtual = not . hasAccessFlag ACC_STATIC . methodAccessFlags
+
+methodSignature :: Method -> ([Type], Type)
+methodSignature m = (map parameterType ps, methodReturnType m)
+  where
+    ps = case methodIsVirtual m of
+      False -> methodParameters m
+      True -> case methodParameters m of
+        [] -> error "methodSignature: No parameters in a virtual function"
+        _:rest -> rest
 
 instance Eq Method where
   (==) = (==) `on` methodId
