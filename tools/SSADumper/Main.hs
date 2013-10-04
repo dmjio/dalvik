@@ -1,5 +1,6 @@
 module Main ( main ) where
 
+import Data.String ( fromString )
 import Options.Applicative
 import Text.Printf ( printf )
 
@@ -38,7 +39,7 @@ optionParser = Options <$>
                                 <> metavar "CLASS"
                                 <> help "The name of the class containing the target method"))
       <*> optional (strOption ( long "method"
-                                <> short ','
+                                <> short 'm'
                                 <> metavar "METHOD"
                                 <> help "The name of the target method"))
       <*> optional (strOption ( long "signature"
@@ -90,6 +91,26 @@ realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
   Right dexFile <- loadDexFromAnyIO fileName
   ssaDex <- toSSA dexFile
   print ssaDex
+realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
+                                              , prettyClassName = Just cname
+                                              , prettyMethodName = Nothing
+                                              , prettyTypeSignature = Nothing
+                                              } } = do
+  Right dexFile <- loadDexFromAnyIO fileName
+  ssaDex <- toSSA dexFile
+  klass <- findClassByName (fromString cname) ssaDex
+  print klass
+realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
+                                              , prettyClassName = Just cname
+                                              , prettyMethodName = Just mname
+                                              , prettyTypeSignature = Just sig
+                                              } } = do
+  Right dexFile <- loadDexFromAnyIO fileName
+  ssaDex <- toSSA dexFile
+  klass <- findClassByName (fromString cname) ssaDex
+  method <- findMethodByName (fromString mname) sig klass
+  print method
+realMain _ = error "You must specify a method and a signature"
 
 toStr :: String -> String -> String -> String
 toStr []      m sig = printf "%s%s" m sig
