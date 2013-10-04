@@ -374,7 +374,9 @@ instance Hashable Method where
   hashWithSalt s = hashWithSalt s . methodId
 
 data Class = Class { classId :: UniqueId
+                   , classType :: Type
                    , className :: BS.ByteString
+                   , classSourceName :: BS.ByteString
                    , classAccessFlags :: AccessFlags
                    , classParent :: Maybe Type
                    , classParentReference :: Maybe Class

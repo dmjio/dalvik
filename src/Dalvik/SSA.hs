@@ -202,12 +202,13 @@ translateClass :: (MonadFix f, Failure DT.DecodeError f)
                   -> KnotMonad f Knot
 translateClass k (tid, klass) = do
   cid <- freshId
-  cname <- case DT.classSourceNameId klass of
-    (-1) -> return "<unnamed>"
+  sname <- case DT.classSourceNameId klass of
+    (-1) -> return "<stdin>"
     snid -> getStr' snid
   parent <- case DT.classSuperId klass of
     (-1) -> return Nothing
     sid -> liftM Just $ getTranslatedType sid
+  t <- getTranslatedType (DT.classId klass)
   parentRef <- lookupClass (DT.classSuperId klass)
   staticFields <- mapM (translateField k) (DT.classStaticFields klass)
   instanceFields <- mapM (translateField k) (DT.classInstanceFields klass)
@@ -215,7 +216,9 @@ translateClass k (tid, klass) = do
   virtualMethods <- mapM translateMethod (DT.classVirtualMethods klass)
   itypes <- mapM getTranslatedType (DT.classInterfaces klass)
   let c = Class { classId = cid
-                , className = cname
+                , classType = t
+                , className = BS.pack $ show t
+                , classSourceName = sname
                 , classAccessFlags = DT.classAccessFlags klass
                 , classParent = parent
                 , classParentReference = parentRef
