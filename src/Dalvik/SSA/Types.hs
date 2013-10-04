@@ -48,6 +48,8 @@ import qualified Dalvik.Instruction as LL
 data DexFile =
   DexFile { dexIdentifier :: BS.ByteString
           , dexClasses :: [Class]
+          , dexConstants :: [Constant]
+          , dexTypes :: [Type]
           }
 
 data Value = InstructionV Instruction

@@ -103,15 +103,22 @@ toSSA df = do
   dexIdentifierStr <- case DT.dexThisId df of
     (-1) -> return "<none>"
     tid -> DT.getStr df tid
-  Knot { knotClasses = cmap } <- mfix (tieKnot df)
+  tiedKnot <- mfix (tieKnot df)
   return DexFile { dexIdentifier = dexIdentifierStr
-                 , dexClasses = M.elems cmap
+                 , dexClasses = M.elems (knotClasses tiedKnot)
+                 , dexTypes = M.elems (knotTypes tiedKnot)
+                 , dexConstants = knotConstants tiedKnot
                  }
 
 tieKnot :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> Knot -> f Knot
 tieKnot df tiedKnot = do
   knot' <- foldM (translateType df) emptyKnot $ M.toList (DT.dexTypeNames df)
-  liftM fst $ evalRWST startTranslation (tiedKnot, knot') (initialKnotState df)
+  (k, s, _) <- runRWST startTranslation (tiedKnot, knot') (initialKnotState df)
+  return k { knotConstants = concat [ M.elems $ knotClassConstantCache s
+                                    , M.elems $ knotIntCache s
+                                    , M.elems $ knotStringCache s
+                                    ]
+           }
   where
     startTranslation = do
       knot <- asks initialEnv
@@ -140,6 +147,7 @@ data Knot = Knot { knotClasses :: Map DT.TypeId Class
                  , knotMethodRefs :: Map DT.MethodId MethodRef
                  , knotFields :: Map DT.FieldId Field
                  , knotTypes :: Map DT.TypeId Type
+                 , knotConstants :: [Constant]
                  }
 
 getMethodRef :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f MethodRef
@@ -153,14 +161,15 @@ emptyKnot  = Knot { knotClasses = M.empty
                   , knotMethodRefs = M.empty
                   , knotFields = M.empty
                   , knotTypes = M.empty
+                  , knotConstants = []
                   }
 
 data KnotState =
   KnotState { knotIdSrc :: Int
             , knotDexFile :: DT.DexFile
-            , knotStringCache :: Map DT.StringId Value
-            , knotIntCache :: Map Int64 Value
-            , knotClassConstantCache :: Map DT.TypeId Value
+            , knotStringCache :: Map DT.StringId Constant
+            , knotIntCache :: Map Int64 Constant
+            , knotClassConstantCache :: Map DT.TypeId Constant
             }
 
 initialKnotState :: DT.DexFile -> KnotState
@@ -882,36 +891,36 @@ getConstant ca =
     DT.ConstClass tid -> do
       s <- get
       case M.lookup tid (knotClassConstantCache s) of
-        Just v -> return v
+        Just v -> return (ConstantV v)
         Nothing -> do
           cid <- freshId
           t <- getTranslatedType tid
-          let c = ConstantV $ ConstantClass cid t
+          let c = ConstantClass cid t
           put s { knotClassConstantCache = M.insert tid c (knotClassConstantCache s) }
-          return c
+          return (ConstantV c)
 
 getConstantString :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f Value
 getConstantString sid = do
   s <- get
   case M.lookup sid (knotStringCache s) of
-    Just v -> return v
+    Just v -> return (ConstantV v)
     Nothing -> do
       cid <- freshId
       str <- getStr' sid
-      let c = ConstantV $ ConstantString cid str
+      let c = ConstantString cid str
       put s { knotStringCache = M.insert sid c (knotStringCache s) }
-      return c
+      return (ConstantV c)
 
 getConstantInt :: (Failure DT.DecodeError f, Integral n) => n -> KnotMonad f Value
 getConstantInt (fromIntegral -> i) = do
   s <- get
   case M.lookup i (knotIntCache s) of
-    Just v -> return v
+    Just v -> return (ConstantV v)
     Nothing -> do
       cid <- freshId
-      let c = ConstantV $ ConstantInt cid i
+      let c = ConstantInt cid i
       put s { knotIntCache = M.insert i c (knotIntCache s) }
-      return c
+      return (ConstantV c)
 
 -- | Determine the result type of a unary operation
 unaryOpType :: DT.Unop -> Type
