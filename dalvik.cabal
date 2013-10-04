@@ -54,6 +54,7 @@ Library
                      Dalvik.SSA.Internal.Names,
                      Dalvik.SSA.Internal.Pretty,
                      Dalvik.SSA.Internal.RegisterAssignment,
+                     Dalvik.SSA.ClassHierarchy,
                      Dalvik.SSA.Types,
                      Dalvik.SSA.Util
     GHC-Options: -Wall -O1
