@@ -408,7 +408,12 @@ addIncompletePhi reg block l = modify addP
 canSealBlock :: (Failure DecodeError f) => BlockNumber -> SSALabeller f Bool
 canSealBlock bid = do
   ps <- basicBlockPredecessorsM bid
-  liftM and $ mapM isFilled ps
+  go ps
+  where
+    go [] = return True
+    go (p:ps) = do
+      f <- isFilled p
+      if f then go ps else return False
 
 -- | This is the main part of the algorithm from the paper.  Each
 -- instruction is processed separately.  Apply *read* before *write*
