@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -165,7 +166,7 @@ emptyKnot  = Knot { knotClasses = M.empty
                   }
 
 data KnotState =
-  KnotState { knotIdSrc :: Int
+  KnotState { knotIdSrc :: !Int
             , knotDexFile :: DT.DexFile
             , knotStringCache :: Map DT.StringId Constant
             , knotIntCache :: Map Int64 Constant
@@ -1019,7 +1020,7 @@ translateFieldRef :: (Failure DT.DecodeError f)
                      => Knot
                      -> (DT.FieldId, DT.Field)
                      -> KnotMonad f Knot
-translateFieldRef knot (fid, f) = do
+translateFieldRef !knot (fid, f) = do
   fname <- getStr' (DT.fieldNameId f)
   ftype <- getTranslatedType (DT.fieldTypeId f)
   klass <- getTranslatedType (DT.fieldClassId f)
@@ -1034,7 +1035,7 @@ translateMethodRef :: (Failure DT.DecodeError f)
                       => Knot
                       -> (DT.MethodId, DT.Method)
                       -> KnotMonad f Knot
-translateMethodRef knot (mid, m) = do
+translateMethodRef !knot (mid, m) = do
   proto <- getRawProto' (DT.methProtoId m)
   mname <- getStr' (DT.methNameId m)
   rt <- getTranslatedType (DT.protoRet proto)
