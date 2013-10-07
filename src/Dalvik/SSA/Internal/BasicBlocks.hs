@@ -49,6 +49,7 @@ module Dalvik.SSA.Internal.BasicBlocks (
   instructionAtRawOffsetFrom
   ) where
 
+import Control.Arrow ( second )
 import qualified Data.ByteString as BS
 import Data.Int ( Int64 )
 import Data.IntSet ( IntSet )
@@ -142,9 +143,10 @@ instructionAtRawOffsetFrom bbs ix offset =
 -- in the named basic block.  Each target is tagged with the condition
 -- under which that branch is taken.
 basicBlockBranchTargets :: BasicBlocks -> BlockNumber -> [(JumpCondition, BlockNumber)]
-basicBlockBranchTargets bbs bnum = ts
+basicBlockBranchTargets bbs bnum =
+  fromMaybe errMsg $ M.lookup bnum (bbBranchTargets bbs)
   where
-    Just ts = M.lookup bnum (bbBranchTargets bbs)
+    errMsg = error ("Missing branch target for block " ++ show bnum)
 
 -- | Determine what type, if any, is handled in the named basic block
 basicBlockHandlesException :: BasicBlocks -> BlockNumber -> Maybe BS.ByteString
@@ -202,10 +204,12 @@ resolveOffsetFrom :: BBEnv
                   -> Int -- ^ Index of the branch instruction
                   -> Int -- ^ Offset
                   -> Int -- ^ Target instruction index
-resolveOffsetFrom env src off = ix
+resolveOffsetFrom env src off
+  | Just srcShortOff <- envShortOffset env V.!? src =
+    fromMaybe (errMsg srcShortOff) $ M.lookup (srcShortOff + off) (envShortToInstIndex env)
+  | otherwise = error ("Missing a short offset for source instruction at index " ++ show src)
   where
-    Just srcShortOff = envShortOffset env V.!? src
-    Just ix = M.lookup (srcShortOff + off) (envShortToInstIndex env)
+    errMsg srcShortOff = error ("Missing instruction offset for target instruction at short index " ++ show (srcShortOff + off))
 
 -- | Examine the instruction stream and break it into basic blocks.
 -- This includes control flow information (block predecessors and
@@ -267,18 +271,21 @@ instructionBlockNumber bbs ix =
 -- | Get the basic block ID for the instruction at the given index.
 basicBlockForInstruction :: BasicBlocks -> Int -> BlockNumber
 basicBlockForInstruction bbs ix =
-  let [(_, bnum)] = IM.containing (bbFromInstruction bbs) ix
-  in bnum
+  case IM.containing (bbFromInstruction bbs) ix of
+    [(_, bnum)] -> bnum
+    _ -> error ("No BasicBlock for Instruction at index " ++ show ix)
 
 basicBlockPredecessors :: BasicBlocks -> BlockNumber -> [BlockNumber]
 basicBlockPredecessors bbs bid =
-  let Just ps = bbPredecessors bbs V.!? bid
-  in ps
+  fromMaybe errMsg $ bbPredecessors bbs V.!? bid
+  where
+    errMsg = error ("No predecessor entry for BasicBlock " ++ show bid)
 
 basicBlockSuccessors :: BasicBlocks -> BlockNumber -> [BlockNumber]
 basicBlockSuccessors bbs bid =
-  let Just ss = bbSuccessors bbs V.!? bid
-  in ss
+  fromMaybe errMsg $ bbSuccessors bbs V.!? bid
+  where
+    errMsg = error ("No successor entry for BasicBlock " ++ show bid)
 
 -- | Iterate over the block list and construct a control flow graph.
 --
@@ -313,8 +320,8 @@ buildCFG env bvec bmap blockEnds =
       -- are always obvious.
       | not (isTerminator env ix inst) && IS.member ix blockEnds =
         let target = ix + 1
-            [(_, termBlock)] = IM.containing bmap ix
-            [(_, targetBlock)] = IM.containing bmap target
+            termBlock = blockForInstruction bmap ix
+            targetBlock = blockForInstruction bmap target
         in (M.insertWith S.union targetBlock (S.singleton termBlock) pm,
             M.insertWith S.union termBlock (S.singleton targetBlock) sm,
             bts)
@@ -324,9 +331,7 @@ buildCFG env bvec bmap blockEnds =
       -- the branch targets.
       | Just targets <- terminatorAbsoluteTargets env ix inst
       , [(_, termBlock)] <- IM.containing bmap ix =
-        let instIndexToBlockNum (cond, tix) =
-              let [(_, bnum)] = IM.containing bmap tix
-              in (cond, bnum)
+        let instIndexToBlockNum = second (blockForInstruction bmap)
             targetBlocks = map instIndexToBlockNum targets
             addSuccsPreds (p, s, b) (condition, targetBlock) =
               (M.insertWith S.union targetBlock (S.singleton termBlock) p,
@@ -335,6 +340,11 @@ buildCFG env bvec bmap blockEnds =
         in L.foldl' addSuccsPreds m targetBlocks
       | otherwise = m
 
+blockForInstruction :: IntervalMap Int BlockNumber -> Int -> BlockNumber
+blockForInstruction m ix =
+  case IM.containing m ix of
+    [(_, b)] -> b
+    _ -> error ("No BasicBlock for instruction at index " ++ show ix)
 
 -- Splitting into blocks
 

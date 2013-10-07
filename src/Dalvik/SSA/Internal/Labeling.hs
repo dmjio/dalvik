@@ -117,9 +117,10 @@ labelingPhiIncomingValues :: Labeling -> Label -> [(BlockNumber, Label)]
 labelingPhiIncomingValues labeling phi = concatMap addBlockNumber (S.toList ivs)
   where
     Just ivs = M.lookup phi (labelingPhis labeling)
-    addBlockNumber iv =
-      let Just tagged = M.lookup (phi, iv) (labelingPhiSources labeling)
-      in zip (S.toList tagged) (repeat iv)
+    addBlockNumber iv
+      | Just tagged <- M.lookup (phi, iv) (labelingPhiSources labeling) =
+        zip (S.toList tagged) (repeat iv)
+      | otherwise = error ("Missing labelingPhiSources for " ++ show phi)
 
 -- | The mutable state we are modifying while labeling.  This mainly
 -- models the register state and phi operands.
@@ -248,7 +249,8 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) =
       case V.findIndex ((==hOffset) . chHandlerOff) catches of
         Nothing ->failure $ NoHandlerAtOffset hOffset
         Just cix -> do
-          let Just ch = catches V.!? cix
+          let errMsg = error ("No catch handler entry for handler at offset " ++ show cix)
+          let ch = fromMaybe errMsg $ catches V.!? cix
           typeNames <- mapM (\(tix, off) -> liftM (, off) (getTypeName dx tix)) (chHandlers ch)
           return ExceptionRange { erOffset = tryStartAddr tryItem
                                 , erCount = tryInsnCount tryItem
