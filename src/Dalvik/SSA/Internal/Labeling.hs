@@ -56,6 +56,7 @@ import Control.Monad ( filterM, forM_, liftM )
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString.Char8 as BS
+import Data.Function ( on )
 import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
 import Data.Map ( Map )
@@ -81,7 +82,18 @@ import Dalvik.SSA.Internal.RegisterAssignment
 data Label = SimpleLabel Int
            | PhiLabel BlockNumber [BlockNumber] Int
            | ArgumentLabel BS.ByteString Int
-           deriving (Eq, Ord, Show)
+           deriving (Show)
+
+labelNumber :: Label -> Int
+labelNumber (SimpleLabel i) = i
+labelNumber (PhiLabel _ _ i) = i
+labelNumber (ArgumentLabel _ i) = i
+
+instance Eq Label where
+  (==) = (==) `on` labelNumber
+
+instance Ord Label where
+  compare = compare `on` labelNumber
 
 -- | A labeling assigns an SSA number/Label to a register at *each*
 -- 'Instruction'.
