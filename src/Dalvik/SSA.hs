@@ -140,11 +140,11 @@ type KnotMonad f = RWST Knot () KnotState f
 
 -- | Before we start tying the knot, types, fields, and methodRefs are
 -- all completely defined.
-data Knot = Knot { knotClasses :: HashMap BS.ByteString Class
-                 , knotMethodDefs :: HashMap (BS.ByteString, BS.ByteString, [Type]) Method
-                 , knotMethodRefs :: HashMap (BS.ByteString, BS.ByteString, [Type]) MethodRef
-                 , knotFields :: HashMap (BS.ByteString, BS.ByteString) Field
-                 , knotTypes :: HashMap BS.ByteString Type
+data Knot = Knot { knotClasses :: !(HashMap BS.ByteString Class)
+                 , knotMethodDefs :: !(HashMap (BS.ByteString, BS.ByteString, [Type]) Method)
+                 , knotMethodRefs :: !(HashMap (BS.ByteString, BS.ByteString, [Type]) MethodRef)
+                 , knotFields :: !(HashMap (BS.ByteString, BS.ByteString) Field)
+                 , knotTypes :: !(HashMap BS.ByteString Type)
                  , knotConstants :: [Constant]
                  }
 
@@ -174,13 +174,13 @@ data KnotState =
             , knotClassConstantCache :: HashMap BS.ByteString Constant
             , knotDexFile :: DT.DexFile
               -- ^ This is the current Dex file being translated
-            , knotDexFields :: Map DT.FieldId (BS.ByteString, BS.ByteString)
+            , knotDexFields :: !(Map DT.FieldId (BS.ByteString, BS.ByteString))
               -- ^ This MUST be reset after each dex file is
               -- processed.  It is only valid within the scope of a
               -- single dex.
-            , knotDexMethods :: Map DT.MethodId (BS.ByteString, BS.ByteString, [Type])
+            , knotDexMethods :: !(Map DT.MethodId (BS.ByteString, BS.ByteString, [Type]))
               -- ^ Likewise this one
-            , knotDexTypes :: HashMap BS.ByteString Type
+            , knotDexTypes :: !(HashMap BS.ByteString Type)
               -- ^ This is the set of all types encountered so far, up
               -- to and including the current dex file.
             }
@@ -205,7 +205,7 @@ translateType :: (Failure DT.DecodeError f)
                  -> Knot
                  -> (DT.TypeId, DT.StringId)
                  -> f Knot
-translateType df m (tid, _) = do
+translateType df !m (tid, _) = do
   tname <- DT.getTypeName df tid
   case HM.member tname (knotTypes m) of
     True -> return m
@@ -1087,7 +1087,7 @@ translateFieldRef !knot (fid, f) = do
                   , fieldClass = klass
                   }
       stringKey = (cname, fname)
-  modify $ \s -> s { knotDexFields = M.insert fid stringKey (knotDexFields s) }
+  modify $ \(!s) -> s { knotDexFields = M.insert fid stringKey (knotDexFields s) }
   return knot { knotFields = HM.insert stringKey fld (knotFields knot) }
 
 translateMethodRef :: (Failure DT.DecodeError f)
@@ -1112,7 +1112,7 @@ translateMethodRef !knot (mid, m) = do
                        , methodRefParameterTypes = ptypes
                        }
       stringKey = (cname, mname, ptypes)
-  modify $ \s -> s { knotDexMethods = M.insert mid stringKey (knotDexMethods s) }
+  modify $ \(!s) -> s { knotDexMethods = M.insert mid stringKey (knotDexMethods s) }
   return knot { knotMethodRefs = HM.insert stringKey mref (knotMethodRefs knot) }
 
 translateField :: (Failure DT.DecodeError f) => DT.EncodedField -> KnotMonad f (DT.AccessFlags, Field)
