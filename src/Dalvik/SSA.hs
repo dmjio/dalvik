@@ -290,12 +290,14 @@ translateMethod (k, acc) em = do
   paramList <- lift $ getParamList df em
   paramMap <- foldM makeParameter M.empty (zip [0..] paramList)
 
-  cname <- getTypeName (DT.methClassId m)
-
   uid <- freshId
 
   (body, _) <- mfix $ \tiedKnot ->
     translateMethodBody df paramMap (snd tiedKnot) em
+
+  mrefs <- gets knotDexMethods
+  let errMsg = failure $ DT.NoMethodAtIndex (DT.methId em)
+  stringKey <- maybe errMsg return $ M.lookup (DT.methId em) mrefs
 
   let ps = M.elems paramMap
       tm = Method { methodId = uid
@@ -305,7 +307,6 @@ translateMethod (k, acc) em = do
                   , methodParameters = ps
                   , methodBody = body
                   }
-      stringKey = (cname, mname, map parameterType ps)
   return (k { knotMethodDefs = HM.insert stringKey tm (knotMethodDefs k) }, tm : acc)
 
 makeParameter :: (Failure DT.DecodeError f)
