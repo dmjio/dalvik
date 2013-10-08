@@ -61,6 +61,8 @@ import Control.Monad.Fix
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString.Char8 as BS
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import qualified Data.List as L
 import Data.Map ( Map )
