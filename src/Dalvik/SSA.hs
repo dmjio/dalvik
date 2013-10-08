@@ -147,8 +147,8 @@ type KnotMonad f = RWST (Knot, Knot) () KnotState f
 -- | Before we start tying the knot, types, fields, and methodRefs are
 -- all completely defined.
 data Knot = Knot { knotClasses :: HashMap BS.ByteString Class
-                 , knotMethodDefs :: Map DT.MethodId Method
-                 , knotMethodRefs :: Map DT.MethodId MethodRef
+                 , knotMethodDefs :: HashMap (BS.ByteString, BS.ByteString, [Type]) Method
+                 , knotMethodRefs :: HashMap (BS.ByteString, BS.ByteString, [Type]) MethodRef
                  , knotFields :: HashMap (BS.ByteString, BS.ByteString) Field
                  , knotTypes :: HashMap BS.ByteString Type
                  , knotConstants :: [Constant]
@@ -156,13 +156,18 @@ data Knot = Knot { knotClasses :: HashMap BS.ByteString Class
 
 getMethodRef :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f MethodRef
 getMethodRef mid = do
-  mrefs <- asks (knotMethodRefs . initialEnv)
-  maybe (failure (DT.NoMethodAtIndex mid)) return $ M.lookup mid mrefs
+  mkeys <- gets knotDexMethods
+  case M.lookup mid mkeys of
+    Nothing -> failure $ DT.NoMethodAtIndex mid
+    Just stringKey -> do
+      mrefs <- asks (knotMethodRefs . tiedEnv)
+      let errMsg = error ("No method for method id " ++ show mid)
+      return $ fromMaybe errMsg $ HM.lookup stringKey mrefs
 
 emptyKnot :: Knot
 emptyKnot  = Knot { knotClasses = HM.empty
-                  , knotMethodDefs = M.empty
-                  , knotMethodRefs = M.empty
+                  , knotMethodDefs = HM.empty
+                  , knotMethodRefs = HM.empty
                   , knotFields = HM.empty
                   , knotTypes = HM.empty
                   , knotConstants = []
@@ -178,6 +183,8 @@ data KnotState =
               -- ^ FIXME: This MUST be reset after each dex file is
               -- processed.  It is only valid within the scope of a
               -- single dex.
+            , knotDexMethods :: Map DT.MethodId (BS.ByteString, BS.ByteString, [Type])
+              -- ^ Likewise this one
             }
 
 initialKnotState :: DT.DexFile -> KnotState
@@ -188,6 +195,7 @@ initialKnotState df =
             , knotIntCache = M.empty
             , knotClassConstantCache = HM.empty
             , knotDexFields = M.empty
+            , knotDexMethods = M.empty
             }
 
 translateType :: (Failure DT.DecodeError f)
@@ -282,17 +290,21 @@ translateMethod (k, acc) em = do
   paramList <- lift $ getParamList df em
   paramMap <- foldM makeParameter M.empty (zip [0..] paramList)
 
+  cname <- getTypeName (DT.methClassId m)
+
   (body, _) <- mfix $ \tiedKnot ->
     translateMethodBody df paramMap (snd tiedKnot) em
 
-  let tm = Method { methodId = fromIntegral (DT.methId em)
+  let ps = M.elems paramMap
+      tm = Method { methodId = fromIntegral (DT.methId em)
                   , methodName = mname
                   , methodReturnType = rt
                   , methodAccessFlags = DT.methAccessFlags em
-                  , methodParameters = M.elems paramMap
+                  , methodParameters = ps
                   , methodBody = body
                   }
-  return (k { knotMethodDefs = M.insert (DT.methId em) tm (knotMethodDefs k) }, tm : acc)
+      stringKey = (cname, mname, map parameterType ps)
+  return (k { knotMethodDefs = HM.insert stringKey tm (knotMethodDefs k) }, tm : acc)
 
 makeParameter :: (Failure DT.DecodeError f)
                  => Map Int Parameter
@@ -1028,18 +1040,22 @@ getTranslatedType tid = do
 
 getTranslatedField :: (Failure DT.DecodeError f) => DT.FieldId -> KnotMonad f Field
 getTranslatedField fid = do
-  fs <- asks (knotFields . tiedEnv)
   frefs <- gets knotDexFields
   case M.lookup fid frefs of
     Nothing -> failure $ DT.NoFieldAtIndex fid
-    Just stringKey ->
+    Just stringKey -> do
+      fs <- asks (knotFields . tiedEnv)
       let errMsg = error ("No field for field id " ++ show fid)
-      in return $ fromMaybe errMsg $ HM.lookup stringKey fs
+      return $ fromMaybe errMsg $ HM.lookup stringKey fs
 
 getTranslatedMethod :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f (Maybe Method)
 getTranslatedMethod mid = do
-  ms <- asks (knotMethodDefs . tiedEnv)
-  return $ M.lookup mid ms
+  mrefs <- gets knotDexMethods
+  case M.lookup mid mrefs of
+    Nothing -> failure $ DT.NoMethodAtIndex mid
+    Just stringKey -> do
+      ms <- asks (knotMethodDefs . tiedEnv)
+      return $ HM.lookup stringKey ms
 
 -- | Translate an entry from the DexFile fields map.  These do not
 -- contain access flags, but have everything else.
@@ -1073,13 +1089,17 @@ translateMethodRef !knot (mid, m) = do
   cid <- getTranslatedType (DT.methClassId m)
   ptypes <- mapM getTranslatedType (DT.protoParams proto)
 
+  cname <- getTypeName (DT.methClassId m)
+
   let mref = MethodRef { methodRefId = fromIntegral mid
-                           , methodRefClass = cid
-                           , methodRefName = mname
-                           , methodRefReturnType = rt
-                           , methodRefParameterTypes = ptypes
-                           }
-  return knot { knotMethodRefs = M.insert mid mref (knotMethodRefs knot) }
+                       , methodRefClass = cid
+                       , methodRefName = mname
+                       , methodRefReturnType = rt
+                       , methodRefParameterTypes = ptypes
+                       }
+      stringKey = (cname, mname, ptypes)
+  modify $ \s -> s { knotDexMethods = M.insert mid stringKey (knotDexMethods s) }
+  return knot { knotMethodRefs = HM.insert stringKey mref (knotMethodRefs knot) }
 
 translateField :: (Failure DT.DecodeError f) => DT.EncodedField -> KnotMonad f (DT.AccessFlags, Field)
 translateField ef = do
