@@ -230,11 +230,13 @@ lookupClass tid
     klasses <- asks knotClasses
     return $ HM.lookup parentString klasses
 
+-- | Note: I don't think that the DT.TypeId here is actually the type
+-- ID of the class...  DT.classId is accurate (and different).
 translateClass :: (MonadFix f, Failure DT.DecodeError f)
                   => Knot
                   -> (DT.TypeId, DT.Class)
                   -> KnotMonad f Knot
-translateClass k (tid, klass) = do
+translateClass k (_, klass) = do
   cid <- freshId
   sname <- case DT.classSourceNameId klass of
     (-1) -> return "<stdin>"
@@ -264,8 +266,10 @@ translateClass k (tid, klass) = do
                 , classVirtualMethods = reverse virtualMethods
                 }
 
-  classString <- getTypeName tid
-  return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
+  classString <- getTypeName (DT.classId klass)
+  case HM.member classString (knotClasses k2) of
+    True -> failure $ DT.ClassAlreadyDefined (show t)
+    False -> return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
 
 getDex :: (Failure DT.DecodeError f) => KnotMonad f DT.DexFile
 getDex = gets knotDexFile
