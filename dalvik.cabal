@@ -29,6 +29,8 @@ Library
                     pretty,
                     text,
                     transformers,
+                    unordered-containers,
+                    hashable < 1.2,
                     vector,
                     zip-conduit,
 -- needed for test code (test dependencies aren't available in the repl)
