@@ -169,10 +169,11 @@ emptyKnot  = Knot { knotClasses = HM.empty
 
 data KnotState =
   KnotState { knotIdSrc :: !Int
-            , knotDexFile :: DT.DexFile
             , knotStringCache :: Map DT.StringId Constant
             , knotIntCache :: Map Int64 Constant
             , knotClassConstantCache :: HashMap BS.ByteString Constant
+            , knotDexFile :: DT.DexFile
+              -- ^ This is the current Dex file being translated
             , knotDexFields :: Map DT.FieldId (BS.ByteString, BS.ByteString)
               -- ^ This MUST be reset after each dex file is
               -- processed.  It is only valid within the scope of a
@@ -180,6 +181,8 @@ data KnotState =
             , knotDexMethods :: Map DT.MethodId (BS.ByteString, BS.ByteString, [Type])
               -- ^ Likewise this one
             , knotDexTypes :: HashMap BS.ByteString Type
+              -- ^ This is the set of all types encountered so far, up
+              -- to and including the current dex file.
             }
 
 initialKnotState :: KnotState
