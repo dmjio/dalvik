@@ -118,7 +118,7 @@ tieKnot :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> Knot -> f Kno
 tieKnot df tiedKnot = do
   knot' <- foldM (translateType df) emptyKnot $ M.toList (DT.dexTypeNames df)
   (k, s, _) <- runRWST startTranslation (tiedKnot, knot') (initialKnotState df)
-  return k { knotConstants = concat [ M.elems $ knotClassConstantCache s
+  return k { knotConstants = concat [ HM.elems $ knotClassConstantCache s
                                     , M.elems $ knotIntCache s
                                     , M.elems $ knotStringCache s
                                     ]
@@ -173,7 +173,7 @@ data KnotState =
             , knotDexFile :: DT.DexFile
             , knotStringCache :: Map DT.StringId Constant
             , knotIntCache :: Map Int64 Constant
-            , knotClassConstantCache :: Map DT.TypeId Constant
+            , knotClassConstantCache :: HashMap BS.ByteString Constant
             }
 
 initialKnotState :: DT.DexFile -> KnotState
@@ -182,7 +182,7 @@ initialKnotState df =
             , knotDexFile = df
             , knotStringCache = M.empty
             , knotIntCache = M.empty
-            , knotClassConstantCache = M.empty
+            , knotClassConstantCache = HM.empty
             }
 
 translateType :: (Failure DT.DecodeError f)
@@ -898,13 +898,14 @@ getConstant ca =
     DT.ConstStringJumbo sid -> getConstantString sid
     DT.ConstClass tid -> do
       s <- get
-      case M.lookup tid (knotClassConstantCache s) of
+      klassName <- getTypeName tid
+      case HM.lookup klassName (knotClassConstantCache s) of
         Just v -> return (ConstantV v)
         Nothing -> do
           cid <- freshId
           t <- getTranslatedType tid
           let c = ConstantClass cid t
-          put s { knotClassConstantCache = M.insert tid c (knotClassConstantCache s) }
+          put s { knotClassConstantCache = HM.insert klassName c (knotClassConstantCache s) }
           return (ConstantV c)
 
 getConstantString :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f Value
