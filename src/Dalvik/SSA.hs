@@ -1107,9 +1107,9 @@ translateField ef = do
   case M.lookup (DT.fieldId ef) dfs of
     Nothing -> failure $ DT.NoFieldAtIndex (DT.fieldId ef)
     Just stringKey -> do
-      fs <- asks (knotFields . initialEnv)
-      let errMsg = failure $ DT.NoFieldAtIndex (DT.fieldId ef)
-      maybe errMsg (return . (DT.fieldAccessFlags ef,)) $ HM.lookup stringKey fs
+      fs <- asks (knotFields . tiedEnv)
+      let errMsg = error ("No field for index " ++ show (DT.fieldId ef))
+      return . (DT.fieldAccessFlags ef,) $ fromMaybe errMsg $ HM.lookup stringKey fs
 
 -- | Allocate a fresh globally unique (within a single Dex file)
 -- identifier.
