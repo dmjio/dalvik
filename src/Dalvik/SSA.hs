@@ -292,11 +292,13 @@ translateMethod (k, acc) em = do
 
   cname <- getTypeName (DT.methClassId m)
 
+  uid <- freshId
+
   (body, _) <- mfix $ \tiedKnot ->
     translateMethodBody df paramMap (snd tiedKnot) em
 
   let ps = M.elems paramMap
-      tm = Method { methodId = fromIntegral (DT.methId em)
+      tm = Method { methodId = uid
                   , methodName = mname
                   , methodReturnType = rt
                   , methodAccessFlags = DT.methAccessFlags em
@@ -314,10 +316,10 @@ makeParameter m (ix, (name, tid)) = do
   pid <- freshId
   t <- getTranslatedType tid
   let p = Parameter { parameterId = pid
-                        , parameterType = t
-                        , parameterName = fromMaybe (generateNameForParameter ix) name
-                        , parameterIndex = ix
-                        }
+                    , parameterType = t
+                    , parameterName = fromMaybe (generateNameForParameter ix) name
+                    , parameterIndex = ix
+                    }
   return $ M.insert ix p m
 
 translateMethodBody :: (MonadFix f, Failure DT.DecodeError f)
@@ -1091,7 +1093,9 @@ translateMethodRef !knot (mid, m) = do
 
   cname <- getTypeName (DT.methClassId m)
 
-  let mref = MethodRef { methodRefId = fromIntegral mid
+  uid <- freshId
+
+  let mref = MethodRef { methodRefId = uid
                        , methodRefClass = cid
                        , methodRefName = mname
                        , methodRefReturnType = rt
