@@ -110,6 +110,8 @@ toSSA dfs = do
                  , dexConstants = knotConstants tiedKnot
                  }
 
+-- | We tie the knot by starting with an empty knot and processing a
+-- dex file at a time.  Each dex file proceeds by class.
 tieKnot :: (MonadFix f, Failure DT.DecodeError f) => [DT.DexFile] -> Knot -> f Knot
 tieKnot dfs tiedKnot = do
   (k, s, _) <- runRWST go tiedKnot initialKnotState
@@ -131,6 +133,9 @@ translateDex knot0 df = do
                    , knotDexMethods = M.empty
                    }
   knot1 <- foldM (translateType df) knot0 $ M.toList (DT.dexTypeNames df)
+  -- After we have translated all of the types in this dex file, we
+  -- save them in the state so we can safely refer to them (and
+  -- inspect them) without touching the knot, which is more delicate.
   modify $ \s -> s { knotDexTypes = knotTypes knot1 }
   knot2 <- foldM translateFieldRef knot1 $ M.toList (DT.dexFields df)
   knot3 <- foldM translateMethodRef knot2 $ M.toList (DT.dexMethods df)
