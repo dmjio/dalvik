@@ -346,9 +346,7 @@ prettyClassDoc klass =
     end = PP.char '}'
 
 prettyDexDoc :: DexFile -> Doc
-prettyDexDoc df =
-  safeString (dexIdentifier df) $+$
-    PP.vcat (map prettyClassDoc (dexClasses df))
+prettyDexDoc df = PP.vcat (map prettyClassDoc (dexClasses df))
 
 instance Show Instruction where
   show = PP.render . prettyInstructionDoc

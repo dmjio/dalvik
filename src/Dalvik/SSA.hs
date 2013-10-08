@@ -101,48 +101,42 @@ import Dalvik.SSA.Internal.Pretty ()
 --
 -- > main = do
 -- >   dexfile = ...
--- >   ssafile <- toSSA dexfile
-toSSA :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> f DexFile
-toSSA df = do
-  dexIdentifierStr <- case DT.dexThisId df of
-    (-1) -> return "<none>"
-    tid -> DT.getStr df tid
-  tiedKnot <- mfix (tieKnot df)
-  return DexFile { dexIdentifier = dexIdentifierStr
-                 , dexClasses = HM.elems (knotClasses tiedKnot)
+-- >   ssafile <- toSSA [dexfile]
+toSSA :: (MonadFix f, Failure DT.DecodeError f) => [DT.DexFile] -> f DexFile
+toSSA dfs = do
+  tiedKnot <- mfix (tieKnot dfs)
+  return DexFile { dexClasses = HM.elems (knotClasses tiedKnot)
                  , dexTypes = HM.elems (knotTypes tiedKnot)
                  , dexConstants = knotConstants tiedKnot
                  }
 
-tieKnot :: (MonadFix f, Failure DT.DecodeError f) => DT.DexFile -> Knot -> f Knot
-tieKnot df tiedKnot = do
-  knot' <- foldM (translateType df) emptyKnot $ M.toList (DT.dexTypeNames df)
-  (k, s, _) <- runRWST startTranslation (tiedKnot, knot') (initialKnotState df)
+tieKnot :: (MonadFix f, Failure DT.DecodeError f) => [DT.DexFile] -> Knot -> f Knot
+tieKnot dfs tiedKnot = do
+  (k, s, _) <- runRWST go tiedKnot initialKnotState
   return k { knotConstants = concat [ HM.elems $ knotClassConstantCache s
                                     , M.elems $ knotIntCache s
                                     , M.elems $ knotStringCache s
                                     ]
            }
   where
-    startTranslation = do
-      knot <- asks initialEnv
-      knot' <- foldM translateFieldRef knot $ M.toList (DT.dexFields df)
-      knot'' <- foldM translateMethodRef knot' $ M.toList (DT.dexMethods df)
-      local (const (tiedKnot, knot'')) (translateClasses knot'')
-    translateClasses knot = foldM translateClass knot $ M.toList (DT.dexClasses df)
+    go = foldM translateDex emptyKnot dfs
 
--- | When querying the environment, grab the tied knot.  Note: be
--- careful about forcing anything you get out of the tied knot.
-tiedEnv :: (Knot, Knot) -> Knot
-tiedEnv = fst
+translateDex :: (MonadFix f, Failure DT.DecodeError f) => Knot -> DT.DexFile -> KnotMonad f Knot
+translateDex knot0 df = do
+  -- Note that we have to set the DexFile being processed here (it
+  -- starts off undefined) and that we also reset the two caches that
+  -- are only valid for a given dex file.
+  modify $ \s -> s { knotDexFile = df
+                   , knotDexFields = M.empty
+                   , knotDexMethods = M.empty
+                   }
+  knot1 <- foldM (translateType df) knot0 $ M.toList (DT.dexTypeNames df)
+  modify $ \s -> s { knotDexTypes = knotTypes knot1 }
+  knot2 <- foldM translateFieldRef knot1 $ M.toList (DT.dexFields df)
+  knot3 <- foldM translateMethodRef knot2 $ M.toList (DT.dexMethods df)
+  foldM translateClass knot3 $ M.toList (DT.dexClasses df)
 
--- | Access the un-tied environment.  For most of the translation
--- process, this value contains all translated types, method
--- references, and field references.  These can be accessed freely.
-initialEnv :: (Knot, Knot) -> Knot
-initialEnv = snd
-
-type KnotMonad f = RWST (Knot, Knot) () KnotState f
+type KnotMonad f = RWST Knot () KnotState f
 
 -- | Before we start tying the knot, types, fields, and methodRefs are
 -- all completely defined.
@@ -160,7 +154,7 @@ getMethodRef mid = do
   case M.lookup mid mkeys of
     Nothing -> failure $ DT.NoMethodAtIndex mid
     Just stringKey -> do
-      mrefs <- asks (knotMethodRefs . tiedEnv)
+      mrefs <- asks knotMethodRefs
       let errMsg = error ("No method for method id " ++ show mid)
       return $ fromMaybe errMsg $ HM.lookup stringKey mrefs
 
@@ -180,24 +174,29 @@ data KnotState =
             , knotIntCache :: Map Int64 Constant
             , knotClassConstantCache :: HashMap BS.ByteString Constant
             , knotDexFields :: Map DT.FieldId (BS.ByteString, BS.ByteString)
-              -- ^ FIXME: This MUST be reset after each dex file is
+              -- ^ This MUST be reset after each dex file is
               -- processed.  It is only valid within the scope of a
               -- single dex.
             , knotDexMethods :: Map DT.MethodId (BS.ByteString, BS.ByteString, [Type])
               -- ^ Likewise this one
+            , knotDexTypes :: HashMap BS.ByteString Type
             }
 
-initialKnotState :: DT.DexFile -> KnotState
-initialKnotState df =
+initialKnotState :: KnotState
+initialKnotState =
   KnotState { knotIdSrc = 0
-            , knotDexFile = df
+            , knotDexFile = undefined
             , knotStringCache = M.empty
             , knotIntCache = M.empty
             , knotClassConstantCache = HM.empty
             , knotDexFields = M.empty
             , knotDexMethods = M.empty
+            , knotDexTypes = HM.empty
             }
 
+-- | Translate types from bytestrings into a structured
+-- representation.  Only add it if we haven't already seen it (we will
+-- get duplicates between different dex files).
 translateType :: (Failure DT.DecodeError f)
                  => DT.DexFile
                  -> Knot
@@ -205,8 +204,11 @@ translateType :: (Failure DT.DecodeError f)
                  -> f Knot
 translateType df m (tid, _) = do
   tname <- DT.getTypeName df tid
-  ty <- parseTypeName tname
-  return m { knotTypes = HM.insert tname ty (knotTypes m) }
+  case HM.member tname (knotTypes m) of
+    True -> return m
+    False -> do
+      ty <- parseTypeName tname
+      return m { knotTypes = HM.insert tname ty (knotTypes m) }
 
 getStr' :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f BS.ByteString
 getStr' sid
@@ -222,7 +224,7 @@ lookupClass tid
   | tid == -1 = return Nothing
   | otherwise = do
     parentString <- getTypeName tid
-    klasses <- asks (knotClasses . tiedEnv)
+    klasses <- asks knotClasses
     return $ HM.lookup parentString klasses
 
 translateClass :: (MonadFix f, Failure DT.DecodeError f)
@@ -1035,7 +1037,7 @@ getTypeName tid = do
 -- them all up-front.
 getTranslatedType :: (Failure DT.DecodeError f) => DT.TypeId -> KnotMonad f Type
 getTranslatedType tid = do
-  ts <- asks (knotTypes . initialEnv)
+  ts <- gets knotDexTypes
   tname <- getTypeName tid
   case HM.lookup tname ts of
     Nothing -> failure $ DT.NoTypeAtIndex tid
@@ -1047,7 +1049,7 @@ getTranslatedField fid = do
   case M.lookup fid frefs of
     Nothing -> failure $ DT.NoFieldAtIndex fid
     Just stringKey -> do
-      fs <- asks (knotFields . tiedEnv)
+      fs <- asks knotFields
       let errMsg = error ("No field for field id " ++ show fid)
       return $ fromMaybe errMsg $ HM.lookup stringKey fs
 
@@ -1057,7 +1059,7 @@ getTranslatedMethod mid = do
   case M.lookup mid mrefs of
     Nothing -> failure $ DT.NoMethodAtIndex mid
     Just stringKey -> do
-      ms <- asks (knotMethodDefs . tiedEnv)
+      ms <- asks knotMethodDefs
       return $ HM.lookup stringKey ms
 
 -- | Translate an entry from the DexFile fields map.  These do not
@@ -1112,7 +1114,7 @@ translateField ef = do
   case M.lookup (DT.fieldId ef) dfs of
     Nothing -> failure $ DT.NoFieldAtIndex (DT.fieldId ef)
     Just stringKey -> do
-      fs <- asks (knotFields . tiedEnv)
+      fs <- asks knotFields
       let errMsg = error ("No field for index " ++ show (DT.fieldId ef))
       return . (DT.fieldAccessFlags ef,) $ fromMaybe errMsg $ HM.lookup stringKey fs
 

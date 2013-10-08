@@ -48,8 +48,7 @@ import qualified Dalvik.Instruction as LL
 
 -- | A Dalvik Dex file represented in SSA form.
 data DexFile =
-  DexFile { dexIdentifier :: BS.ByteString
-          , dexClasses :: [Class]
+  DexFile { dexClasses :: [Class]
           , dexConstants :: [Constant]
           , dexTypes :: [Type]
           }

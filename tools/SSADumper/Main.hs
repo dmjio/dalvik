@@ -89,7 +89,7 @@ realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyClassName = Nothing
                                               } } = do
   Right dexFile <- loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFile
+  ssaDex <- toSSA [dexFile]
   print ssaDex
 realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyClassName = Just cname
@@ -97,7 +97,7 @@ realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyTypeSignature = Nothing
                                               } } = do
   Right dexFile <- loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFile
+  ssaDex <- toSSA [dexFile]
   klass <- findClassByName (fromString cname) ssaDex
   print klass
 realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
@@ -106,7 +106,7 @@ realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyTypeSignature = Just sig
                                               } } = do
   Right dexFile <- loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFile
+  ssaDex <- toSSA [dexFile]
   klass <- findClassByName (fromString cname) ssaDex
   method <- findMethodByName (fromString mname) sig klass
   print method
