@@ -1,5 +1,7 @@
 module Main ( main ) where
 
+import Control.Monad ( liftM )
+import Data.Either ( rights )
 import Data.String ( fromString )
 import Options.Applicative
 import Text.Printf ( printf )
@@ -17,7 +19,7 @@ data Command =
                , labelMethodName :: String
                , labelTypeSignature :: String
                }
-  | PrettyCommand { prettyFilename :: FilePath
+  | PrettyCommand { prettyFilename :: [FilePath]
                   , prettyClassName :: Maybe String
                   , prettyMethodName :: Maybe String
                   , prettyTypeSignature :: Maybe String
@@ -30,10 +32,10 @@ optionParser = Options <$>
                           )
   where
     prettyOptions = PrettyCommand <$>
-      strOption ( long "filename"
+      some (strOption ( long "filename"
                   <> short 'f'
                   <> metavar "FILE"
-                  <> help "The java file to parse")
+                  <> help "The java file to parse"))
       <*> optional (strOption ( long "class"
                                 <> short 'c'
                                 <> metavar "CLASS"
@@ -88,16 +90,16 @@ realMain Options { optCommand =
 realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyClassName = Nothing
                                               } } = do
-  Right dexFile <- loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFile
+  dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
+  ssaDex <- toSSA dexFiles
   print ssaDex
 realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyClassName = Just cname
                                               , prettyMethodName = Nothing
                                               , prettyTypeSignature = Nothing
                                               } } = do
-  Right dexFile <- loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFile
+  dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
+  ssaDex <- toSSA dexFiles
   klass <- findClassByName (fromString cname) ssaDex
   print klass
 realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
@@ -105,8 +107,8 @@ realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
                                               , prettyMethodName = Just mname
                                               , prettyTypeSignature = Just sig
                                               } } = do
-  Right dexFile <- loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFile
+  dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
+  ssaDex <- toSSA dexFiles
   klass <- findClassByName (fromString cname) ssaDex
   method <- findMethodByName (fromString mname) sig klass
   print method
