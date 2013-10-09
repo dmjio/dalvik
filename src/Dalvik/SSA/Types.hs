@@ -419,6 +419,7 @@ data Method = Method { methodId :: UniqueId
                      , methodAccessFlags :: AccessFlags
                      , methodParameters :: [Parameter]
                      , methodBody :: Maybe [BasicBlock]
+                     , methodClass :: Class
                      }
 
 methodIsVirtual :: Method -> Bool

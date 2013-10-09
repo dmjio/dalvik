@@ -253,23 +253,26 @@ translateClass k (_, klass) = do
   parentRef <- lookupClass (DT.classSuperId klass)
   staticFields <- mapM translateField (DT.classStaticFields klass)
   instanceFields <- mapM translateField (DT.classInstanceFields klass)
-  (k1, directMethods) <- foldM translateMethod (k, []) (DT.classDirectMethods klass)
-  (k2, virtualMethods) <- foldM translateMethod (k1, []) (DT.classVirtualMethods klass)
   itypes <- mapM getTranslatedType (DT.classInterfaces klass)
 
-  let c = Class { classId = cid
-                , classType = t
-                , className = BS.pack $ show t
-                , classSourceName = sname
-                , classAccessFlags = DT.classAccessFlags klass
-                , classParent = parent
-                , classParentReference = parentRef
-                , classInterfaces = itypes
-                , classStaticFields = staticFields
-                , classInstanceFields = instanceFields
-                , classDirectMethods = reverse directMethods
-                , classVirtualMethods = reverse virtualMethods
-                }
+  (c, k2) <- mfix $ \tclass -> do
+    (k1, directMethods) <- foldM (translateMethod (fst tclass)) (k, []) (DT.classDirectMethods klass)
+    (k2, virtualMethods) <- foldM (translateMethod (fst tclass)) (k1, []) (DT.classVirtualMethods klass)
+
+    let c = Class { classId = cid
+                  , classType = t
+                  , className = BS.pack $ show t
+                  , classSourceName = sname
+                  , classAccessFlags = DT.classAccessFlags klass
+                  , classParent = parent
+                  , classParentReference = parentRef
+                  , classInterfaces = itypes
+                  , classStaticFields = staticFields
+                  , classInstanceFields = instanceFields
+                  , classDirectMethods = reverse directMethods
+                  , classVirtualMethods = reverse virtualMethods
+                  }
+    return (c, k2)
 
   classString <- getTypeName (DT.classId klass)
   case HM.member classString (knotClasses k2) of
@@ -290,10 +293,11 @@ getRawProto' pid = do
   lift $ DT.getProto df pid
 
 translateMethod :: (MonadFix f, Failure DT.DecodeError f)
-                   => (Knot, [Method])
+                   => Class
+                   -> (Knot, [Method])
                    -> DT.EncodedMethod
                    -> KnotMonad f (Knot, [Method])
-translateMethod (k, acc) em = do
+translateMethod klass (k, acc) em = do
   m <- getRawMethod' (DT.methId em)
   proto <- getRawProto' (DT.methProtoId m)
   mname <- getStr' (DT.methNameId m)
@@ -320,6 +324,7 @@ translateMethod (k, acc) em = do
                   , methodAccessFlags = DT.methAccessFlags em
                   , methodParameters = ps
                   , methodBody = body
+                  , methodClass = klass
                   }
   return (k { knotMethodDefs = HM.insert stringKey tm (knotMethodDefs k) }, tm : acc)
 
