@@ -448,8 +448,6 @@ data Field = Field { fieldId :: UniqueId
                    , fieldClass :: Type
                    }
 
--- | Field IDs are unique among fields (but could overlap with IDs of
--- other types).
 instance Eq Field where
   (==) = (==) `on` fieldId
 
