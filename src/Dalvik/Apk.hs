@@ -3,6 +3,7 @@ module Dalvik.Apk (
   loadDexFromApkIO,
   loadDexFromAnyIO,
   DexReader,
+  runDX,
   memoIO
   ) where
 
@@ -15,7 +16,7 @@ import qualified Data.Map as M
 import System.Cmd ( rawSystem )
 import System.Directory ( getDirectoryContents )
 import System.Exit ( ExitCode(..) )
-import System.FilePath ( (</>), takeFileName, takeExtension )
+import System.FilePath ( (</>), (<.>), takeFileName, takeExtension )
 import System.IO
 import System.IO.Temp ( withSystemTempDirectory )
 import System.Process ( runProcess, waitForProcess )
@@ -54,17 +55,18 @@ type DexReader = FilePath -> IO (Either String DT.DexFile)
 readSourceAsDex :: FilePath -> IO (Either String DT.DexFile)
 readSourceAsDex fname = withSystemTempDirectory "fuse.tmp" $
   \dirName -> do
-    dexFilePath <- runDX fname dirName
+    let outFile = takeFileName fname <.> "dex"
+    dexFilePath <- runDX [fname] outFile dirName
     loadDexIO dexFilePath
 
 -- | Run the dx tool on the incoming file, outputting to the directory
 -- specified, and returning the filepath of the resulting dex
 -- bytecode.
-runDX :: FilePath -> FilePath -> IO FilePath
-runDX input targetDir = do
-  ec1 <- rawSystem "javac" ["-d", targetDir, input]
+runDX :: [FilePath] -> FilePath -> FilePath -> IO FilePath
+runDX inputs outFile targetDir = do
+  ec1 <- rawSystem "javac" ("-d" : targetDir : inputs)
   case ec1 of
-    ExitFailure err -> error ("Error running `javac` on " ++ input ++ ": "++ show err)
+    ExitFailure err -> error ("Error running `javac` on " ++ show inputs ++ ": "++ show err)
     ExitSuccess -> do
       args <- dxArgs
       ec2 <- runWithWD "dx" args targetDir
@@ -72,9 +74,6 @@ runDX input targetDir = do
         ExitFailure err -> error ("Error running `dx` " ++ show err)
         ExitSuccess -> return outFilePath
   where
-    inFileName = takeFileName input
-
-    outFile = inFileName ++ ".dex"
     outFilePath = targetDir </> outFile
 
     classFiles = (filter (".class" `L.isSuffixOf`))
