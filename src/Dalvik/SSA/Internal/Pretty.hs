@@ -297,7 +297,7 @@ prettyFormalParamDoc p = prettyTypeDoc (parameterType p) <+> safeString (paramet
 
 prettyBlockDoc :: BasicBlock -> Doc
 prettyBlockDoc BasicBlock { basicBlockNumber = bnum
-                          , basicBlockInstructions = insns
+                          , _basicBlockInstructions = insns
                           , basicBlockPredecessors = pblocks
                           } =
   (PP.int bnum <> PP.text ":\t ;" <+> preds) $+$ PP.nest 2 insnDoc

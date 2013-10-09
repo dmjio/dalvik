@@ -12,6 +12,7 @@ module Dalvik.SSA.Types (
   methodIsVirtual,
   Parameter(..),
   BasicBlock(..),
+  basicBlockInstructions,
   MethodRef(..),
   UniqueId,
   Value(..),
@@ -40,6 +41,7 @@ import Data.Hashable
 import Data.Int ( Int64 )
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
+import qualified Data.Vector as V
 
 import Dalvik.AccessFlags
 import Dalvik.ClassHierarchy
@@ -166,11 +168,14 @@ instance Hashable Type where
 -- the 'DexFile'.
 data BasicBlock = BasicBlock { basicBlockId :: UniqueId
                              , basicBlockNumber :: Int
-                             , basicBlockInstructions :: Vector Instruction
+                             , _basicBlockInstructions :: Vector Instruction
                              , basicBlockPhiCount :: Int
                              , basicBlockSuccessors :: [BasicBlock]
                              , basicBlockPredecessors :: [BasicBlock]
                              }
+
+basicBlockInstructions :: BasicBlock -> [Instruction]
+basicBlockInstructions = V.toList . _basicBlockInstructions
 
 instance Eq BasicBlock where
   (==) = (==) `on` basicBlockId
@@ -185,51 +190,63 @@ type UniqueId = Int
 
 data Instruction = Return { instructionId :: UniqueId
                           , instructionType :: Type
+                          , instructionBasicBlock :: BasicBlock
                           , returnValue :: Maybe Value
                           }
                  | MoveException { instructionId :: UniqueId
                                  , instructionType :: Type
+                                 , instructionBasicBlock :: BasicBlock
                                  }
                  | MonitorEnter { instructionId :: UniqueId
                                 , instructionType :: Type
+                                , instructionBasicBlock :: BasicBlock
                                 , monitorReference :: Value
                                 }
                  | MonitorExit { instructionId :: UniqueId
                                , instructionType :: Type
+                               , instructionBasicBlock :: BasicBlock
                                , monitorReference :: Value
                                }
                  | CheckCast { instructionId :: UniqueId
                              , instructionType :: Type
+                             , instructionBasicBlock :: BasicBlock
                              , castReference :: Value
                              , castType :: Type
                              }
                  | InstanceOf { instructionId :: UniqueId
                               , instructionType :: Type
+                              , instructionBasicBlock :: BasicBlock
                               , instanceOfReference :: Value
                               }
                  | ArrayLength { instructionId :: UniqueId
                                , instructionType :: Type
+                               , instructionBasicBlock :: BasicBlock
                                , arrayReference :: Value
                                }
                  | NewInstance { instructionId :: UniqueId
                                , instructionType :: Type
+                               , instructionBasicBlock :: BasicBlock
                                }
                  | NewArray { instructionId :: UniqueId
                             , instructionType :: Type
+                            , instructionBasicBlock :: BasicBlock
                             , newArrayLength :: Value
                             , newArrayContents :: Maybe [Value]
                             }
                  | FillArray { instructionId :: UniqueId
                              , instructionType :: Type
+                             , instructionBasicBlock :: BasicBlock
                              , fillArrayReference :: Value
                              , fillArrayContents :: [Int64]
                              }
                  | Throw { instructionId :: UniqueId
                          , instructionType :: Type
+                         , instructionBasicBlock :: BasicBlock
                          , throwReference :: Value
                          }
                  | ConditionalBranch { instructionId :: UniqueId
                                      , instructionType :: Type
+                                     , instructionBasicBlock :: BasicBlock
                                      , branchOperand1 :: Value
                                      , branchOperand2 :: Value
                                      , branchTestType :: LL.IfOp
@@ -238,70 +255,83 @@ data Instruction = Return { instructionId :: UniqueId
                                      }
                  | UnconditionalBranch { instructionId :: UniqueId
                                        , instructionType :: Type
+                                       , instructionBasicBlock :: BasicBlock
                                        , branchTarget :: BasicBlock
                                        }
                  | Switch { instructionId :: UniqueId
                           , instructionType :: Type
+                          , instructionBasicBlock :: BasicBlock
                           , switchValue :: Value
                           , switchTargets :: [(Int64, BasicBlock)]
                           , switchFallthrough :: BasicBlock
                           }
                  | Compare { instructionId :: UniqueId
                            , instructionType :: Type
+                           , instructionBasicBlock :: BasicBlock
                            , compareOperation :: LL.CmpOp
                            , compareOperand1 :: Value
                            , compareOperand2 :: Value
                            }
                  | UnaryOp { instructionId :: UniqueId
                            , instructionType :: Type
+                           , instructionBasicBlock :: BasicBlock
                            , unaryOperand :: Value
                            , unaryOperation :: LL.Unop
                            }
                  | BinaryOp { instructionId :: UniqueId
                             , instructionType :: Type
+                            , instructionBasicBlock :: BasicBlock
                             , binaryOperand1 :: Value
                             , binaryOperand2 :: Value
                             , binaryOperation :: LL.Binop
                             }
                  | ArrayGet { instructionId :: UniqueId
                             , instructionType :: Type
+                            , instructionBasicBlock :: BasicBlock
                             , arrayReference :: Value
                             , arrayIndex :: Value
                             }
                  | ArrayPut { instructionId :: UniqueId
                             , instructionType :: Type
+                            , instructionBasicBlock :: BasicBlock
                             , arrayReference :: Value
                             , arrayIndex :: Value
                             , arrayPutValue :: Value
                             }
                  | StaticGet { instructionId :: UniqueId
                              , instructionType :: Type
+                             , instructionBasicBlock :: BasicBlock
                              , staticOpField :: Field
                              }
                  | StaticPut { instructionId :: UniqueId
                              , instructionType :: Type
+                             , instructionBasicBlock :: BasicBlock
                              , staticOpField :: Field
                              , staticOpPutValue :: Value
                              }
                  | InstanceGet { instructionId :: UniqueId
                                , instructionType :: Type
+                               , instructionBasicBlock :: BasicBlock
                                , instanceOpReference :: Value
                                , instanceOpField :: Field
                                }
                  | InstancePut { instructionId :: UniqueId
                                , instructionType :: Type
+                               , instructionBasicBlock :: BasicBlock
                                , instanceOpReference :: Value
                                , instanceOpField :: Field
                                , instanceOpPutValue :: Value
                             }
                  | InvokeVirtual { instructionId :: UniqueId
                                  , instructionType :: Type
+                                 , instructionBasicBlock :: BasicBlock
                                  , invokeVirtualKind :: InvokeVirtualKind
                                  , invokeVirtualMethod :: MethodRef
                                  , invokeArguments :: [Value]
                                  }
                  | InvokeDirect { instructionId :: UniqueId
                                 , instructionType :: Type
+                                , instructionBasicBlock :: BasicBlock
                                 , invokeDirectKind :: InvokeDirectKind
                                 , invokeDirectMethod :: MethodRef
                                 , invokeDirectMethodDef :: Maybe Method
@@ -314,6 +344,7 @@ data Instruction = Return { instructionId :: UniqueId
                    -- it is available.
                  | Phi { instructionId :: UniqueId
                        , instructionType :: Type
+                       , instructionBasicBlock :: BasicBlock
                        , phiValues :: [(BasicBlock, Value)]
                        }
 
