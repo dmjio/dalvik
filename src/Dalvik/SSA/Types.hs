@@ -13,6 +13,7 @@ module Dalvik.SSA.Types (
   Parameter(..),
   BasicBlock(..),
   basicBlockInstructions,
+  basicBlockTerminator,
   MethodRef(..),
   UniqueId,
   Value(..),
@@ -174,8 +175,22 @@ data BasicBlock = BasicBlock { basicBlockId :: UniqueId
                              , basicBlockPredecessors :: [BasicBlock]
                              }
 
+-- | The instructions in the 'BasicBlock'
 basicBlockInstructions :: BasicBlock -> [Instruction]
 basicBlockInstructions = V.toList . _basicBlockInstructions
+
+-- | The last non-phi instruction in the block.  There may not be one
+-- if the block is empty.
+--
+-- Note: we could have this always succeed by adding explicit jumps at
+-- the end of empty blocks.
+basicBlockTerminator :: BasicBlock -> Maybe Instruction
+basicBlockTerminator bb
+  | basicBlockPhiCount bb >= len = Nothing
+  | otherwise = Just $ insns V.! (len - 1)
+  where
+    insns = _basicBlockInstructions bb
+    len = V.length insns
 
 instance Eq BasicBlock where
   (==) = (==) `on` basicBlockId
