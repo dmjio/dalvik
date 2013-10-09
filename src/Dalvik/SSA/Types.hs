@@ -14,6 +14,7 @@ module Dalvik.SSA.Types (
   BasicBlock(..),
   basicBlockInstructions,
   basicBlockTerminator,
+  basicBlockSplitPhis,
   MethodRef(..),
   UniqueId,
   Value(..),
@@ -191,6 +192,13 @@ basicBlockTerminator bb
   where
     insns = _basicBlockInstructions bb
     len = V.length insns
+
+-- | Split the instructions in the 'BasicBlock' into phi nodes and the
+-- rest.
+basicBlockSplitPhis :: BasicBlock -> ([Instruction], [Instruction])
+basicBlockSplitPhis bb = (V.toList v1, V.toList v2)
+  where
+    (v1, v2) = V.splitAt (basicBlockPhiCount bb) (_basicBlockInstructions bb)
 
 instance Eq BasicBlock where
   (==) = (==) `on` basicBlockId
