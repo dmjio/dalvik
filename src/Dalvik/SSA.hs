@@ -306,56 +306,69 @@ translateMethod klass (k, acc) em = do
   df <- getDex
 
   paramList <- lift $ getParamList df em
-  paramMap <- foldM makeParameter M.empty (zip [0..] paramList)
-
   uid <- freshId
 
-  (body, _) <- mfix $ \tiedKnot ->
-    translateMethodBody df paramMap (snd tiedKnot) em
+  tm <- mfix $ \tm -> do
+    paramMap <- foldM (makeParameter tm) M.empty (zip [0..] paramList)
 
+    (body, _) <- mfix $ \tiedKnot ->
+      translateMethodBody df tm paramMap (snd tiedKnot) em
+
+
+    let ps = M.elems paramMap
+    return $ Method { methodId = uid
+                    , methodName = mname
+                    , methodReturnType = rt
+                    , methodAccessFlags = DT.methAccessFlags em
+                    , methodParameters = ps
+                    , methodBody = body
+                    , methodClass = klass
+                    }
+
+      -- tm = Method { methodId = uid
+      --             , methodName = mname
+      --             , methodReturnType = rt
+      --             , methodAccessFlags = DT.methAccessFlags em
+      --             , methodParameters = ps
+      --             , methodBody = body
+      --             , methodClass = klass
+      --             }
   mrefs <- gets knotDexMethods
   let errMsg = failure $ DT.NoMethodAtIndex (DT.methId em)
   stringKey <- maybe errMsg return $ M.lookup (DT.methId em) mrefs
-
-  let ps = M.elems paramMap
-      tm = Method { methodId = uid
-                  , methodName = mname
-                  , methodReturnType = rt
-                  , methodAccessFlags = DT.methAccessFlags em
-                  , methodParameters = ps
-                  , methodBody = body
-                  , methodClass = klass
-                  }
   return (k { knotMethodDefs = HM.insert stringKey tm (knotMethodDefs k) }, tm : acc)
 
 makeParameter :: (Failure DT.DecodeError f)
-                 => Map Int Parameter
+                 => Method
+                 -> Map Int Parameter
                  -> (Int, (Maybe BS.ByteString, DT.TypeId))
                  -> KnotMonad f (Map Int Parameter)
-makeParameter m (ix, (name, tid)) = do
+makeParameter tm m (ix, (name, tid)) = do
   pid <- freshId
   t <- getTranslatedType tid
   let p = Parameter { parameterId = pid
                     , parameterType = t
                     , parameterName = fromMaybe (generateNameForParameter ix) name
                     , parameterIndex = ix
+                    , parameterMethod = tm
                     }
   return $ M.insert ix p m
 
 translateMethodBody :: (MonadFix f, Failure DT.DecodeError f)
                        => DT.DexFile
+                       -> Method
                        -> Map Int Parameter
                        -> MethodKnot
                        -> DT.EncodedMethod
                        -> KnotMonad f (Maybe [BasicBlock], MethodKnot)
-translateMethodBody _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, emptyMethodKnot)
-translateMethodBody df paramMap tiedMknot em = do
+translateMethodBody _ _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, emptyMethodKnot)
+translateMethodBody df tm paramMap tiedMknot em = do
   labeling <- lift $ labelMethod df em
   let parameterLabels = labelingParameters labeling
       bbs = labelingBasicBlocks labeling
       blockList = basicBlocksAsList bbs
   mknot0 <- foldM addParameterLabel emptyMethodKnot parameterLabels
-  (bs, resultKnot) <- foldM (translateBlock labeling tiedMknot) ([], mknot0) blockList
+  (bs, resultKnot) <- foldM (translateBlock tm labeling tiedMknot) ([], mknot0) blockList
   return (Just (reverse bs), resultKnot)
   where
     addParameterLabel mknot l@(ArgumentLabel _ ix) =
@@ -379,12 +392,13 @@ emptyMethodKnot = MethodKnot M.empty M.empty
 -- block in an arbitrary order.  Any analysis should process all of
 -- the phi nodes for a single block at once.
 translateBlock :: (Failure DT.DecodeError f, MonadFix f)
-                  => Labeling
+                  => Method
+                  -> Labeling
                   -> MethodKnot
                   -> ([BasicBlock], MethodKnot)
                   -> (BlockNumber, Int, Vector DT.Instruction)
                   -> KnotMonad f ([BasicBlock], MethodKnot)
-translateBlock labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
+translateBlock tm labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
   bid <- freshId
   let blockPhis = M.findWithDefault [] bnum $ labelingBlockPhis labeling
       insts' = V.toList insts
@@ -397,6 +411,7 @@ translateBlock labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
                          , basicBlockPhiCount = length phis
                          , SSA.basicBlockSuccessors = map (getFinalBlock tiedMknot) $ BB.basicBlockSuccessors bbs bnum
                          , SSA.basicBlockPredecessors = map (getFinalBlock tiedMknot) $ BB.basicBlockPredecessors bbs bnum
+                         , basicBlockMethod = tm
                          }
     return (blk, mknot'')
   return (b : bs, mknot'' { mknotBlocks = M.insert bnum b (mknotBlocks mknot'') })

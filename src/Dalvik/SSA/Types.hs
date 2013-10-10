@@ -174,6 +174,7 @@ data BasicBlock = BasicBlock { basicBlockId :: UniqueId
                              , basicBlockPhiCount :: Int
                              , basicBlockSuccessors :: [BasicBlock]
                              , basicBlockPredecessors :: [BasicBlock]
+                             , basicBlockMethod :: Method
                              }
 
 -- | The instructions in the 'BasicBlock'
@@ -393,6 +394,7 @@ data Parameter = Parameter { parameterId :: UniqueId
                            , parameterType :: Type
                            , parameterName :: BS.ByteString
                            , parameterIndex :: Int
+                           , parameterMethod :: Method
                            }
 
 instance Eq Parameter where
