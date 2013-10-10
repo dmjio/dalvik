@@ -1,8 +1,9 @@
 module Dalvik.SSA.ClassHierarchy (
   ClassHierarchy,
   classHierarchy,
-  classHierarchyParent,
-  classHierarchyParentDef,
+  classHierarchySuperclass,
+  classHierarchySuperclassDef,
+  classHierarchySubclasses,
   classHierarchyDefinition,
   classHierarchyResolveMethodRef
   ) where
@@ -10,11 +11,13 @@ module Dalvik.SSA.ClassHierarchy (
 import qualified Data.List as L
 import Data.Map ( Map )
 import qualified Data.Map as M
+import Data.Maybe ( fromMaybe )
 
 import Dalvik.SSA
 
 data ClassHierarchy =
   ClassHierarchy { hierarchy :: Map Type Type
+                 , children :: Map Type [Type]
                  , typeToClassMap :: Map Type Class
                  }
   deriving (Eq, Ord, Show)
@@ -22,6 +25,7 @@ data ClassHierarchy =
 emptyClassHierarchy :: ClassHierarchy
 emptyClassHierarchy =
   ClassHierarchy { hierarchy = M.empty
+                 , children = M.empty
                  , typeToClassMap = M.empty
                  }
 
@@ -34,17 +38,24 @@ addClass klass ch =
   ch { hierarchy = case classParent klass of
           Nothing -> hierarchy ch
           Just parent -> M.insert (classType klass) parent (hierarchy ch)
+     , children = case classParent klass of
+          Nothing -> children ch
+          Just parent -> M.insertWith (++) parent [classType klass] (children ch)
      , typeToClassMap = M.insert (classType klass) klass (typeToClassMap ch)
      }
 
 -- | Get the parent of a type, if any
-classHierarchyParent :: ClassHierarchy -> Type -> Maybe Type
-classHierarchyParent ch t = M.lookup t (hierarchy ch)
+classHierarchySuperclass :: ClassHierarchy -> Type -> Maybe Type
+classHierarchySuperclass ch t = M.lookup t (hierarchy ch)
+
+-- | Get any subclasses of the given type
+classHierarchySubclasses :: ClassHierarchy -> Type -> [Type]
+classHierarchySubclasses ch t = fromMaybe [] $ M.lookup t (children ch)
 
 -- | Get the definition of the parent of a type, if any
-classHierarchyParentDef :: ClassHierarchy -> Type -> Maybe Class
-classHierarchyParentDef ch t = do
-  pt <- classHierarchyParent ch t
+classHierarchySuperclassDef :: ClassHierarchy -> Type -> Maybe Class
+classHierarchySuperclassDef ch t = do
+  pt <- classHierarchySuperclass ch t
   classHierarchyDefinition ch pt
 
 -- | Return the definition of the given class type if the definition
@@ -62,7 +73,7 @@ classHierarchyResolveMethodRef ch t mref = do
   klass <- classHierarchyDefinition ch t
   case L.find (matches mref) (classVirtualMethods klass) of
     Nothing -> do
-      pt <- classHierarchyParent ch t
+      pt <- classHierarchySuperclass ch t
       classHierarchyResolveMethodRef ch pt mref
     Just m -> return m
 
