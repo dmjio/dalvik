@@ -7,9 +7,8 @@ module Dalvik.SSA.Internal.Pretty where
 import Data.ByteString ( ByteString )
 import Data.Int ( Int64 )
 import qualified Data.List as L
-import Data.Monoid ( mconcat )
 import qualified Data.Vector as V
-import Text.PrettyPrint as PP
+import Text.PrettyPrint.Leijen as PP
 
 import Dalvik.ClassHierarchy
 import Dalvik.MUTF8
@@ -41,7 +40,7 @@ prettyConstantDoc :: Constant -> Doc
 prettyConstantDoc c =
   case c of
     ConstantInt _ i -> PP.text (show i)
-    ConstantString _ s -> PP.doubleQuotes $ safeString s
+    ConstantString _ s -> PP.dquotes $ safeString s
     ConstantClass _ klass -> prettyTypeDoc klass <> PP.text ".class"
 
 valueDoc :: Value -> Doc
@@ -169,18 +168,18 @@ prettyInstructionDoc i =
                   , invokeArguments = vs
                   } ->
       let beginning = case instructionType i of
-            VoidType -> PP.empty
-            _ -> instBindDoc i
-      in beginning <+> PP.text "invoke" <+> prettyVirtualKindDoc k <+>
+            VoidType -> (PP.empty <>)
+            _ -> (instBindDoc i <+>)
+      in beginning $ PP.text "invoke" <+> prettyVirtualKindDoc k <+>
            prettyMethodRefDoc m <> prettyArgumentList vs
     InvokeDirect { invokeDirectKind = k
                  , invokeDirectMethod = m
                  , invokeArguments = vs
                  } ->
       let beginning = case instructionType i of
-            VoidType -> PP.empty
-            _ -> instBindDoc i
-      in beginning <+> PP.text "invoke" <+> prettyDirectKindDoc k <+>
+            VoidType -> (PP.empty <>)
+            _ -> (instBindDoc i <+>)
+      in beginning $ PP.text "invoke" <+> prettyDirectKindDoc k <+>
            prettyMethodRefDoc m <> prettyArgumentList vs
     Phi { phiValues = ivs } ->
       instBindDoc i <+> PP.text "phi" <+>
@@ -283,7 +282,7 @@ arrayLiteralDoc :: [Doc] -> Doc
 arrayLiteralDoc = PP.brackets . commaSepList
 
 commaSepList :: [Doc] -> Doc
-commaSepList = mconcat . L.intersperse (PP.text ", ")
+commaSepList = PP.hcat . L.intersperse (PP.text ", ")
 
 
 prettyArgumentList :: [Value] -> Doc
@@ -300,7 +299,7 @@ prettyBlockDoc BasicBlock { basicBlockNumber = bnum
                           , _basicBlockInstructions = insns
                           , basicBlockPredecessors = pblocks
                           } =
-  (PP.int bnum <> PP.text ":\t ;" <+> preds) $+$ PP.nest 2 insnDoc
+  (PP.int bnum <> PP.text ":\t ;" <+> preds) <$$> PP.indent 2 insnDoc
   where
     insnDoc = PP.vcat $ map prettyInstructionDoc $ V.toList insns
     preds = case pblocks of
@@ -316,7 +315,7 @@ prettyMethodDoc Method { methodBody = mblocks
                        } =
   case mblocks of
     Nothing -> intro
-    Just blocks -> intro <+> PP.char '{' $+$ PP.vcat (map prettyBlockDoc blocks) $+$ end
+    Just blocks -> intro <+> PP.char '{' <$$> PP.vcat (map prettyBlockDoc blocks) <$$> end
   where
     intro = prettyTypeDoc rt <+> safeString mname <> prettyFormalList ps <+> PP.text (flagsString AMethod flags)
     end = PP.char '}'
@@ -327,7 +326,7 @@ prettyFieldDefDoc (flags, fld) =
 
 prettyClassDoc :: Class -> Doc
 prettyClassDoc klass =
-  header $+$ meta $+$ body $+$ end
+  header <$$> meta <$$> body <$$> end
   where
     header = PP.text (flagsString AClass (classAccessFlags klass)) <+> PP.text "class" <+> safeString (className klass) <+> PP.char '{'
     staticFields = map prettyFieldDefDoc (classStaticFields klass)
@@ -336,48 +335,83 @@ prettyClassDoc klass =
     virtual = PP.vcat (instanceFields ++ virtualMethods)
     directMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classDirectMethods klass)
     virtualMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classVirtualMethods klass)
-    body = PP.nest 2 (static $+$ PP.text "" $+$ virtual)
+    body = PP.indent 2 (static <$$> PP.text "" <$$> virtual)
     super = case classParent klass of
       Nothing -> PP.empty
       Just sc -> PP.text "Superclass:" <+> prettyTypeDoc sc
-    interfaces = PP.text "Interfaces:" $+$
-                   PP.nest 2 (PP.vcat (map prettyTypeDoc (classInterfaces klass))) $+$ PP.text ""
-    meta = PP.nest 2 (super $+$ interfaces)
+    interfaces = PP.text "Interfaces:" <$$>
+                   PP.indent 2 (PP.vcat (map prettyTypeDoc (classInterfaces klass))) <$$> PP.text ""
+    meta = PP.indent 2 (super <$$> interfaces)
     end = PP.char '}'
 
 prettyDexDoc :: DexFile -> Doc
 prettyDexDoc df = PP.vcat (map prettyClassDoc (dexClasses df))
 
+render :: Doc -> String
+render d = displayS (renderPretty 0.4 120 d) ""
+
 instance Show Instruction where
-  show = PP.render . prettyInstructionDoc
+  show = render . prettyInstructionDoc
+
+instance Pretty Instruction where
+  pretty = prettyInstructionDoc
 
 instance Show MethodRef where
-  show = PP.render . prettyMethodRefDoc
+  show = render . prettyMethodRefDoc
+
+instance Pretty MethodRef where
+  pretty = prettyMethodRefDoc
 
 instance Show Field where
-  show = PP.render . bareFieldDoc
+  show = render . bareFieldDoc
+
+instance Pretty Field where
+  pretty = bareFieldDoc
 
 instance Show Class where
-  show = PP.render . prettyClassDoc
+  show = render . prettyClassDoc
+
+instance Pretty Class where
+  pretty = prettyClassDoc
 
 instance Show Method where
-  show = PP.render . prettyMethodDoc
+  show = render . prettyMethodDoc
+
+instance Pretty Method where
+  pretty = prettyMethodDoc
 
 instance Show Parameter where
-  show = PP.render . prettyFormalParamDoc
+  show = render . prettyFormalParamDoc
+
+instance Pretty Parameter where
+  pretty = prettyFormalParamDoc
 
 instance Show Type where
-  show = PP.render . prettyTypeDoc
+  show = render . prettyTypeDoc
+
+instance Pretty Type where
+  pretty = prettyTypeDoc
 
 instance Show BasicBlock where
-  show = PP.render . prettyBlockDoc
+  show = render . prettyBlockDoc
+
+instance Pretty BasicBlock where
+  pretty = prettyBlockDoc
 
 instance Show Value where
-  show = PP.render . valueDoc
+  show = render . valueDoc
+
+instance Pretty Value where
+  pretty = valueDoc
 
 instance Show Constant where
-  show = PP.render . prettyConstantDoc
+  show = render . prettyConstantDoc
+
+instance Pretty Constant where
+  pretty = prettyConstantDoc
 
 instance Show DexFile where
-  show = PP.render . prettyDexDoc
+  show = render . prettyDexDoc
 
+instance Pretty DexFile where
+  pretty = prettyDexDoc

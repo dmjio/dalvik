@@ -68,7 +68,7 @@ import qualified Data.Set as S
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word ( Word8, Word16 )
-import Text.PrettyPrint as PP
+import Text.PrettyPrint.Leijen as PP
 import Text.Printf
 
 import Dalvik.Types as DT
@@ -870,6 +870,9 @@ phiForBlock bid l =
     PhiLabel phiBlock _ _ -> phiBlock == bid
     _ -> False
 
+render :: Doc -> String
+render d = displayS (renderPretty 0.4 120 d) ""
+
 -- | A simple pretty printer for computed SSA labels.  This is
 -- basically for debugging.
 prettyLabeling :: Labeling -> String
@@ -885,8 +888,8 @@ prettyLabeling l =
                                 | (PhiLabel _ _ phiL, S.toList -> vals) <- blockPhis,
                                   not (null vals)
                                 ]
-          body = blockPhiDoc $+$ (PP.vcat $ zipWith (curry prettyInst) [blockOff..] $ V.toList insts)
-      in header $+$ PP.nest 2 body
+          body = blockPhiDoc <$$> (PP.vcat $ zipWith (curry prettyInst) [blockOff..] $ V.toList insts)
+      in header <$$> PP.nest 2 body
     branchTargets i = fromMaybe "??" $ do
       ix <- V.elemIndex i ivec
       srcBlock <- instructionBlockNumber bbs ix
