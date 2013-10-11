@@ -40,6 +40,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | NonArgumentLabelInParameterList MethodId String
                  | ArgumentTypeMismatch MethodId [Reg16]
                  | ClassAlreadyDefined String
+                 | NoReceiverForVirtualCall String
                  deriving (Eq, Ord, Show, Typeable)
 
 instance Exception DecodeError
@@ -87,6 +88,8 @@ decodeErrorAsString (ArgumentTypeMismatch mId argRegs) =
   printf "Wide argument with not enough registers remaining (%s) in call to %d" (show argRegs) mId
 decodeErrorAsString (ClassAlreadyDefined s) =
   printf "Class %s was already defined in another apk or dex file" s
+decodeErrorAsString (NoReceiverForVirtualCall s) =
+  printf "No receiver for virtual call: %s" s
 
 data DexHeader =
   DexHeader

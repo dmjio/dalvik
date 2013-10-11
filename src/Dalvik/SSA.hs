@@ -65,6 +65,7 @@ import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import qualified Data.List as L
+import qualified Data.List.NonEmpty as NE
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
@@ -941,17 +942,20 @@ translateInstruction labeling tiedMknot bnum bb acc@(insns, mknot) (instIndex, i
     translateVirtualInvoke ikind mid argLbls = do
       iid <- freshId
       mref <- getMethodRef mid
-      let i = InvokeVirtual { instructionId = iid
-                            , instructionType = methodRefReturnType mref
-                            , instructionBasicBlock = bb
-                            , invokeVirtualKind = ikind
-                            , invokeVirtualMethod = mref
-                            , invokeArguments = map (getFinalValue tiedMknot) argLbls
-                            }
-      possibleDestination <- resultSavedAs labeling instIndex
-      case possibleDestination of
-        Nothing -> return (i : insns, mknot)
-        Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
+      case NE.nonEmpty argLbls of
+        Nothing -> failure $ DT.NoReceiverForVirtualCall (show inst)
+        Just nonEmptyLbls -> do
+          let i = InvokeVirtual { instructionId = iid
+                                , instructionType = methodRefReturnType mref
+                                , instructionBasicBlock = bb
+                                , invokeVirtualKind = ikind
+                                , invokeVirtualMethod = mref
+                                , invokeVirtualArguments = fmap (getFinalValue tiedMknot) nonEmptyLbls
+                                }
+          possibleDestination <- resultSavedAs labeling instIndex
+          case possibleDestination of
+            Nothing -> return (i : insns, mknot)
+            Just dstLbl -> return (i : insns, addInstMapping mknot dstLbl i)
     translateDirectInvoke ikind mid argLbls = do
       iid <- freshId
       mref <- getMethodRef mid
@@ -962,7 +966,7 @@ translateInstruction labeling tiedMknot bnum bb acc@(insns, mknot) (instIndex, i
                            , invokeDirectKind = ikind
                            , invokeDirectMethod = mref
                            , invokeDirectMethodDef = mdef
-                           , invokeArguments = map (getFinalValue tiedMknot) argLbls
+                           , invokeDirectArguments = map (getFinalValue tiedMknot) argLbls
                            }
       possibleDestination <- resultSavedAs labeling instIndex
       case possibleDestination of

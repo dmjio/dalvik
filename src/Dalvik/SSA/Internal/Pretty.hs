@@ -5,6 +5,7 @@
 module Dalvik.SSA.Internal.Pretty where
 
 import Data.ByteString ( ByteString )
+import qualified Data.Foldable as F
 import Data.Int ( Int64 )
 import qualified Data.List as L
 import qualified Data.Vector as V
@@ -165,16 +166,16 @@ prettyInstructionDoc i =
         bareFieldDoc f <+> PP.text "in" <+> valueDoc r
     InvokeVirtual { invokeVirtualKind = k
                   , invokeVirtualMethod = m
-                  , invokeArguments = vs
+                  , invokeVirtualArguments = vs
                   } ->
       let beginning = case instructionType i of
             VoidType -> (PP.empty <>)
             _ -> (instBindDoc i <+>)
       in beginning $ PP.text "invoke" <+> prettyVirtualKindDoc k <+>
-           prettyMethodRefDoc m <> prettyArgumentList vs
+           prettyMethodRefDoc m <> prettyArgumentList (F.toList vs)
     InvokeDirect { invokeDirectKind = k
                  , invokeDirectMethod = m
-                 , invokeArguments = vs
+                 , invokeDirectArguments = vs
                  } ->
       let beginning = case instructionType i of
             VoidType -> (PP.empty <>)

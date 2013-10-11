@@ -9,24 +9,24 @@ module Dalvik.SSA.ClassHierarchy (
   ) where
 
 import qualified Data.List as L
-import Data.Map ( Map )
-import qualified Data.Map as M
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as HM
 import Data.Maybe ( fromMaybe )
 
 import Dalvik.SSA
 
 data ClassHierarchy =
-  ClassHierarchy { hierarchy :: Map Type Type
-                 , children :: Map Type [Type]
-                 , typeToClassMap :: Map Type Class
+  ClassHierarchy { hierarchy :: HashMap Type Type
+                 , children :: HashMap Type [Type]
+                 , typeToClassMap :: HashMap Type Class
                  }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Show)
 
 emptyClassHierarchy :: ClassHierarchy
 emptyClassHierarchy =
-  ClassHierarchy { hierarchy = M.empty
-                 , children = M.empty
-                 , typeToClassMap = M.empty
+  ClassHierarchy { hierarchy = HM.empty
+                 , children = HM.empty
+                 , typeToClassMap = HM.empty
                  }
 
 -- | Perform a class hierarchy analysis
@@ -37,20 +37,20 @@ addClass :: Class -> ClassHierarchy -> ClassHierarchy
 addClass klass ch =
   ch { hierarchy = case classParent klass of
           Nothing -> hierarchy ch
-          Just parent -> M.insert (classType klass) parent (hierarchy ch)
+          Just parent -> HM.insert (classType klass) parent (hierarchy ch)
      , children = case classParent klass of
           Nothing -> children ch
-          Just parent -> M.insertWith (++) parent [classType klass] (children ch)
-     , typeToClassMap = M.insert (classType klass) klass (typeToClassMap ch)
+          Just parent -> HM.insertWith (++) parent [classType klass] (children ch)
+     , typeToClassMap = HM.insert (classType klass) klass (typeToClassMap ch)
      }
 
 -- | Get the parent of a type, if any
 classHierarchySuperclass :: ClassHierarchy -> Type -> Maybe Type
-classHierarchySuperclass ch t = M.lookup t (hierarchy ch)
+classHierarchySuperclass ch t = HM.lookup t (hierarchy ch)
 
 -- | Get any subclasses of the given type
 classHierarchySubclasses :: ClassHierarchy -> Type -> [Type]
-classHierarchySubclasses ch t = fromMaybe [] $ M.lookup t (children ch)
+classHierarchySubclasses ch t = fromMaybe [] $ HM.lookup t (children ch)
 
 -- | Get the definition of the parent of a type, if any
 classHierarchySuperclassDef :: ClassHierarchy -> Type -> Maybe Class
@@ -61,7 +61,7 @@ classHierarchySuperclassDef ch t = do
 -- | Return the definition of the given class type if the definition
 -- is available in this dex file.
 classHierarchyDefinition :: ClassHierarchy -> Type -> Maybe Class
-classHierarchyDefinition ch t = M.lookup t (typeToClassMap ch)
+classHierarchyDefinition ch t = HM.lookup t (typeToClassMap ch)
 
 -- | Given a type of a value and a reference to a method to be called
 -- on that value, figure out which actual method will be invoked.

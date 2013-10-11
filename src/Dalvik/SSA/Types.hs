@@ -41,6 +41,7 @@ import qualified Data.ByteString as BS
 import Data.Function ( on )
 import Data.Hashable
 import Data.Int ( Int64 )
+import Data.List.NonEmpty ( NonEmpty )
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
@@ -351,7 +352,7 @@ data Instruction = Return { instructionId :: UniqueId
                                  , instructionBasicBlock :: BasicBlock
                                  , invokeVirtualKind :: InvokeVirtualKind
                                  , invokeVirtualMethod :: MethodRef
-                                 , invokeArguments :: [Value]
+                                 , invokeVirtualArguments :: NonEmpty Value
                                  }
                  | InvokeDirect { instructionId :: UniqueId
                                 , instructionType :: Type
@@ -359,7 +360,7 @@ data Instruction = Return { instructionId :: UniqueId
                                 , invokeDirectKind :: InvokeDirectKind
                                 , invokeDirectMethod :: MethodRef
                                 , invokeDirectMethodDef :: Maybe Method
-                                , invokeArguments :: [Value]
+                                , invokeDirectArguments :: [Value]
                                 }
                    -- ^ We have to refer to the invoked method in this
                    -- case by a Ref because it might not have a

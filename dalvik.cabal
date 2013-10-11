@@ -29,6 +29,7 @@ Library
                     text,
                     transformers >= 0.3,
                     unordered-containers,
+                    semigroups,
                     hashable < 1.2,
                     vector >= 0.10,
                     zip-conduit,
