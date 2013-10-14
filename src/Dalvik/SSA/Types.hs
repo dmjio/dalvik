@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_HADDOCK hide #-}
 module Dalvik.SSA.Types (
@@ -121,6 +122,10 @@ constantId (ConstantString i _) = i
 constantId (ConstantClass i _) = i
 
 constantType :: Constant -> Type
+constantType (ConstantString _ _) =
+  ReferenceType (qualifiedClassName ["java", "lang"] "String")
+constantType (ConstantClass _ _) =
+  ReferenceType (qualifiedClassName ["java", "lang"] "Class")
 constantType _ = UnknownType
 
 instance IsValue Constant where
