@@ -25,7 +25,7 @@ Library
                     failure >= 0.2.0,
                     floatshow,
                     IntervalMap >= 0.3.0.0,
-                    wl-pprint,
+                    prettyclass >= 1,
                     text,
                     transformers >= 0.3,
                     unordered-containers >= 0.2.3.0,

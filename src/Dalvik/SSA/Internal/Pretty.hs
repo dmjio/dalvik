@@ -9,7 +9,7 @@ import qualified Data.Foldable as F
 import Data.Int ( Int64 )
 import qualified Data.List as L
 import qualified Data.Vector as V
-import Text.PrettyPrint.Leijen as PP
+import Text.PrettyPrint.HughesPJClass as PP
 
 import Dalvik.ClassHierarchy
 import Dalvik.MUTF8
@@ -41,7 +41,7 @@ prettyConstantDoc :: Constant -> Doc
 prettyConstantDoc c =
   case c of
     ConstantInt _ i -> PP.text (show i)
-    ConstantString _ s -> PP.dquotes $ safeString s
+    ConstantString _ s -> PP.quotes $ safeString s
     ConstantClass _ klass -> prettyTypeDoc klass <> PP.text ".class"
 
 valueDoc :: Value -> Doc
@@ -300,7 +300,7 @@ prettyBlockDoc BasicBlock { basicBlockNumber = bnum
                           , _basicBlockInstructions = insns
                           , basicBlockPredecessors = pblocks
                           } =
-  (PP.int bnum <> PP.text ":\t ;" <+> preds) <$$> PP.indent 2 insnDoc
+  (PP.int bnum <> PP.text ":\t ;" <+> preds) $+$ PP.nest 2 insnDoc
   where
     insnDoc = PP.vcat $ map prettyInstructionDoc $ V.toList insns
     preds = case pblocks of
@@ -316,7 +316,7 @@ prettyMethodDoc Method { methodBody = mblocks
                        } =
   case mblocks of
     Nothing -> intro
-    Just blocks -> intro <+> PP.char '{' <$$> PP.vcat (map prettyBlockDoc blocks) <$$> end
+    Just blocks -> intro <+> PP.char '{' $+$ PP.vcat (map prettyBlockDoc blocks) $+$ end
   where
     intro = prettyTypeDoc rt <+> safeString mname <> prettyFormalList ps <+> PP.text (flagsString AMethod flags)
     end = PP.char '}'
@@ -327,7 +327,7 @@ prettyFieldDefDoc (flags, fld) =
 
 prettyClassDoc :: Class -> Doc
 prettyClassDoc klass =
-  header <$$> meta <$$> body <$$> end
+  header $+$ meta $+$ body $+$ end
   where
     header = PP.text (flagsString AClass (classAccessFlags klass)) <+> PP.text "class" <+> safeString (className klass) <+> PP.char '{'
     staticFields = map prettyFieldDefDoc (classStaticFields klass)
@@ -336,83 +336,80 @@ prettyClassDoc klass =
     virtual = PP.vcat (instanceFields ++ virtualMethods)
     directMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classDirectMethods klass)
     virtualMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classVirtualMethods klass)
-    body = PP.indent 2 (static <$$> PP.text "" <$$> virtual)
+    body = PP.nest 2 (static $+$ PP.text "" $+$ virtual)
     super = case classParent klass of
       Nothing -> PP.empty
       Just sc -> PP.text "Superclass:" <+> prettyTypeDoc sc
-    interfaces = PP.text "Interfaces:" <$$>
-                   PP.indent 2 (PP.vcat (map prettyTypeDoc (classInterfaces klass))) <$$> PP.text ""
-    meta = PP.indent 2 (super <$$> interfaces)
+    interfaces = PP.text "Interfaces:" $+$
+                   PP.nest 2 (PP.vcat (map prettyTypeDoc (classInterfaces klass))) $+$ PP.text ""
+    meta = PP.nest 2 (super $+$ interfaces)
     end = PP.char '}'
 
 prettyDexDoc :: DexFile -> Doc
 prettyDexDoc df = PP.vcat (map prettyClassDoc (dexClasses df))
 
-render :: Doc -> String
-render d = displayS (renderPretty 0.4 120 d) ""
-
 instance Show Instruction where
-  show = render . prettyInstructionDoc
+  show = PP.render . prettyInstructionDoc
 
 instance Pretty Instruction where
-  pretty = prettyInstructionDoc
+  pPrint = prettyInstructionDoc
 
 instance Show MethodRef where
-  show = render . prettyMethodRefDoc
+  show = PP.render . prettyMethodRefDoc
 
 instance Pretty MethodRef where
-  pretty = prettyMethodRefDoc
+  pPrint = prettyMethodRefDoc
 
 instance Show Field where
-  show = render . bareFieldDoc
+  show = PP.render . bareFieldDoc
 
 instance Pretty Field where
-  pretty = bareFieldDoc
+  pPrint = bareFieldDoc
 
 instance Show Class where
-  show = render . prettyClassDoc
+  show = PP.render . prettyClassDoc
 
 instance Pretty Class where
-  pretty = prettyClassDoc
+  pPrint = prettyClassDoc
 
 instance Show Method where
-  show = render . prettyMethodDoc
+  show = PP.render . prettyMethodDoc
 
 instance Pretty Method where
-  pretty = prettyMethodDoc
+  pPrint = prettyMethodDoc
 
 instance Show Parameter where
-  show = render . prettyFormalParamDoc
+  show = PP.render . prettyFormalParamDoc
 
 instance Pretty Parameter where
-  pretty = prettyFormalParamDoc
+  pPrint = prettyFormalParamDoc
 
 instance Show Type where
-  show = render . prettyTypeDoc
+  show = PP.render . prettyTypeDoc
 
 instance Pretty Type where
-  pretty = prettyTypeDoc
+  pPrint = prettyTypeDoc
 
 instance Show BasicBlock where
-  show = render . prettyBlockDoc
+  show = PP.render . prettyBlockDoc
 
 instance Pretty BasicBlock where
-  pretty = prettyBlockDoc
+  pPrint = prettyBlockDoc
 
 instance Show Value where
-  show = render . valueDoc
+  show = PP.render . valueDoc
 
 instance Pretty Value where
-  pretty = valueDoc
+  pPrint = valueDoc
 
 instance Show Constant where
-  show = render . prettyConstantDoc
+  show = PP.render . prettyConstantDoc
 
 instance Pretty Constant where
-  pretty = prettyConstantDoc
+  pPrint = prettyConstantDoc
 
 instance Show DexFile where
-  show = render . prettyDexDoc
+  show = PP.render . prettyDexDoc
 
 instance Pretty DexFile where
-  pretty = prettyDexDoc
+  pPrint = prettyDexDoc
