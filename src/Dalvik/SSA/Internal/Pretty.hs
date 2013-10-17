@@ -41,7 +41,7 @@ prettyConstantDoc :: Constant -> Doc
 prettyConstantDoc c =
   case c of
     ConstantInt _ i -> PP.text (show i)
-    ConstantString _ s -> PP.quotes $ safeString s
+    ConstantString _ s -> PP.doubleQuotes $ safeString s
     ConstantClass _ klass -> prettyTypeDoc klass <> PP.text ".class"
 
 valueDoc :: Value -> Doc
