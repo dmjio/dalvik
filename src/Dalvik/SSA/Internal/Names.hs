@@ -11,7 +11,6 @@ import Data.Attoparsec.ByteString.Char8
 import Data.ByteString.Char8 ( ByteString )
 import Data.Monoid
 import Data.String ( IsString, fromString )
-import Dalvik.ClassHierarchy
 import Dalvik.SSA.Types
 import Dalvik.Types ( DecodeError(..) )
 

@@ -5,8 +5,11 @@
 {-# OPTIONS_HADDOCK hide #-}
 module Dalvik.SSA.Types (
   DexFile(..),
+  dexFileClass,
   Type(..),
   Class(..),
+  classStaticField,
+  classInstanceField,
   Field(..),
   Method(..),
   methodSignature,
@@ -33,14 +36,17 @@ module Dalvik.SSA.Types (
   LL.Binop(..),
   LL.Unop(..),
   LL.CType(..),
-  module Dalvik.AccessFlags
+  module Dalvik.AccessFlags,
+  module Dalvik.ClassName
   ) where
 
 import Control.Exception ( Exception )
 import Control.Failure
-import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BS
 import Data.Function ( on )
 import Data.Hashable
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import Data.List.NonEmpty ( NonEmpty )
 import Data.Typeable ( Typeable )
@@ -48,7 +54,7 @@ import Data.Vector ( Vector )
 import qualified Data.Vector as V
 
 import Dalvik.AccessFlags
-import Dalvik.ClassHierarchy
+import Dalvik.ClassName
 -- Low-level instructions
 import qualified Dalvik.Instruction as LL
 
@@ -57,7 +63,11 @@ data DexFile =
   DexFile { dexClasses :: [Class]
           , dexConstants :: [Constant]
           , dexTypes :: [Type]
+          , _dexClassesByType :: HashMap Type Class
           }
+
+dexFileClass :: DexFile -> Type -> Maybe Class
+dexFileClass df t = HM.lookup t (_dexClassesByType df)
 
 data Value = InstructionV Instruction
            | ConstantV Constant
@@ -463,7 +473,15 @@ data Class = Class { classId :: UniqueId
                    , classVirtualMethods :: [Method]
                    , classStaticFields :: [(AccessFlags, Field)]
                    , classInstanceFields :: [(AccessFlags, Field)]
+                   , _classStaticFieldMap :: HashMap BS.ByteString Field
+                   , _classInstanceFieldMap :: HashMap BS.ByteString Field
                    }
+
+classStaticField :: Class -> String -> Maybe Field
+classStaticField k s = HM.lookup (BS.pack s) (_classStaticFieldMap k)
+
+classInstanceField :: Class -> String -> Maybe Field
+classInstanceField k s = HM.lookup (BS.pack s) (_classInstanceFieldMap k)
 
 instance Eq Class where
   (==) = (==) `on` classId

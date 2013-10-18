@@ -75,7 +75,7 @@ import qualified Data.Vector as V
 import qualified Dalvik.AccessFlags as DT
 import qualified Dalvik.Instruction as DT
 import qualified Dalvik.Types as DT
-import Dalvik.SSA.Types
+import Dalvik.SSA.Types hiding ( _dexClassesByType, _classStaticFieldMap, _classInstanceFieldMap )
 import Dalvik.SSA.Types as SSA
 import Dalvik.SSA.Util
 import Dalvik.SSA.Internal.BasicBlocks as BB
@@ -109,7 +109,11 @@ toSSA dfs = do
   return DexFile { dexClasses = HM.elems (knotClasses tiedKnot)
                  , dexTypes = HM.elems (knotTypes tiedKnot)
                  , dexConstants = knotConstants tiedKnot
+                 , SSA._dexClassesByType =
+                   HM.foldr addTypeMap HM.empty (knotClasses tiedKnot)
                  }
+  where
+    addTypeMap klass m = HM.insert (classType klass) klass m
 
 -- | We tie the knot by starting with an empty knot and processing a
 -- dex file at a time.  Each dex file proceeds by class.
@@ -272,6 +276,8 @@ translateClass k (_, klass) = do
                   , classInstanceFields = instanceFields
                   , classDirectMethods = reverse directMethods
                   , classVirtualMethods = reverse virtualMethods
+                  , _classStaticFieldMap = foldr addField HM.empty staticFields
+                  , _classInstanceFieldMap = foldr addField HM.empty instanceFields
                   }
     return (c, k2)
 
@@ -279,6 +285,8 @@ translateClass k (_, klass) = do
   case HM.member classString (knotClasses k2) of
     True -> failure $ DT.ClassAlreadyDefined (show t)
     False -> return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
+  where
+    addField (_, f) = HM.insert (fieldName f) f
 
 getDex :: (Failure DT.DecodeError f) => KnotMonad f DT.DexFile
 getDex = gets knotDexFile

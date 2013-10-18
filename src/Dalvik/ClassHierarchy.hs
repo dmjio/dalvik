@@ -1,12 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Dalvik.ClassHierarchy (
-  -- * Class Names
-  ClassName,
-  simpleClassName,
-  qualifiedClassName,
-  renderClassName,
-  humanClassName,
   -- * Class Hierarchy Analysis
   CHA,
   classHierarchyAnalysis,
@@ -16,36 +10,11 @@ module Dalvik.ClassHierarchy (
 import Control.Failure
 import Control.Monad ( foldM, liftM )
 import qualified Data.ByteString.Char8 as BS
-import Data.Hashable
 import Data.Map
 import qualified Data.Map as M
-import Data.Monoid
 
+import Dalvik.ClassName
 import Dalvik.Types
-
--- | An abstract representation of a Java class name.  These can be
--- rendered into mangled type expression format: e.g.,
---
--- > Ljava/lang/Object;
-data ClassName = ClassName [BS.ByteString]
-               deriving (Eq, Ord, Show)
-
-instance Hashable ClassName where
-  hashWithSalt s (ClassName cs) = hashWithSalt s cs
-
-simpleClassName :: BS.ByteString -> ClassName
-simpleClassName name = ClassName [name]
-
-qualifiedClassName :: [BS.ByteString] -> BS.ByteString -> ClassName
-qualifiedClassName namespace name = ClassName (namespace ++ [name])
-
-renderClassName :: ClassName -> BS.ByteString
-renderClassName (ClassName components) =
-  mconcat [ "L", BS.intercalate "/" components, ";" ]
-
-humanClassName :: ClassName -> String
-humanClassName (ClassName components) =
-  BS.unpack $ BS.intercalate "." components
 
 -- | The result of a class hierarchy analysis
 data CHA = CHA (Map BS.ByteString BS.ByteString)

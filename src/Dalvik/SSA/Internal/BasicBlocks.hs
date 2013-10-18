@@ -65,7 +65,7 @@ import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word ( Word32, Word16 )
 
-import Dalvik.ClassHierarchy
+import Dalvik.ClassName
 import Dalvik.Instruction
 
 -- | Types of Dalvik Type names

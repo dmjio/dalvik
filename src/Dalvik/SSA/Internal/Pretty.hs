@@ -11,7 +11,6 @@ import qualified Data.List as L
 import qualified Data.Vector as V
 import Text.PrettyPrint.HughesPJClass as PP
 
-import Dalvik.ClassHierarchy
 import Dalvik.MUTF8
 import Dalvik.SSA.Types
 

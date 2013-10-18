@@ -43,6 +43,7 @@ Library
     Exposed-Modules: Dalvik.AccessFlags
                      Dalvik.Apk
                      Dalvik.ClassHierarchy
+                     Dalvik.ClassName
                      Dalvik.DebugInfo
                      Dalvik.Instruction
                      Dalvik.LEB128
