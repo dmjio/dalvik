@@ -133,8 +133,9 @@ virtualDispatch cha i ikind mref receiver
 -- | Find all possible targets for a call to the given 'MethodRef'
 -- from a value of the given 'Type'.
 anyTarget :: ClassHierarchy -> InvokeVirtualKind -> MethodRef -> Type -> Set Method
-anyTarget cha k mref t0 = unsafePerformIO $ go S.empty t0
+anyTarget cha k mref t0 = unsafePerformIO $ go S.empty rootType
   where
+    rootType = if k /= MethodInvokeSuper then t0 else fromMaybe t0 (superclass cha t0)
     go ms t = do
       cache <- MV.readMVar (dispatchCache cha)
       case Nothing of -- HM.lookup (mref, t) cache of
