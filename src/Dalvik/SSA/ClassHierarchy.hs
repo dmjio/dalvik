@@ -1,12 +1,12 @@
 module Dalvik.SSA.ClassHierarchy (
   ClassHierarchy,
   classHierarchy,
-  classHierarchySuperclass,
-  classHierarchySuperclassDef,
-  classHierarchySubclasses,
-  classHierarchyDefinition,
-  classHierarchyResolveMethodRef,
-  classHierarchyVirtualDispatch
+  superclass,
+  superclassDef,
+  subclasses,
+  resolveMethodRef,
+  virtualDispatch,
+  anyTarget
   ) where
 
 import Control.Concurrent.MVar as MV
@@ -60,31 +60,31 @@ addClass klass ch =
      }
 
 -- | Get the parent of a type, if any
-classHierarchySuperclass :: ClassHierarchy -> Type -> Maybe Type
-classHierarchySuperclass ch t = HM.lookup t (hierarchy ch)
+superclass :: ClassHierarchy -> Type -> Maybe Type
+superclass ch t = HM.lookup t (hierarchy ch)
 
 -- | Get any subclasses of the given type
-classHierarchySubclasses :: ClassHierarchy -> Type -> [Type]
-classHierarchySubclasses ch t = fromMaybe [] $ HM.lookup t (children ch)
+subclasses :: ClassHierarchy -> Type -> [Type]
+subclasses ch t = fromMaybe [] $ HM.lookup t (children ch)
 
 -- | Get the definition of the parent of a type, if any
-classHierarchySuperclassDef :: ClassHierarchy -> Type -> Maybe Class
-classHierarchySuperclassDef ch t = do
-  pt <- classHierarchySuperclass ch t
-  classHierarchyDefinition ch pt
+superclassDef :: ClassHierarchy -> Type -> Maybe Class
+superclassDef ch t = do
+  pt <- superclass ch t
+  definition ch pt
 
 -- | Return the definition of the given class type if the definition
 -- is available in this dex file.
-classHierarchyDefinition :: ClassHierarchy -> Type -> Maybe Class
-classHierarchyDefinition ch t = HM.lookup t (typeToClassMap ch)
+definition :: ClassHierarchy -> Type -> Maybe Class
+definition ch t = HM.lookup t (typeToClassMap ch)
 
 -- | Given a type of a value and a reference to a method to be called
 -- on that value, figure out which actual method will be invoked.
 --
 -- Note, only virtual methods are checked because direct method calls
 -- do not need to be resolved.
-classHierarchyResolveMethodRef :: ClassHierarchy -> Type -> MethodRef -> Maybe Method
-classHierarchyResolveMethodRef ch t0 mref = unsafePerformIO $ go t0
+resolveMethodRef :: ClassHierarchy -> Type -> MethodRef -> Maybe Method
+resolveMethodRef ch t0 mref = unsafePerformIO $ go t0
   where
     go t = do
       sc <- MV.readMVar (simpleCache ch)
@@ -92,10 +92,10 @@ classHierarchyResolveMethodRef ch t0 mref = unsafePerformIO $ go t0
         Just res -> return res
         Nothing -> do
           let mm = do
-                klass <- classHierarchyDefinition ch t
+                klass <- definition ch t
                 L.find (matches mref) (classVirtualMethods klass)
           res <- case mm of
-            Nothing -> maybe (return Nothing) go (classHierarchySuperclass ch t)
+            Nothing -> maybe (return Nothing) go (superclass ch t)
             Just _ -> return mm
           MV.modifyMVar_ (simpleCache ch) $ \c ->
             return $ HM.insert (mref, t) res c
@@ -111,37 +111,39 @@ matches mref m = methodRefName mref == methodName m &&
     -- ignore (since MethodRefs do not include @this@)
     _:ps = methodParameters m
 
-classHierarchyVirtualDispatch :: ClassHierarchy
-                              -> Instruction -- ^ Invoke instruction
-                              -> InvokeVirtualKind -- ^ Type of invocation
-                              -> MethodRef -- ^ Method being invoked
-                              -> Value -- ^ Receiver object
-                              -> Set Method
-classHierarchyVirtualDispatch cha i ikind mref receiver
+virtualDispatch :: ClassHierarchy
+                   -> Instruction -- ^ Invoke instruction
+                   -> InvokeVirtualKind -- ^ Type of invocation
+                   -> MethodRef -- ^ Method being invoked
+                   -> Value -- ^ Receiver object
+                   -> Set Method
+virtualDispatch cha i ikind mref receiver
   | ikind == MethodInvokeSuper = maybe S.empty S.singleton $ do
     let bb = instructionBasicBlock i
         lmeth = basicBlockMethod bb
-    pt <- classHierarchySuperclass cha (classType (methodClass lmeth))
-    classHierarchyResolveMethodRef cha pt mref
+    pt <- superclass cha (classType (methodClass lmeth))
+    resolveMethodRef cha pt mref
   | Just Parameter {} <- fromValue receiver =
-    anyHierarchyTarget cha mref (valueType receiver)
+    anyTarget cha ikind mref (valueType receiver)
   | Just MoveException {} <- fromValue (stripCasts receiver) =
-    anyHierarchyTarget cha mref (valueType receiver)
+    anyTarget cha ikind mref (valueType receiver)
   | otherwise = maybe S.empty S.singleton $ do
-    classHierarchyResolveMethodRef cha (valueType receiver) mref
+    resolveMethodRef cha (valueType receiver) mref
 
-anyHierarchyTarget :: ClassHierarchy -> MethodRef -> Type -> Set Method
-anyHierarchyTarget cha mref t0 = unsafePerformIO $ go S.empty t0
+-- | Find all possible targets for a call to the given 'MethodRef'
+-- from a value of the given 'Type'.
+anyTarget :: ClassHierarchy -> InvokeVirtualKind -> MethodRef -> Type -> Set Method
+anyTarget cha k mref t0 = unsafePerformIO $ go S.empty t0
   where
     go ms t = do
       cache <- MV.readMVar (dispatchCache cha)
-      case HM.lookup (mref, t) cache of
+      case Nothing of -- HM.lookup (mref, t) cache of
         Just s -> return s
         Nothing -> do
-          let ms' = case classHierarchyResolveMethodRef cha t mref of
+          let ms' = case resolveMethodRef cha t mref of
                 Just m -> S.insert m ms
                 Nothing -> ms
-          res <- foldM go ms' (classHierarchySubclasses cha t)
-          MV.modifyMVar_ (dispatchCache cha) $ \c ->
-            return $ HM.insert (mref, t) res c
+          res <- foldM go ms' (subclasses cha t)
+          -- MV.modifyMVar_ (dispatchCache cha) $ \c ->
+          --   return $ HM.insert (mref, t) res c
           return res
