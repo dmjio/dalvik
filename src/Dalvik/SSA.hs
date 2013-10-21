@@ -334,14 +334,6 @@ translateMethod klass (k, acc) em = do
                     , methodClass = klass
                     }
 
-      -- tm = Method { methodId = uid
-      --             , methodName = mname
-      --             , methodReturnType = rt
-      --             , methodAccessFlags = DT.methAccessFlags em
-      --             , methodParameters = ps
-      --             , methodBody = body
-      --             , methodClass = klass
-      --             }
   mrefs <- gets knotDexMethods
   let errMsg = failure $ DT.NoMethodAtIndex (DT.methId em)
   stringKey <- maybe errMsg return $ M.lookup (DT.methId em) mrefs
