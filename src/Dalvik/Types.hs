@@ -340,8 +340,22 @@ getEncodedMethod dx className methodName typeSig = do
       m <- getMethod dx (methId encMeth)
       mname <- getStr dx (methNameId m)
       guard (mname == fromString methodName)
-      p <- getProto dx (methProtoId m)
-      rstr <- getTypeName dx (protoRet p)
-      pstrs <- mapM (getTypeName dx) (protoParams p)
-      let msig = mconcat [ fromString "(", mconcat pstrs, fromString ")", rstr ]
+      sig <- encodedMethodSignature dx encMeth
+      let msig = methodSignatureString sig
+      -- p <- getProto dx (methProtoId m)
+      -- rstr <- getTypeName dx (protoRet p)
+      -- pstrs <- mapM (getTypeName dx) (protoParams p)
+      -- let msig = mconcat [ fromString "(", mconcat pstrs, fromString ")", rstr ]
       return $ fromString typeSig == msig
+
+encodedMethodSignature :: DexFile -> EncodedMethod -> Maybe ([BS.ByteString], BS.ByteString)
+encodedMethodSignature df em = do
+  m <- getMethod df (methId em)
+  p <- getProto df (methProtoId m)
+  rtype <- getTypeName df (protoRet p)
+  ptypes <- mapM (getTypeName df) (protoParams p)
+  return (ptypes, rtype)
+
+methodSignatureString :: ([BS.ByteString], BS.ByteString) -> BS.ByteString
+methodSignatureString (pts, rt) =
+  mconcat [ fromString "(", mconcat pts, fromString ")", rt ]

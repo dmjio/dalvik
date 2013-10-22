@@ -51,6 +51,8 @@
 -- into SSA form.
 module Dalvik.SSA (
   toSSA,
+  Stubs,
+  St.stubs,
   module Dalvik.SSA.Types,
   module Dalvik.SSA.Util
   ) where
@@ -81,8 +83,10 @@ import Dalvik.SSA.Util
 import Dalvik.SSA.Internal.BasicBlocks as BB
 import Dalvik.SSA.Internal.Labeling
 import Dalvik.SSA.Internal.Names
-import Dalvik.SSA.Internal.RegisterAssignment
 import Dalvik.SSA.Internal.Pretty ()
+import Dalvik.SSA.Internal.RegisterAssignment
+import Dalvik.SSA.Internal.Stubs ( Stubs )
+import qualified Dalvik.SSA.Internal.Stubs as St
 
 -- | Convert a 'Dalvik.Types.DexFile' into SSA form.  The result is a
 -- different DexFile with as many references as possible resolved and
@@ -103,9 +107,12 @@ import Dalvik.SSA.Internal.Pretty ()
 -- > main = do
 -- >   dexfile = ...
 -- >   ssafile <- toSSA [dexfile]
-toSSA :: (MonadFix f, Failure DT.DecodeError f) => [DT.DexFile] -> f DexFile
-toSSA dfs = do
-  tiedKnot <- mfix (tieKnot dfs)
+toSSA :: (MonadFix f, Failure DT.DecodeError f)
+         => Maybe Stubs -- ^ Custom stub methods
+         -> [DT.DexFile] -- ^ Input dex files (to be merged)
+         -> f DexFile
+toSSA mstubs dfs = do
+  tiedKnot <- mfix (tieKnot mstubs dfs)
   return DexFile { dexClasses = HM.elems (knotClasses tiedKnot)
                  , dexTypes = HM.elems (knotTypes tiedKnot)
                  , dexConstants = knotConstants tiedKnot
@@ -117,9 +124,13 @@ toSSA dfs = do
 
 -- | We tie the knot by starting with an empty knot and processing a
 -- dex file at a time.  Each dex file proceeds by class.
-tieKnot :: (MonadFix f, Failure DT.DecodeError f) => [DT.DexFile] -> Knot -> f Knot
-tieKnot dfs tiedKnot = do
-  (k, s, _) <- runRWST go tiedKnot initialKnotState
+tieKnot :: (MonadFix f, Failure DT.DecodeError f)
+           => Maybe Stubs
+           -> [DT.DexFile]
+           -> Knot
+           -> f Knot
+tieKnot mstubs dfs tiedKnot = do
+  (k, s, _) <- runRWST go tiedKnot (initialKnotState mstubs)
   return k { knotConstants = concat [ HM.elems $ knotClassConstantCache s
                                     , M.elems $ knotIntCache s
                                     , M.elems $ knotStringCache s
@@ -182,6 +193,7 @@ data KnotState =
             , knotStringCache :: Map DT.StringId Constant
             , knotIntCache :: Map Int64 Constant
             , knotClassConstantCache :: HashMap BS.ByteString Constant
+            , knotStubs :: Maybe Stubs
             , knotDexFile :: DT.DexFile
               -- ^ This is the current Dex file being translated
             , knotDexFields :: !(Map DT.FieldId (BS.ByteString, BS.ByteString))
@@ -195,8 +207,8 @@ data KnotState =
               -- to and including the current dex file.
             }
 
-initialKnotState :: KnotState
-initialKnotState =
+initialKnotState :: Maybe Stubs -> KnotState
+initialKnotState mstubs =
   KnotState { knotIdSrc = 0
             , knotDexFile = undefined
             , knotStringCache = M.empty
@@ -205,6 +217,7 @@ initialKnotState =
             , knotDexFields = M.empty
             , knotDexMethods = M.empty
             , knotDexTypes = HM.empty
+            , knotStubs = mstubs
             }
 
 -- | Translate types from bytestrings into a structured
@@ -301,12 +314,37 @@ getRawProto' pid = do
   df <- getDex
   lift $ DT.getProto df pid
 
+-- | This is a wrapper around the real @translateMethod@
+-- ('translateMethod'') that checks to see if we have an override
+-- stub.
 translateMethod :: (MonadFix f, Failure DT.DecodeError f)
                    => Class
                    -> (Knot, [Method])
                    -> DT.EncodedMethod
                    -> KnotMonad f (Knot, [Method])
-translateMethod klass (k, acc) em = do
+translateMethod klass acc em = do
+  s <- get
+  let oldDex = knotDexFile s
+  case knotStubs s of
+    Nothing -> translateMethod' klass acc em
+    Just stubs ->
+      case St.matchingStub stubs oldDex em of
+        Nothing -> translateMethod' klass acc em
+        Just (df', em') -> do
+          -- If we are replacing a method in the current dex file with
+          -- a stub method, we need to *temporarily* swap out the dex
+          -- file to the dex file for our stubs.  Swap it back when we
+          -- are done translating this one method.
+          put s { knotDexFile = df' }
+          res <- translateMethod' klass acc em'
+          modify $ \s' -> s' { knotDexFile = oldDex }
+          return res
+translateMethod' :: (MonadFix f, Failure DT.DecodeError f)
+                   => Class
+                   -> (Knot, [Method])
+                   -> DT.EncodedMethod
+                   -> KnotMonad f (Knot, [Method])
+translateMethod' klass (k, acc) em = do
   m <- getRawMethod' (DT.methId em)
   proto <- getRawProto' (DT.methProtoId m)
   mname <- getStr' (DT.methNameId m)

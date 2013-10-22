@@ -23,7 +23,19 @@ data Command =
                   , prettyClassName :: Maybe String
                   , prettyMethodName :: Maybe String
                   , prettyTypeSignature :: Maybe String
+                  , prettyStubs :: Maybe FilePath
+                  , prettyStubsPrefix :: Maybe String
                   }
+
+commandStubs :: Command -> IO (Maybe Stubs)
+commandStubs PrettyCommand { prettyStubs = Just stubFile
+                           , prettyStubsPrefix = Just prefix
+                           } = do
+  edx <- loadDexFromAnyIO stubFile
+  case edx of
+    Left err -> putStrLn ("Stubs " ++ err) >> return Nothing
+    Right dx -> return $ Just (stubs (fromString prefix) dx)
+commandStubs _ = return Nothing
 
 optionParser :: Parser Options
 optionParser = Options <$>
@@ -48,6 +60,13 @@ optionParser = Options <$>
                                 <> short 's'
                                 <> metavar "SIGNATURE"
                                 <> help "The signature of the target method"))
+      <*> optional (strOption ( long "stubs"
+                               <> metavar "FILE"
+                               <> help "A file containing stub implementations"))
+      <*> optional (strOption ( long "stub-prefix"
+                                <> metavar "PREFIX"
+                                <> help "A prefix to strip from package names in the stub bundle"))
+
 
     labelOptions = LabelCommand <$>
         strOption ( long "filename"
@@ -87,32 +106,37 @@ realMain Options { optCommand =
       case labelMethod dexFile m of
         Left e -> error ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
         Right lbls -> putStrLn (prettyLabeling lbls)
-realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
-                                              , prettyClassName = Nothing
-                                              } } = do
+realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
+                                                 , prettyClassName = Nothing
+                                                 } } = do
   dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFiles
+  st <- commandStubs pc
+  ssaDex <- toSSA st dexFiles
   print ssaDex
-realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
-                                              , prettyClassName = Just cname
-                                              , prettyMethodName = Nothing
-                                              , prettyTypeSignature = Nothing
-                                              } } = do
+realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
+                                                 , prettyClassName = Just cname
+                                                 , prettyMethodName = Nothing
+                                                 , prettyTypeSignature = Nothing
+                                                 } } = do
   dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFiles
+  st <- commandStubs pc
+  ssaDex <- toSSA st dexFiles
   klass <- findClassByName (fromString cname) ssaDex
   print klass
-realMain Options { optCommand = PrettyCommand { prettyFilename = fileName
-                                              , prettyClassName = Just cname
-                                              , prettyMethodName = Just mname
-                                              , prettyTypeSignature = Just sig
-                                              } } = do
+realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
+                                                 , prettyClassName = Just cname
+                                                 , prettyMethodName = Just mname
+                                                 , prettyTypeSignature = Just sig
+                                                 } } = do
   dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
-  ssaDex <- toSSA dexFiles
+  st <- commandStubs pc
+  ssaDex <- toSSA st dexFiles
   klass <- findClassByName (fromString cname) ssaDex
   method <- findMethodByName (fromString mname) sig klass
   print method
 realMain _ = error "You must specify a method and a signature"
+
+
 
 toStr :: String -> String -> String -> String
 toStr []      m sig = printf "%s%s" m sig

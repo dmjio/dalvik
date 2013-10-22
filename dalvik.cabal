@@ -57,6 +57,7 @@ Library
                      Dalvik.SSA.Internal.Names,
                      Dalvik.SSA.Internal.Pretty,
                      Dalvik.SSA.Internal.RegisterAssignment,
+                     Dalvik.SSA.Internal.Stubs,
                      Dalvik.SSA.ClassHierarchy,
                      Dalvik.SSA.Types,
                      Dalvik.SSA.Util
@@ -102,9 +103,22 @@ test-suite SSALabels
                  HUnit,
                  test-framework,
                  test-framework-hunit,
-                 dalvik == 0.1,
+                 dalvik == 0.2.0.0,
                  temporary,
                  process,
                  filepath,
                  directory,
                  bytestring
+
+-- test-suite stubs
+--   default-language: Haskell2010
+--   type: exitcode-stdio-1.0
+--   main-is: stubs.hs
+--   ghc-options: -Wall
+--   ghc-prof-options: -prof -auto-all
+--   hs-source-dirs: tests/stubs
+--   build-depends: base == 4.*,
+--                  HUnit,
+--                  test-framework,
+--                  test-framework-hunit,
+--                  dalvik == 0.2.0.0
