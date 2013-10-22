@@ -1,14 +1,48 @@
 -- | Define stub methods to override real definitions
+module Dalvik.SSA.Internal.Stubs (
+  Stubs,
+  stubs,
+  matchingStub
+  ) where
+
+import Control.Monad ( guard )
+import Data.ByteString.Char8 ( ByteString )
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.Foldable as F
+import Data.HashMap.Strict ( HashMap )
+import qualified Data.HashMap.Strict as HM
+import Data.Maybe ( fromMaybe )
+import Data.String ( fromString )
+
+import qualified Dalvik.Types as DT
+
+type Sig = ([ByteString], ByteString)
+type Descriptor = (ByteString, ByteString, Sig)
+
+data Stubs = Stubs { stubDexFile :: DT.DexFile
+                   , stubMap :: HashMap Descriptor DT.EncodedMethod
+                   }
+           deriving (Show)
+
+-- | Given a 'DT.DexFile' (non-SSA form) filled with stub definitions,
+-- build an abstract representation that can be used to merge them
+-- into a larger dex file (overwriting the original definitions).
 --
--- Stubs introduced into an SSA 'Dalvik.SSA.Types.DexFile' override the definitions
--- found in the input dex files.  These are most useful for providing
--- stub implementations of native methods.  Note that ANY method
--- definition can be overridden.
+-- We require a prefix on all of our stub definitions because the
+-- compiler would not allow core classes to be overwritten.
 --
--- NOTE: You cannot have constructor stubs (for <init> functions).
--- This restriction is because you can't (?) suppress the generation
--- of default constructors, and letting them override the real default
--- constructors would be dangerous.
+-- Stubs introduced into an SSA 'Dalvik.SSA.Types.DexFile' override
+-- the definitions found in the input dex files.  These are most
+-- useful for providing stub implementations of native methods.
+--
+-- Note:
+--
+--  1) ANY normal method definition can be overridden.
+--
+--  2) You cannot have constructor stubs (for <init> functions).  This
+-- restriction is in place because you can't (?) suppress the
+-- generation of default constructors, and letting them override the
+-- real default constructors would be dangerous.
 --
 -- Stubs are provided through an additional 'DT.DexFile'.  This input
 -- should mirror exactly the class hierarchy to be overridden, except
@@ -41,37 +75,6 @@
 --
 -- This merged SSA-form dex file will have a simple definition of
 -- @intern@ instead of a NATIVE tag.
-module Dalvik.SSA.Internal.Stubs (
-  Stubs,
-  stubs,
-  matchingStub
-  ) where
-
-import Control.Monad ( guard )
-import Data.ByteString.Char8 ( ByteString )
-import qualified Data.ByteString.Char8 as BS
-import qualified Data.Foldable as F
-import Data.HashMap.Strict ( HashMap )
-import qualified Data.HashMap.Strict as HM
-import Data.Maybe ( fromMaybe )
-import Data.String ( fromString )
-
-import qualified Dalvik.Types as DT
-
-type Sig = ([ByteString], ByteString)
-type Descriptor = (ByteString, ByteString, Sig)
-
-data Stubs = Stubs { stubDexFile :: DT.DexFile
-                   , stubMap :: HashMap Descriptor DT.EncodedMethod
-                   }
-           deriving (Show)
-
--- | Given a 'DT.DexFile' (non-SSA form) filled with stub definitions,
--- build an abstract representation that can be used to merge them
--- into a larger dex file (overwriting the original definitions).
---
--- We require a prefix on all of our stub definitions because the
--- compiler would not allow core classes to be overwritten.
 stubs :: ByteString -- ^ Prefix
          -> DT.DexFile -- ^ A dex file with stub implementations
          -> Stubs
