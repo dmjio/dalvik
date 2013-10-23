@@ -25,28 +25,24 @@ data ClassHierarchy =
   ClassHierarchy { hierarchy :: HashMap Type Type
                  , children :: HashMap Type [Type]
                  , typeToClassMap :: HashMap Type Class
-                 , dispatchCache :: MVar (HashMap (MethodRef, Type) (Set Method))
                  , simpleCache :: MVar (HashMap (MethodRef, Type) (Maybe Method))
                  }
   deriving (Eq)
 
-emptyClassHierarchy :: MVar (HashMap (MethodRef, Type) (Set Method))
-                       -> MVar (HashMap (MethodRef, Type) (Maybe Method))
+emptyClassHierarchy :: MVar (HashMap (MethodRef, Type) (Maybe Method))
                        -> ClassHierarchy
-emptyClassHierarchy mv1 mv2 =
+emptyClassHierarchy mv =
   ClassHierarchy { hierarchy = HM.empty
                  , children = HM.empty
                  , typeToClassMap = HM.empty
-                 , dispatchCache = mv1
-                 , simpleCache = mv2
+                 , simpleCache = mv
                  }
 
 -- | Perform a class hierarchy analysis
 classHierarchy :: DexFile -> ClassHierarchy
 classHierarchy df = unsafePerformIO $ do
-  mv1 <- MV.newMVar HM.empty
-  mv2 <- MV.newMVar HM.empty
-  return $ foldr addClass (emptyClassHierarchy mv1 mv2) $ dexClasses df
+  mv <- MV.newMVar HM.empty
+  return $ foldr addClass (emptyClassHierarchy mv) $ dexClasses df
 
 addClass :: Class -> ClassHierarchy -> ClassHierarchy
 addClass klass ch =
@@ -137,14 +133,7 @@ anyTarget cha k mref t0 = unsafePerformIO $ go S.empty rootType
   where
     rootType = if k /= MethodInvokeSuper then t0 else fromMaybe t0 (superclass cha t0)
     go ms t = do
-      cache <- MV.readMVar (dispatchCache cha)
-      case Nothing of -- HM.lookup (mref, t) cache of
-        Just s -> return s
-        Nothing -> do
-          let ms' = case resolveMethodRef cha t mref of
-                Just m -> S.insert m ms
-                Nothing -> ms
-          res <- foldM go ms' (subclasses cha t)
-          -- MV.modifyMVar_ (dispatchCache cha) $ \c ->
-          --   return $ HM.insert (mref, t) res c
-          return res
+      let ms' = case resolveMethodRef cha t mref of
+            Just m -> S.insert m ms
+            Nothing -> ms
+      foldM go ms' (subclasses cha t)
