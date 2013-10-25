@@ -6,7 +6,8 @@ module Dalvik.SSA.ClassHierarchy (
   subclasses,
   resolveMethodRef,
   virtualDispatch,
-  anyTarget
+  anyTarget,
+  implementationsOf
   ) where
 
 import Control.Concurrent.MVar as MV
@@ -14,12 +15,15 @@ import Control.Monad ( foldM )
 import qualified Data.List as L
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
-import Data.Maybe ( fromMaybe )
+import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
 import System.IO.Unsafe ( unsafePerformIO )
 
 import Dalvik.SSA
+
+import Debug.Trace
+debug = flip trace
 
 data ClassHierarchy =
   ClassHierarchy { hierarchy :: HashMap Type Type
@@ -137,3 +141,40 @@ anyTarget cha k mref t0 = unsafePerformIO $ go S.empty rootType
             Just m -> S.insert m ms
             Nothing -> ms
       foldM go ms' (subclasses cha t)
+
+-- | Given a class (or interface) name and a method name, find all of
+-- the 'Method's implementing that interface method.
+--
+-- Algorithm:
+--
+-- 1) Find all classes implementing the named interface (if any)
+--
+-- 2) Look up the name as if it were a class.
+--
+-- 3) These are the roots of the search; for each of these classes,
+--    find all of the matching methods in the class (one or zero) and
+--    then recursively look at all subclasses.
+--
+-- Note that this is a linear pass over all of the classes in the
+-- hierarchy, and won't be cheap.
+--
+-- The 'MethodRef' is only used to get the method name and signature.
+-- You could safely create one manually with a dummy 'methodRefId' and
+-- 'methodRefClass' (since neither is consulted).
+--
+-- Only virtual methods are searched because there is no dispatch for
+-- direct methods.
+implementationsOf :: ClassHierarchy -> ClassName -> MethodRef -> [Method]
+implementationsOf ch klassName mref =
+  foldr go [] rootClasses `debug` show rootClasses
+  where
+    t0 = ReferenceType klassName
+    allClasses = HM.elems (typeToClassMap ch)
+    classesImplementing =
+      [c | c <- allClasses, t0 `elem` classInterfaces c]
+    mnamedClass = HM.lookup t0 (typeToClassMap ch)
+    rootClasses = maybe classesImplementing (:classesImplementing) mnamedClass
+    go klass acc =
+      let ms = filter (matches mref) $ classVirtualMethods klass
+          subs = mapMaybe (definition ch) $ subclasses ch (classType klass)
+      in foldr go (ms ++ acc) subs
