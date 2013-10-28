@@ -2,8 +2,12 @@ module Dalvik.SSA.ClassHierarchy (
   ClassHierarchy,
   classHierarchy,
   superclass,
+  definition,
   superclassDef,
   subclasses,
+  allSubclasses,
+  implementations,
+  allImplementations,
   resolveMethodRef,
   virtualDispatch,
   anyTarget,
@@ -26,10 +30,11 @@ import Debug.Trace
 debug = flip trace
 
 data ClassHierarchy =
-  ClassHierarchy { hierarchy :: HashMap Type Type
-                 , children :: HashMap Type [Type]
+  ClassHierarchy { hierarchy      :: HashMap Type Type
+                 , children       :: HashMap Type [Type]
+                 , implementors   :: HashMap Type [Type]
                  , typeToClassMap :: HashMap Type Class
-                 , simpleCache :: MVar (HashMap (MethodRef, Type) (Maybe Method))
+                 , simpleCache    :: MVar (HashMap (MethodRef, Type) (Maybe Method))
                  }
   deriving (Eq)
 
@@ -38,6 +43,7 @@ emptyClassHierarchy :: MVar (HashMap (MethodRef, Type) (Maybe Method))
 emptyClassHierarchy mv =
   ClassHierarchy { hierarchy = HM.empty
                  , children = HM.empty
+                 , implementors = HM.empty
                  , typeToClassMap = HM.empty
                  , simpleCache = mv
                  }
@@ -56,6 +62,10 @@ addClass klass ch =
      , children = case classParent klass of
           Nothing -> children ch
           Just parent -> HM.insertWith (++) parent [classType klass] (children ch)
+     , implementors =
+         L.foldl' (\m i -> HM.insertWith (++) i [classType klass] m)
+                  (implementors ch)
+                  (classInterfaces klass)
      , typeToClassMap = HM.insert (classType klass) klass (typeToClassMap ch)
      }
 
@@ -63,9 +73,25 @@ addClass klass ch =
 superclass :: ClassHierarchy -> Type -> Maybe Type
 superclass ch t = HM.lookup t (hierarchy ch)
 
--- | Get any subclasses of the given type
+-- | Get any immediate subclasses of the given type
 subclasses :: ClassHierarchy -> Type -> [Type]
 subclasses ch t = fromMaybe [] $ HM.lookup t (children ch)
+
+-- | Get all subclasses transitively of the given type
+allSubclasses :: ClassHierarchy -> Type -> [Type]
+allSubclasses ch = starClosure (subclasses ch)
+
+-- | Get the types that implement the given interface directly
+implementations :: ClassHierarchy -> Type -> [Type]
+implementations ch t = fromMaybe [] $ HM.lookup t (implementors ch)
+
+-- | Get the types implemented by the given interface or its subinterfaces
+allImplementations :: ClassHierarchy -> Type -> [Type]
+allImplementations ch t = imm ++ concatMap (allImplementations ch) imm
+  where imm = implementations ch t
+
+starClosure :: (a -> [a]) -> a -> [a]
+starClosure f x = x : concatMap (starClosure f) (f x)
 
 -- | Get the definition of the parent of a type, if any
 superclassDef :: ClassHierarchy -> Type -> Maybe Class
