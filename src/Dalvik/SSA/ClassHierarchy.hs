@@ -2,12 +2,16 @@ module Dalvik.SSA.ClassHierarchy (
   ClassHierarchy,
   classHierarchy,
   superclass,
+  allSuperclasses,
   definition,
   superclassDef,
   subclasses,
   allSubclasses,
   implementations,
   allImplementations,
+  interfaces,
+  allInterfaces,
+  allSupertypes,
   resolveMethodRef,
   virtualDispatch,
   anyTarget,
@@ -73,13 +77,18 @@ addClass klass ch =
 superclass :: ClassHierarchy -> Type -> Maybe Type
 superclass ch t = HM.lookup t (hierarchy ch)
 
+-- | Get all superclasses of a type
+allSuperclasses :: ClassHierarchy -> Type -> [Type]
+allSuperclasses ch = tClosure superclass'
+  where superclass' = maybe [] return . superclass ch
+
 -- | Get any immediate subclasses of the given type
 subclasses :: ClassHierarchy -> Type -> [Type]
 subclasses ch t = fromMaybe [] $ HM.lookup t (children ch)
 
 -- | Get all subclasses transitively of the given type
 allSubclasses :: ClassHierarchy -> Type -> [Type]
-allSubclasses ch = starClosure (subclasses ch)
+allSubclasses ch = tClosure (subclasses ch)
 
 -- | Get the types that implement the given interface directly
 implementations :: ClassHierarchy -> Type -> [Type]
@@ -87,11 +96,27 @@ implementations ch t = fromMaybe [] $ HM.lookup t (implementors ch)
 
 -- | Get the types implemented by the given interface or its subinterfaces
 allImplementations :: ClassHierarchy -> Type -> [Type]
-allImplementations ch t = imm ++ concatMap (allImplementations ch) imm
-  where imm = implementations ch t
+allImplementations ch = tClosure (implementations ch)
 
-starClosure :: (a -> [a]) -> a -> [a]
-starClosure f x = x : concatMap (starClosure f) (f x)
+-- | Get all interfaces directly implemented by the given type
+interfaces :: ClassHierarchy -> Type -> [Type]
+interfaces ch t =
+  fromMaybe [] $ classInterfaces `fmap` (HM.lookup t (typeToClassMap ch))
+
+-- | Get all interfaces transitively implemented by the given type
+allInterfaces :: ClassHierarchy -> Type -> [Type]
+allInterfaces ch = tClosure (interfaces ch)
+
+-- | Get all supertypes of the given type, including concrete classes,
+-- abstract classes, and interfaces
+allSupertypes :: ClassHierarchy -> Type -> [Type]
+allSupertypes ch t = allSuperclasses ch t ++ allInterfaces ch t
+
+tClosure :: (a -> [a]) -> a -> [a]
+tClosure f x = concatMap (rtClosure f) (f x)
+
+rtClosure :: (a -> [a]) -> a -> [a]
+rtClosure f x = x : concatMap (rtClosure f) (f x)
 
 -- | Get the definition of the parent of a type, if any
 superclassDef :: ClassHierarchy -> Type -> Maybe Class
