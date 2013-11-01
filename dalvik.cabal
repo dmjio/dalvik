@@ -33,6 +33,7 @@ Library
                     hashable < 1.2,
                     vector >= 0.10,
                     zip-conduit,
+                    split >= 0.2,
 -- needed for test code (test dependencies aren't available in the repl)
                     temporary,
                     process,
@@ -59,6 +60,7 @@ Library
                      Dalvik.SSA.Internal.RegisterAssignment,
                      Dalvik.SSA.Internal.Stubs,
                      Dalvik.SSA.ClassHierarchy,
+                     Dalvik.SSA.StringUtils,
                      Dalvik.SSA.Types,
                      Dalvik.SSA.Util
     GHC-Options: -Wall -O1
