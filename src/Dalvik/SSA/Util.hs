@@ -47,7 +47,8 @@ findMethodByName mname sig klass = maybe err return $ do
     err = failure $ NoMethodFound mname sig (className klass)
     ms = classDirectMethods klass ++ classVirtualMethods klass
     matchingMethod tsig m =
-      let msig = (map parameterType (methodParameters m), methodReturnType m)
+      let ps = if methodIsVirtual m then tail (methodParameters m) else methodParameters m
+          msig = (map parameterType ps, methodReturnType m)
       in methodName m == mname && msig == tsig
 
 findStaticFieldByName :: (Failure LookupError f) => BS.ByteString -> Class -> f Field
