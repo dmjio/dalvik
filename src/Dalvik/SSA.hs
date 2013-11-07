@@ -295,9 +295,10 @@ translateClass k (_, klass) = do
     return (c, k2)
 
   classString <- getTypeName (DT.classId klass)
-  case HM.member classString (knotClasses k2) of
-    True -> failure $ DT.ClassAlreadyDefined (show t)
-    False -> return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
+  return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
+  -- case HM.member classString (knotClasses k2) of
+  --   True -> failure $ DT.ClassAlreadyDefined (show t)
+  --   False -> return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
   where
     addField (_, f) = HM.insert (fieldName f) f
 
