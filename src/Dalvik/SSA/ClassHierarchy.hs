@@ -15,7 +15,8 @@ module Dalvik.SSA.ClassHierarchy (
   resolveMethodRef,
   virtualDispatch,
   anyTarget,
-  implementationsOf
+  implementationsOf,
+  findMethods
   ) where
 
 import Control.Concurrent.MVar as MV
@@ -23,6 +24,8 @@ import Control.Monad ( foldM )
 import qualified Data.List as L
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
+import Data.HashSet (HashSet)
+import qualified Data.HashSet as HS
 import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
@@ -41,6 +44,17 @@ data ClassHierarchy =
                  , simpleCache    :: MVar (HashMap (MethodRef, Type) (Maybe Method))
                  }
   deriving (Eq)
+
+-- | Return all methods in the 'ClassHierarchy' that satisfy a predicate.
+findMethods :: (Method -> Bool) ->ClassHierarchy ->  HashSet Method
+findMethods predicate cha = HM.foldl' collect HS.empty (typeToClassMap cha)
+  where
+    collect :: HashSet Method -> Class -> HashSet Method
+    collect set cl = L.foldl' (flip HS.insert) set (filteredMethods cl)
+
+    filteredMethods cl = filter predicate (classMethods cl)
+
+    classMethods cl = (classDirectMethods cl) ++ (classVirtualMethods cl)
 
 emptyClassHierarchy :: MVar (HashMap (MethodRef, Type) (Maybe Method))
                        -> ClassHierarchy
