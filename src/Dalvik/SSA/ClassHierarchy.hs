@@ -231,7 +231,7 @@ anyTarget cha k mref t0 = unsafePerformIO $ go S.empty rootType
 -- direct methods.
 implementationsOf :: ClassHierarchy -> ClassName -> MethodRef -> [Method]
 implementationsOf ch klassName mref =
-  foldr go [] rootClasses `debug` show rootClasses
+  foldr go [] rootClasses
   where
     t0 = ReferenceType klassName
     allClasses = HM.elems (typeToClassMap ch)
