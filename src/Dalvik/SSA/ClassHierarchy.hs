@@ -198,7 +198,10 @@ virtualDispatch cha i ikind mref receiver
 -- | Find all possible targets for a call to the given 'MethodRef'
 -- from a value of the given 'Type'.
 anyTarget :: ClassHierarchy -> InvokeVirtualKind -> MethodRef -> Type -> Set Method
-anyTarget cha k mref t0 = unsafePerformIO $ go S.empty rootType
+anyTarget cha k mref t0 =
+  case k of
+    MethodInvokeInterface -> implementationsOfInterfaceMethod cha mref
+    _ -> unsafePerformIO $ go S.empty rootType
   where
     rootType = if k /= MethodInvokeSuper then t0 else fromMaybe t0 (superclass cha t0)
     go ms t = do
@@ -242,3 +245,14 @@ implementationsOf ch klassName mref =
       let ms = filter (matches mref) $ classVirtualMethods klass
           subs = mapMaybe (definition ch) $ subclasses ch (classType klass)
       in foldr go (ms ++ acc) subs
+
+
+implementationsOfInterfaceMethod :: ClassHierarchy -> MethodRef -> Set Method
+implementationsOfInterfaceMethod cha mref =
+  foldr go S.empty (mapMaybe (definition cha) roots)
+  where
+    roots = fromMaybe [] $ HM.lookup (methodRefClass mref) (implementors cha)
+    go klass acc =
+      let ms = filter (matches mref) $ classVirtualMethods klass
+          subs = mapMaybe (definition cha) $ subclasses cha (classType klass)
+      in foldr go (acc `S.union` S.fromList ms) subs
