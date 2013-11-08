@@ -234,9 +234,8 @@ implementationsOf ch klassName mref =
   foldr go [] rootClasses
   where
     t0 = ReferenceType klassName
-    allClasses = HM.elems (typeToClassMap ch)
-    classesImplementing =
-      [c | c <- allClasses, t0 `elem` classInterfaces c]
+    typesImplementing = fromMaybe [] $ HM.lookup (ReferenceType klassName) (implementors ch)
+    classesImplementing = mapMaybe (definition ch) typesImplementing
     mnamedClass = HM.lookup t0 (typeToClassMap ch)
     rootClasses = maybe classesImplementing (:classesImplementing) mnamedClass
     go klass acc =
