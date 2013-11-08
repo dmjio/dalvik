@@ -17,6 +17,15 @@ import Dalvik.SSA.Types
 
 type MethodNamePattern = (Type, ClassName, ByteString, [Type])
 
+-- | Match a 'Method' with a 'MethodNamePattern' for equality.
+matchMNP :: Method -> MethodNamePattern -> Bool
+matchMNP meth (ret, clName, methName, params) =
+  and [ methodReturnType meth == ret
+      , className (methodClass meth) == (BS.pack $ humanClassName clName)
+      , methodName meth == methName
+      , map parameterType (methodParameters meth) == params
+      ]
+
 -- | Given a 'MethodNamePattern' @mnp@ and a 'MethodRef' @mref@,
 -- returns whether @mnp@ matchs @mref@. The semantics of matching here
 -- include subtyping, so if @mnp@ refers to a superclass of @mref@, it
