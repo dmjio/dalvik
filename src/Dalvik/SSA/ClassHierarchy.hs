@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Dalvik.SSA.ClassHierarchy (
   ClassHierarchy,
   classHierarchy,
@@ -158,13 +159,29 @@ resolveMethodRef ch t0 mref = unsafePerformIO $ go t0
         Nothing -> do
           let mm = do
                 klass <- definition ch t
-                L.find (matches mref) (classVirtualMethods klass)
+                L.foldl' (mostSpecificMatch mref) Nothing (classVirtualMethods klass)
           res <- case mm of
             Nothing -> maybe (return Nothing) go (superclass ch t)
             Just _ -> return mm
           MV.modifyMVar_ (simpleCache ch) $ \c ->
             return $ HM.insert (mref, t) res c
           return res
+
+mostSpecificMatch :: MethodRef -> Maybe Method -> Method -> Maybe Method
+mostSpecificMatch mref acc m
+  | methodRefName mref == methodName m &&
+    methodRefParameterTypes mref == map parameterType ps =
+      case acc of
+        Nothing -> Just m
+        Just m' -> Just $ takeMoreSpecific m' m
+  | otherwise = acc
+  where
+    _:ps = methodParameters m
+    object = ReferenceType $ qualifiedClassName ["java", "lang"] "Object"
+    takeMoreSpecific m1 m2 =
+      case methodReturnType m1 == object of
+        True -> m2
+        False -> m1
 
 matches :: MethodRef -> Method -> Bool
 matches mref m = methodRefName mref == methodName m &&
