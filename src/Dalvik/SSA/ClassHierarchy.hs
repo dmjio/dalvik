@@ -17,6 +17,7 @@ module Dalvik.SSA.ClassHierarchy (
   virtualDispatch,
   anyTarget,
   implementationsOf,
+  methodRefMatches,
   findMethods
   ) where
 
@@ -183,10 +184,10 @@ mostSpecificMatch mref acc m
         True -> m2
         False -> m1
 
-matches :: MethodRef -> Method -> Bool
-matches mref m = methodRefName mref == methodName m &&
-                   methodRefReturnType mref == methodReturnType m &&
-                   methodRefParameterTypes mref == map parameterType ps
+methodRefMatches :: MethodRef -> Method -> Bool
+methodRefMatches mref m = methodRefName mref == methodName m &&
+                          methodRefReturnType mref == methodReturnType m &&
+                          methodRefParameterTypes mref == map parameterType ps
   where
     -- Irrefutable pattern match since we are only checking virtual
     -- methods and they all have a @this@ parameter that we need to
@@ -259,7 +260,7 @@ implementationsOf ch klassName mref =
     mnamedClass = HM.lookup t0 (typeToClassMap ch)
     rootClasses = maybe classesImplementing (:classesImplementing) mnamedClass
     go klass acc =
-      let ms = filter (matches mref) $ classVirtualMethods klass
+      let ms = filter (methodRefMatches mref) $ classVirtualMethods klass
           subs = mapMaybe (definition ch) $ subclasses ch (classType klass)
       in foldr go (ms ++ acc) subs
 
@@ -270,6 +271,6 @@ implementationsOfInterfaceMethod cha mref =
   where
     roots = fromMaybe [] $ HM.lookup (methodRefClass mref) (implementors cha)
     go klass acc =
-      let ms = filter (matches mref) $ classVirtualMethods klass
+      let ms = filter (methodRefMatches mref) $ classVirtualMethods klass
           subs = mapMaybe (definition cha) $ subclasses cha (classType klass)
       in foldr go (acc `S.union` S.fromList ms) subs
