@@ -1042,38 +1042,38 @@ getConstant ca =
     DT.ConstString sid -> getConstantString sid
     DT.ConstStringJumbo sid -> getConstantString sid
     DT.ConstClass tid -> do
-      s <- get
+      ccache <- gets knotClassConstantCache
       klassName <- getTypeName tid
-      case HM.lookup klassName (knotClassConstantCache s) of
+      case HM.lookup klassName ccache of
         Just v -> return (ConstantV v)
         Nothing -> do
           cid <- freshId
           t <- getTranslatedType tid
           let c = ConstantClass cid t
-          put s { knotClassConstantCache = HM.insert klassName c (knotClassConstantCache s) }
+          modify $ \s -> s { knotClassConstantCache = HM.insert klassName c (knotClassConstantCache s) }
           return (ConstantV c)
 
 getConstantString :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f Value
 getConstantString sid = do
-  s <- get
-  case M.lookup sid (knotStringCache s) of
+  scache <- gets knotStringCache
+  case M.lookup sid scache of
     Just v -> return (ConstantV v)
     Nothing -> do
       cid <- freshId
       str <- getStr' sid
       let c = ConstantString cid str
-      put s { knotStringCache = M.insert sid c (knotStringCache s) }
+      modify $ \s -> s { knotStringCache = M.insert sid c (knotStringCache s) }
       return (ConstantV c)
 
 getConstantInt :: (Failure DT.DecodeError f, Integral n) => n -> KnotMonad f Value
 getConstantInt (fromIntegral -> i) = do
-  s <- get
-  case M.lookup i (knotIntCache s) of
+  icache <- gets knotIntCache
+  case M.lookup i icache of
     Just v -> return (ConstantV v)
     Nothing -> do
       cid <- freshId
       let c = ConstantInt cid i
-      put s { knotIntCache = M.insert i c (knotIntCache s) }
+      modify $ \s -> s { knotIntCache = M.insert i c (knotIntCache s) }
       return (ConstantV c)
 
 -- | Determine the result type of a unary operation
