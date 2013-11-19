@@ -207,18 +207,23 @@ virtualDispatch cha i ikind mref receiver
     pt <- superclass cha (classType (methodClass lmeth))
     resolveMethodRef cha pt mref
   | Just Parameter {} <- fromValue receiver =
-    anyTarget cha ikind mref (valueType receiver)
+    anyTarget cha i ikind mref (valueType receiver)
   | Just MoveException {} <- fromValue (stripCasts receiver) =
-    anyTarget cha ikind mref (valueType receiver)
+    anyTarget cha i ikind mref (valueType receiver)
   | otherwise = maybe S.empty S.singleton $ do
     resolveMethodRef cha (valueType receiver) mref
 
 -- | Find all possible targets for a call to the given 'MethodRef'
 -- from a value of the given 'Type'.
-anyTarget :: ClassHierarchy -> InvokeVirtualKind -> MethodRef -> Type -> Set Method
-anyTarget cha k mref t0 =
+anyTarget :: ClassHierarchy -> Instruction -> InvokeVirtualKind -> MethodRef -> Type -> Set Method
+anyTarget cha i k mref t0 =
   case k of
     MethodInvokeInterface -> implementationsOfInterfaceMethod cha mref
+    MethodInvokeSuper -> maybe S.empty S.singleton $ do
+      let bb = instructionBasicBlock i
+          lmeth = basicBlockMethod bb
+      pt <- superclass cha (classType (methodClass lmeth))
+      resolveMethodRef cha pt mref
     _ -> unsafePerformIO $ go S.empty rootType
   where
     rootType = if k /= MethodInvokeSuper then t0 else fromMaybe t0 (superclass cha t0)
