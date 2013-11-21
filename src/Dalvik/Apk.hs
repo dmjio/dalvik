@@ -15,6 +15,7 @@ import qualified Data.List as L
 import qualified Data.Map as M
 import System.Cmd ( rawSystem )
 import System.Directory ( getDirectoryContents )
+import System.Environment ( getEnvironment )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), (<.>), takeFileName, takeExtension )
 import System.IO
@@ -59,12 +60,20 @@ readSourceAsDex fname = withSystemTempDirectory "fuse.tmp" $
     dexFilePath <- runDX [fname] outFile dirName
     loadDexIO dexFilePath
 
+androidJarPath :: IO [String]
+androidJarPath = do
+  env <- getEnvironment
+  case lookup "DALVIK_EXTRA_JAR" env of
+    Nothing -> return []
+    Just path -> return ["-classpath", path]
+
 -- | Run the dx tool on the incoming file, outputting to the directory
 -- specified, and returning the filepath of the resulting dex
 -- bytecode.
 runDX :: [FilePath] -> FilePath -> FilePath -> IO FilePath
 runDX inputs outFile targetDir = do
-  ec1 <- rawSystem "javac" ("-d" : targetDir : inputs)
+  cp <- androidJarPath
+  ec1 <- rawSystem "javac" (cp ++ "-d" : targetDir : inputs)
   case ec1 of
     ExitFailure err -> error ("Error running `javac` on " ++ show inputs ++ ": "++ show err)
     ExitSuccess -> do
