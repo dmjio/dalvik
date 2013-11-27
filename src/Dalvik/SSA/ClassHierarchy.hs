@@ -206,10 +206,6 @@ virtualDispatch cha i ikind mref receiver
         lmeth = basicBlockMethod bb
     pt <- superclass cha (classType (methodClass lmeth))
     resolveMethodRef cha pt mref
-  | Just Parameter {} <- fromValue receiver =
-    anyTarget cha i ikind mref (valueType receiver)
-  | Just MoveException {} <- fromValue (stripCasts receiver) =
-    anyTarget cha i ikind mref (valueType receiver)
   | otherwise = maybe S.empty S.singleton $ do
     resolveMethodRef cha (valueType receiver) mref
 
