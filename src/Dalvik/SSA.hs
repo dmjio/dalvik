@@ -133,7 +133,7 @@ tieKnot mstubs dfs tiedKnot = do
   (k, s, _) <- runRWST go tiedKnot (initialKnotState mstubs)
   return k { knotConstants = concat [ HM.elems $ knotClassConstantCache s
                                     , M.elems $ knotIntCache s
-                                    , M.elems $ knotStringCache s
+                                    , HM.elems $ knotStringCache s
                                     ]
            }
   where
@@ -190,7 +190,7 @@ emptyKnot  = Knot { knotClasses = HM.empty
 
 data KnotState =
   KnotState { knotIdSrc :: !Int
-            , knotStringCache :: Map DT.StringId Constant
+            , knotStringCache :: HashMap BS.ByteString Constant
             , knotIntCache :: Map Int64 Constant
             , knotClassConstantCache :: HashMap BS.ByteString Constant
             , knotStubs :: Maybe Stubs
@@ -211,7 +211,7 @@ initialKnotState :: Maybe Stubs -> KnotState
 initialKnotState mstubs =
   KnotState { knotIdSrc = 0
             , knotDexFile = undefined
-            , knotStringCache = M.empty
+            , knotStringCache = HM.empty
             , knotIntCache = M.empty
             , knotClassConstantCache = HM.empty
             , knotDexFields = M.empty
@@ -1056,13 +1056,13 @@ getConstant ca =
 getConstantString :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f Value
 getConstantString sid = do
   scache <- gets knotStringCache
-  case M.lookup sid scache of
+  str <- getStr' sid
+  case HM.lookup str scache of
     Just v -> return (ConstantV v)
     Nothing -> do
       cid <- freshId
-      str <- getStr' sid
       let c = ConstantString cid str
-      modify $ \s -> s { knotStringCache = M.insert sid c (knotStringCache s) }
+      modify $ \s -> s { knotStringCache = HM.insert str c (knotStringCache s) }
       return (ConstantV c)
 
 getConstantInt :: (Failure DT.DecodeError f, Integral n) => n -> KnotMonad f Value
