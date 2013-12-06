@@ -3,6 +3,7 @@ module Dalvik.ClassName (
   ClassName,
   simpleClassName,
   qualifiedClassName,
+  unsafeClassName,
   renderClassName,
   humanClassName
   ) where
@@ -26,6 +27,10 @@ simpleClassName name = ClassName [name]
 
 qualifiedClassName :: [BS.ByteString] -> BS.ByteString -> ClassName
 qualifiedClassName namespace name = ClassName (namespace ++ [name])
+
+-- | Create a 'ClassName' without verifying that the list is non-empty.
+unsafeClassName :: [BS.ByteString] -> ClassName
+unsafeClassName = ClassName
 
 renderClassName :: ClassName -> BS.ByteString
 renderClassName (ClassName components) =
