@@ -5,6 +5,7 @@
 module Dalvik.SSA.Util (
   findClassByName,
   findMethodByName,
+  findInstanceFieldByName,
   findStaticFieldByName,
   stripCasts,
   LookupError(..)
@@ -54,5 +55,11 @@ findMethodByName mname sig klass = maybe err return $ do
 findStaticFieldByName :: (Failure LookupError f) => BS.ByteString -> Class -> f Field
 findStaticFieldByName name klass = maybe err (return . snd) $ do
   L.find ((== name) . fieldName . snd) (classStaticFields klass)
+  where
+    err = failure $ NoFieldFound name (className klass)
+
+findInstanceFieldByName :: (Failure LookupError f) => BS.ByteString -> Class -> f Field
+findInstanceFieldByName name klass = maybe err (return . snd) $ do
+  L.find ((== name) . fieldName . snd) (classInstanceFields klass)
   where
     err = failure $ NoFieldFound name (className klass)
