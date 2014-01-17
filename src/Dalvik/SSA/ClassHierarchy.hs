@@ -199,15 +199,14 @@ virtualDispatch :: ClassHierarchy
                    -> InvokeVirtualKind -- ^ Type of invocation
                    -> MethodRef -- ^ Method being invoked
                    -> Value -- ^ Receiver object
-                   -> Set Method
+                   -> Maybe Method
 virtualDispatch cha i ikind mref receiver
-  | ikind == MethodInvokeSuper = maybe S.empty S.singleton $ do
+  | ikind == MethodInvokeSuper = do
     let bb = instructionBasicBlock i
         lmeth = basicBlockMethod bb
     pt <- superclass cha (classType (methodClass lmeth))
     resolveMethodRef cha pt mref
-  | otherwise = maybe S.empty S.singleton $ do
-    resolveMethodRef cha (valueType receiver) mref
+  | otherwise = resolveMethodRef cha (valueType receiver) mref
 
 -- | Find all possible targets for a call to the given 'MethodRef'
 -- from a value of the given 'Type'.
