@@ -171,7 +171,7 @@ prettyInstructionDoc i =
             VoidType -> (PP.empty <>)
             _ -> (instBindDoc i <+>)
       in beginning $ PP.text "invoke" <+> prettyVirtualKindDoc k <+>
-           prettyMethodRefDoc m <> prettyArgumentList (F.toList vs)
+           prettyTypeDoc (methodRefClass m) <> PP.text "." <> prettyMethodRefDoc m <> prettyArgumentList (F.toList vs)
     InvokeDirect { invokeDirectKind = k
                  , invokeDirectMethod = m
                  , invokeDirectArguments = vs
