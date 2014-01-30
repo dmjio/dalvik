@@ -180,7 +180,7 @@ prettyInstructionDoc i =
             VoidType -> (PP.empty <>)
             _ -> (instBindDoc i <+>)
       in beginning $ PP.text "invoke" <+> prettyDirectKindDoc k <+>
-           prettyMethodRefDoc m <> prettyArgumentList vs
+           prettyTypeDoc (methodRefClass m) <> PP.text "." <> prettyMethodRefDoc m <> prettyArgumentList vs
     Phi { phiValues = ivs } ->
       instBindDoc i <+> PP.text "phi" <+>
         arrayLiteralDoc (map phiValueDoc ivs)
