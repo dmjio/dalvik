@@ -105,7 +105,7 @@ test-suite SSALabels
                  HUnit,
                  test-framework,
                  test-framework-hunit,
-                 dalvik == 0.2.0.0,
+                 dalvik,
                  temporary,
                  process,
                  filepath,
