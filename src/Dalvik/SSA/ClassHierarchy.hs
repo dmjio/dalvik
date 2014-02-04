@@ -21,8 +21,6 @@ module Dalvik.SSA.ClassHierarchy (
   findMethods
   ) where
 
-import Control.Concurrent.MVar as MV
-import Control.Monad ( foldM )
 import qualified Data.Foldable as F
 import qualified Data.List as L
 import Data.HashMap.Strict ( HashMap )
@@ -32,19 +30,14 @@ import qualified Data.HashSet as HS
 import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
-import System.IO.Unsafe ( unsafePerformIO )
 
 import Dalvik.SSA
-
-import Debug.Trace
-debug = flip trace
 
 data ClassHierarchy =
   ClassHierarchy { hierarchy      :: HashMap Type Type
                  , children       :: HashMap Type [Type]
                  , implementors   :: HashMap Type [Type]
                  , typeToClassMap :: HashMap Type Class
-                 , simpleCache    :: MVar (HashMap (MethodRef, Type) (Maybe Method))
                  }
   deriving (Eq)
 
@@ -59,21 +52,17 @@ findMethods predicate cha = HM.foldl' collect HS.empty (typeToClassMap cha)
 
     classMethods cl = (classDirectMethods cl) ++ (classVirtualMethods cl)
 
-emptyClassHierarchy :: MVar (HashMap (MethodRef, Type) (Maybe Method))
-                       -> ClassHierarchy
-emptyClassHierarchy mv =
+emptyClassHierarchy :: ClassHierarchy
+emptyClassHierarchy =
   ClassHierarchy { hierarchy = HM.empty
                  , children = HM.empty
                  , implementors = HM.empty
                  , typeToClassMap = HM.empty
-                 , simpleCache = mv
                  }
 
 -- | Perform a class hierarchy analysis
 classHierarchy :: DexFile -> ClassHierarchy
-classHierarchy df = unsafePerformIO $ do
-  mv <- MV.newMVar HM.empty
-  return $ foldr addClass (emptyClassHierarchy mv) $ dexClasses df
+classHierarchy = foldr addClass emptyClassHierarchy . dexClasses
 
 addClass :: Class -> ClassHierarchy -> ClassHierarchy
 addClass klass ch =
@@ -152,22 +141,15 @@ definition ch t = HM.lookup t (typeToClassMap ch)
 -- Note, only virtual methods are checked because direct method calls
 -- do not need to be resolved.
 resolveMethodRef :: ClassHierarchy -> Type -> MethodRef -> Maybe Method
-resolveMethodRef ch t0 mref = unsafePerformIO $ go t0
+resolveMethodRef ch t0 mref = go t0
   where
     go t = do
-      sc <- MV.readMVar (simpleCache ch)
-      case HM.lookup (mref, t) sc of
-        Just res -> return res
-        Nothing -> do
-          let mm = do
-                klass <- definition ch t
-                L.foldl' (mostSpecificMatch mref) Nothing (classVirtualMethods klass)
-          res <- case mm of
-            Nothing -> maybe (return Nothing) go (superclass ch t)
-            Just _ -> return mm
-          MV.modifyMVar_ (simpleCache ch) $ \c ->
-            return $ HM.insert (mref, t) res c
-          return res
+      let mm = do
+            klass <- definition ch t
+            F.foldl' (mostSpecificMatch mref) Nothing (classVirtualMethods klass)
+      case mm of
+        Nothing -> maybe Nothing go (superclass ch t)
+        Just _ -> mm
 
 mostSpecificMatch :: MethodRef -> Maybe Method -> Method -> Maybe Method
 mostSpecificMatch mref acc m
