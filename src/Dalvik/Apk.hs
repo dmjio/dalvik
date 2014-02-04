@@ -9,7 +9,7 @@ module Dalvik.Apk (
 
 import Codec.Archive.Zip
 import Control.Concurrent ( newMVar, modifyMVar )
-import Control.Exception ( handle, ErrorCall, SomeException)
+import Control.Exception ( handle, ErrorCall )
 import qualified Data.ByteString as BS
 import Data.Conduit.List ( consume )
 import qualified Data.List as L
@@ -35,7 +35,7 @@ loadDexFromApkIO f = do
        -- lazy ByteStrings?
        return . loadDex . BS.concat $ chunks
 
-  where handler :: SomeException -> IO (Either String DexFile)
+  where handler :: ErrorCall -> IO (Either String DexFile)
         handler err = return (Left ("Could not find classes.dex in apk: " ++ show err))
 
 -- | Load the first .dex file found in an Apk, a raw .dex file, or a
