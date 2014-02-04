@@ -9,6 +9,7 @@ module Dalvik.Apk (
 
 import Codec.Archive.Zip
 import Control.Concurrent ( newMVar, modifyMVar )
+import Control.Exception ( handle, ErrorCall, SomeException)
 import qualified Data.ByteString as BS
 import Data.Conduit.List ( consume )
 import qualified Data.List as L
@@ -28,10 +29,14 @@ import Dalvik.Types as DT
 -- | Load the first .dex file found in an Apk
 loadDexFromApkIO :: FilePath -> IO (Either String DexFile)
 loadDexFromApkIO f = do
-  chunks <- withArchive f (sourceEntry "classes.dex" consume)
-  -- TODO: this is silly. Should we tweak the parser to work with
-  -- lazy ByteStrings?
-  return . loadDex . BS.concat $ chunks
+  handle handler $
+    do chunks <- withArchive f (sourceEntry "classes.dex" consume)
+       -- TODO: this is silly. Should we tweak the parser to work with
+       -- lazy ByteStrings?
+       return . loadDex . BS.concat $ chunks
+
+  where handler :: SomeException -> IO (Either String DexFile)
+        handler err = return (Left ("Could not find classes.dex in apk: " ++ show err))
 
 -- | Load the first .dex file found in an Apk, a raw .dex file, or a
 -- Java source file.
