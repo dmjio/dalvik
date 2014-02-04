@@ -23,6 +23,7 @@ module Dalvik.SSA.ClassHierarchy (
 
 import Control.Concurrent.MVar as MV
 import Control.Monad ( foldM )
+import qualified Data.Foldable as F
 import qualified Data.List as L
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
@@ -219,14 +220,14 @@ anyTarget cha i k mref t0 =
           lmeth = basicBlockMethod bb
       pt <- superclass cha (classType (methodClass lmeth))
       resolveMethodRef cha pt mref
-    _ -> unsafePerformIO $ go S.empty rootType
+    _ -> go S.empty rootType
   where
     rootType = if k /= MethodInvokeSuper then t0 else fromMaybe t0 (superclass cha t0)
-    go ms t = do
+    go ms t =
       let ms' = case resolveMethodRef cha t mref of
             Just m -> S.insert m ms
             Nothing -> ms
-      foldM go ms' (subclasses cha t)
+      in F.foldl' go ms' (subclasses cha t)
 
 -- | Given a class (or interface) name and a method name, find all of
 -- the 'Method's implementing that interface method.
