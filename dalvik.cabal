@@ -17,7 +17,7 @@ Library
     Extensions:
 
     Build-Depends:  base >= 4 && < 5,
-                    attoparsec >= 0.10.0.0 && < 0.11,
+                    attoparsec >= 0.10.0.0 && < 0.12,
                     bytestring >= 0.9,
                     cereal,
                     conduit >= 1,
