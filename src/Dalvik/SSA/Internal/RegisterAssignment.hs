@@ -32,8 +32,10 @@ getParamList df meth
       return $ findNames (methCode meth) paramIDs
 
     findNames :: Maybe CodeItem -> [DT.TypeId] -> [(Maybe BS.ByteString, DT.TypeId)]
-    findNames (Just (CodeItem { codeDebugInfo = Just di })) ps =
-      map (first attachParamName) psWithNameIndices
+    findNames (Just (CodeItem { codeDebugInfo = Just di })) ps
+      | length (dbgParamNames di) == length ps =
+        map (first attachParamName) psWithNameIndices
+      | otherwise = zip (repeat Nothing) ps
       where
         psWithNameIndices = zip (dbgParamNames di) ps
         attachParamName ix
