@@ -93,6 +93,23 @@ executable SSADumper
   ghc-options: -Wall -O1 -rtsopts
   ghc-prof-options: -prof -auto-all
 
+test-suite ssa-tests
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: tests/ssa-tests
+  ghc-options: -Wall -O1
+  build-depends: base == 4.*,
+                 dalvik,
+                 containers,
+                 HUnit,
+                 test-framework,
+                 test-framework-hunit,
+                 filepath,
+                 filemanip >= 0.3.6,
+                 bytestring,
+                 failure
+
 test-suite SSALabels
   default-language: Haskell2010
   type: exitcode-stdio-1.0

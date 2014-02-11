@@ -1,0 +1,5 @@
+SimplePhi { numBlocks = 1
+          , phis = []
+          , blockPhis = []
+          , assignedPhis = []
+          }

@@ -1,0 +1,6 @@
+SimplePhi { numBlocks = 3
+          , phis = [ (0, fromList ["0", "%%arg0"])
+                   ]
+          , blockPhis = [(0, 1)]
+          , assignedPhis = [(0, "target")]
+          }
