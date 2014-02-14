@@ -10,6 +10,7 @@ module Dalvik.SSA.Types (
   Class(..),
   classStaticField,
   classInstanceField,
+  classMethods,
   Field(..),
   Method(..),
   methodSignature,
@@ -482,6 +483,9 @@ classStaticField k s = HM.lookup (BS.pack s) (_classStaticFieldMap k)
 
 classInstanceField :: Class -> String -> Maybe Field
 classInstanceField k s = HM.lookup (BS.pack s) (_classInstanceFieldMap k)
+
+classMethods :: Class -> [Method]
+classMethods klass = classDirectMethods klass ++ classVirtualMethods klass
 
 instance Eq Class where
   (==) = (==) `on` classId
