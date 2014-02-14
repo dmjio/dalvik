@@ -50,8 +50,6 @@ findMethods predicate cha = HM.foldl' collect HS.empty (typeToClassMap cha)
 
     filteredMethods cl = filter predicate (classMethods cl)
 
-    classMethods cl = (classDirectMethods cl) ++ (classVirtualMethods cl)
-
 emptyClassHierarchy :: ClassHierarchy
 emptyClassHierarchy =
   ClassHierarchy { hierarchy = HM.empty
@@ -143,13 +141,13 @@ definition ch t = HM.lookup t (typeToClassMap ch)
 resolveMethodRef :: ClassHierarchy -> Type -> MethodRef -> Maybe Method
 resolveMethodRef ch t0 mref = go t0
   where
-    go t = do
-      let mm = do
-            klass <- definition ch t
-            F.foldl' (mostSpecificMatch mref) Nothing (classVirtualMethods klass)
-      case mm of
+    go t =
+      case definition ch t of
         Nothing -> maybe Nothing go (superclass ch t)
-        Just _ -> mm
+        Just klass ->
+          case F.foldl' (mostSpecificMatch mref) Nothing (classVirtualMethods klass) of
+            Nothing -> maybe Nothing go (superclass ch t)
+            res@(Just _) -> res
 
 mostSpecificMatch :: MethodRef -> Maybe Method -> Method -> Maybe Method
 mostSpecificMatch mref acc m
