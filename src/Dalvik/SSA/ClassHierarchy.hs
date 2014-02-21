@@ -195,11 +195,8 @@ anyTarget :: ClassHierarchy -> Instruction -> InvokeVirtualKind -> MethodRef -> 
 anyTarget cha i k mref t0 =
   case k of
     MethodInvokeInterface -> implementationsOfInterfaceMethod cha mref
-    MethodInvokeSuper -> maybe S.empty S.singleton $ do
-      let bb = instructionBasicBlock i
-          lmeth = basicBlockMethod bb
-      pt <- superclass cha (classType (methodClass lmeth))
-      resolveMethodRef cha pt mref
+    MethodInvokeSuper ->
+      maybe S.empty S.singleton $ resolveMethodRef cha (methodRefClass mref) mref
     _ -> go S.empty rootType
   where
     rootType = if k /= MethodInvokeSuper then t0 else fromMaybe t0 (superclass cha t0)
