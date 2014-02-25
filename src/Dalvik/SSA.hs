@@ -73,6 +73,7 @@ import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
+import qualified Text.PrettyPrint.HughesPJClass as PP
 
 import qualified Dalvik.AccessFlags as DT
 import qualified Dalvik.Instruction as DT
@@ -279,7 +280,7 @@ translateClass k (_, klass) = do
 
     let c = Class { classId = cid
                   , classType = t
-                  , className = BS.pack $ show t
+                  , className = BS.pack $ PP.prettyShow t
                   , classSourceName = sname
                   , classAccessFlags = DT.classAccessFlags klass
                   , classParent = parent

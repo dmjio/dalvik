@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -41,18 +42,23 @@ module Dalvik.SSA.Types (
   module Dalvik.ClassName
   ) where
 
+import GHC.Generics ( Generic )
+
 import Control.Exception ( Exception )
 import Control.Failure
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Char as C
 import Data.Function ( on )
 import Data.Hashable
 import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import Data.List.NonEmpty ( NonEmpty )
+import Data.List.Split ( splitOn )
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
+import qualified Text.Show.Pretty as PP
 
 import Dalvik.AccessFlags
 import Dalvik.ClassName
@@ -162,7 +168,9 @@ data Type = VoidType
           | UnknownType
             -- ^ We use this in cases where we can't deduce a type
             -- during the SSA translation
-          deriving (Eq, Ord)
+          deriving (Eq, Ord, Read, Show, Generic)
+
+instance PP.PrettyVal Type
 
 instance Hashable Type where
   hashWithSalt s VoidType = hashWithSalt s (1 :: Int)

@@ -26,6 +26,7 @@ Library
                     floatshow,
                     IntervalMap >= 0.3.0.0,
                     prettyclass >= 1,
+                    pretty-show,
                     text,
                     transformers >= 0.3,
                     unordered-containers >= 0.2.3.0,

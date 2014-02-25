@@ -383,9 +383,6 @@ instance Show Parameter where
 instance Pretty Parameter where
   pPrint = prettyFormalParamDoc
 
-instance Show Type where
-  show = PP.render . prettyTypeDoc
-
 instance Pretty Type where
   pPrint = prettyTypeDoc
 

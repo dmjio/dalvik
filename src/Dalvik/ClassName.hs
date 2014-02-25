@@ -11,13 +11,17 @@ module Dalvik.ClassName (
 import qualified Data.ByteString.Char8 as BS
 import Data.Hashable
 import Data.Monoid
+import qualified Text.Show.Pretty as PP
 
 -- | An abstract representation of a Java class name.  These can be
 -- rendered into mangled type expression format: e.g.,
 --
 -- > Ljava/lang/Object;
 data ClassName = ClassName [BS.ByteString]
-               deriving (Eq, Ord, Show)
+               deriving (Eq, Ord, Read, Show)
+
+instance PP.PrettyVal ClassName where
+  prettyVal = PP.prettyVal . humanClassName
 
 instance Hashable ClassName where
   hashWithSalt s (ClassName cs) = hashWithSalt s cs
