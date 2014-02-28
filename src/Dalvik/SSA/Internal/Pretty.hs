@@ -228,6 +228,23 @@ binaryOpDoc op =
     UShr -> PP.text "ushr"
     RSub -> PP.text "rsub"
 
+instance Pretty Binop where
+  pPrint = binaryOpDoc
+
+unop :: Unop -> Doc
+unop op =
+  case op of
+    NegInt -> PP.text "neg"
+    NotInt -> PP.text "not"
+    NegLong -> PP.text "neg"
+    NotLong -> PP.text "not"
+    NegFloat -> PP.text "neg"
+    NegDouble -> PP.text "neg"
+    Convert _ _ -> PP.text "convert"
+
+instance Pretty Unop where
+  pPrint = unop
+
 unaryOpDoc :: Unop -> Value -> Doc
 unaryOpDoc op v =
   case op of
@@ -252,6 +269,9 @@ convertTypeDoc t =
     Float -> PP.text "float"
     Double -> PP.text "double"
 
+instance Pretty CType where
+  pPrint = convertTypeDoc
+
 cmpopDoc :: CmpOp -> Doc
 cmpopDoc o =
   case o of
@@ -260,6 +280,9 @@ cmpopDoc o =
     CLDouble -> PP.text "double lt bias"
     CGDouble -> PP.text "double gt bias"
     CLong -> PP.text "long"
+
+instance Pretty CmpOp where
+  pPrint = cmpopDoc
 
 switchCaseDoc :: (Int64, BasicBlock) -> Doc
 switchCaseDoc (i, target) =
@@ -274,6 +297,9 @@ ifopDoc o =
     Le -> PP.text "le"
     Gt -> PP.text "gt"
     Ge -> PP.text "ge"
+
+instance Pretty IfOp where
+  pPrint = ifopDoc
 
 blockIdDoc :: BasicBlock -> Doc
 blockIdDoc = PP.int . basicBlockNumber
