@@ -50,12 +50,12 @@ module Dalvik.SSA.Internal.Labeling (
   generatedLabelsAreUnique
   ) where
 
-import Control.Arrow ( second )
 import Control.Failure
 import Control.Monad ( filterM, forM_, liftM )
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.Foldable as F
 import Data.Function ( on )
 import Data.IntSet ( IntSet )
 import qualified Data.IntSet as IS
@@ -102,7 +102,7 @@ data Labeling =
            , labelingWriteRegs :: Map Int Label
            , labelingPhis :: Map Label (Set Label)
              -- ^ The incoming values for each phi node (phi labels are the map keys)
-           , labelingPhiSources :: Map (Label, Label) (Set BlockNumber)
+           , labelingPhiSources :: Map Label (Map Label (Set BlockNumber))
              -- ^ Each key is (PhiLabel, IncomingValueLabel) and the
              -- value associated is the basic block that the incoming
              -- value came from.  We want to separate them out so that
@@ -130,7 +130,8 @@ labelingPhiIncomingValues labeling phi = concatMap addBlockNumber (S.toList ivs)
   where
     Just ivs = M.lookup phi (labelingPhis labeling)
     addBlockNumber iv
-      | Just tagged <- M.lookup (phi, iv) (labelingPhiSources labeling) =
+      | Just m <- M.lookup phi (labelingPhiSources labeling)
+      , Just tagged <- M.lookup iv m =
         zip (S.toList tagged) (repeat iv)
       | otherwise = error ("Missing labelingPhiSources for " ++ show phi)
 
@@ -148,11 +149,21 @@ data LabelState =
                -- a result separately from the normal map.  This is only
                -- really required because of the compound instructions
                -- 'IBinopAssign' and 'FBinopAssign'
+             , registersWithLabel :: Map Label (Set (Word16, BlockNumber))
+               -- ^ A reverse mapping to let us know which registers
+               -- (in which block) refer to a label in
+               -- 'currentDefinition'.  We need this reverse map to
+               -- efficiently update just those entries when
+               -- eliminating phi nodes.
              , phiOperands :: Map Label (Set Label)
                -- ^ Operands of each phi node.  They are stored
                -- separately to make them easier to update (since they
                -- do need to be updated in several cases).
-             , phiOperandSources :: Map (Label, Label) (Set BlockNumber)
+             , phiOperandSources :: Map Label (Map Label (Set BlockNumber))
+               -- ^ Record where each phi operand came from (a block
+               -- number).  Note that one operand could have come from
+               -- more than one block (hence the 'Set').  This is only
+               -- used when constructing the Labeling.
              , incompletePhis :: Map BlockNumber (Map Word16 Label)
                -- ^ These are the phi nodes in each block that cannot
                -- be resolved yet because there are unfilled
@@ -160,6 +171,10 @@ data LabelState =
                -- definitions that affect the phi node by the time
                -- they are filled.  Once those blocks are filled, the
                -- incomplete phis will be filled in.
+             , eliminatedPhis :: Map Label Label
+               -- ^ If we have eliminated a phi node, track what
+               -- references were replaced with.  This must be
+               -- searched transitively.
              , valueUsers :: Map Label (Set Use)
                -- ^ Record the users of each value.  This index is
                -- necessary for phi simplification.  When a trivial
@@ -215,9 +230,11 @@ emptyLabelState argRegs =
   LabelState { currentDefinition = fst $ L.foldl' addArgDef (M.empty, 0) argRegs
              , instructionLabels = M.empty
              , instructionResultLabels = M.empty
+             , registersWithLabel = M.empty
              , phiOperands = M.empty
              , phiOperandSources = M.empty
              , incompletePhis = M.empty
+             , eliminatedPhis = M.empty
              , valueUsers = M.empty
              , filledBlocks = IS.empty
              , sealedBlocks = IS.empty
@@ -334,8 +351,13 @@ label' df = do
                   , labelingParameters = argLabels
                   }
   where
+    -- Record the phi nodes introduced in each basic block.  The key
+    -- thing to note here is that we do not include phi nodes with no
+    -- references.
     addPhiForBlock s p@(PhiLabel bnum _ _) m
-      | Just ivs <- M.lookup p (phiOperands s), not (S.null ivs) = M.insertWith (++) bnum [p] m
+      | Just _ <- M.lookup p (phiOperands s)
+      , maybe False (not . S.null) $ M.lookup p (valueUsers s)
+         = M.insertWith (++) bnum [p] m
       | otherwise = m
     addPhiForBlock _ _ m = m
 
@@ -361,8 +383,7 @@ labelAndFillInstruction df i@(ix, _) = do
       case instructionEndsBlock bbs ix of
         False -> return ()
         True -> do
-          s <- get
-          put s { filledBlocks = IS.insert bnum (filledBlocks s) }
+          modify $ \s -> s { filledBlocks = IS.insert bnum (filledBlocks s) }
 
           -- Check this block and all of its successors.  For each one,
           -- if all predecessors are filled, then seal (unless already sealed)
@@ -481,7 +502,6 @@ labelInstruction df (ix, inst) = do
     StaticFieldOp (Get at) dst _ -> rw (accessWide at) dst
     StaticFieldOp (Put _) src _ -> rr src
     Invoke ikind _ mid srcs -> do
-      -- filterWidePairs :: (Failure DecodeError f) => DT.DexFile -> DT.MethodId -> DT.InvokeKind -> [DT.Reg16] -> f [DT.Reg16]
       srcs' <- lift $ filterWidePairs df mid ikind srcs
       rrs srcs'
     Unop op dst src -> rr src >> rw (unopWide op) dst
@@ -528,6 +548,11 @@ recordReadRegister :: (Failure DecodeError f, FromRegister a) => Int -> Instruct
 recordReadRegister ix inst instBlock srcReg = do
   lbl <- readRegister srcReg instBlock
   recordAssignment ix inst srcReg lbl
+
+-- A possible source of the problem is that we only record the use of
+-- the label after we create it.  Possibly a necessary circularity,
+-- but it means that a fake phi node is created and eliminated before
+-- knowing that it will have a user here.
 
 -- | Create a label for this value, associated with the destination register.
 recordWriteRegister :: (Failure DecodeError f, FromRegister a) => Bool -> Int -> BlockNumber -> a -> SSALabeller f ()
@@ -599,7 +624,9 @@ writeRegisterLabel wide (fromRegister -> reg) block l = do
   s <- get
   let defs' = M.insertWith M.union reg (M.singleton block l) (currentDefinition s)
       defs'' = if wide then M.adjust (M.delete block) (reg+1) defs' else defs'
-  put s { currentDefinition = defs'' }
+  put s { currentDefinition = defs''
+        , registersWithLabel = M.insertWith' S.union l (S.singleton (reg, block)) (registersWithLabel s)
+        }
 
 
 -- | Find the label for a register being read from.  If we have a
@@ -608,8 +635,8 @@ writeRegisterLabel wide (fromRegister -> reg) block l = do
 -- variable numbering.
 readRegister :: (Failure DecodeError f, FromRegister a) => a -> BlockNumber -> SSALabeller f Label
 readRegister (fromRegister -> reg) block = do
-  s <- get
-  case M.lookup reg (currentDefinition s) of
+  curDefs <- gets currentDefinition
+  case M.lookup reg curDefs of
     Nothing -> readRegisterRecursive reg block
     Just varDefs ->
       case M.lookup block varDefs of
@@ -682,65 +709,97 @@ addPhiOperands reg block phi = do
         Nothing -> return ()
         Just lbl -> appendPhiOperand phi 0 lbl
   tryRemoveTrivialPhi phi
+  remapPhi phi
+
+remapPhi :: (Failure DecodeError f) => Label -> SSALabeller f Label
+remapPhi l = do
+  ep <- gets eliminatedPhis
+  case M.lookup l ep of
+    Nothing -> return l
+    Just l' -> remapPhi l'
 
 -- | Remove any trivial phi nodes.  The algorithm is a bit aggressive
 -- with phi nodes.  This step makes sure we have the minimal number of
 -- phi nodes.  A phi node is trivial if it has only one operand
 -- (besides itself).  Removing a phi node requires finding all of its
 -- uses and replacing them with the trivial (singular) value.
-tryRemoveTrivialPhi :: (Failure DecodeError f) => Label -> SSALabeller f Label
+tryRemoveTrivialPhi :: (Failure DecodeError f) => Label -> SSALabeller f ()
 tryRemoveTrivialPhi phi = do
   triv <- trivialPhiValue phi
   case triv of
-    Nothing -> return phi
+    Nothing -> return ()
     Just tval -> do
       useMap <- gets valueUsers
       -- Note that this list of value users does not include other phi nodes.
       -- This is not a critical problem because we replace phi nodes that are
       -- phi operands separately in 'replacePhiBy'.
       let allUsers = maybe [] S.toList $ M.lookup phi useMap
-          users = filter (isNotThisPhi phi) allUsers
-      replacePhiBy users phi tval
+      replacePhiBy allUsers phi tval
 
       -- Clear out the old operands to mark this phi node as dead.
       -- This will be important to note during translation (and for
       -- pretty printing).
-      modify $ \s -> s { phiOperands = M.insert phi S.empty (phiOperands s) }
+      modify $ \s -> s { phiOperands = M.insert phi S.empty (phiOperands s)
+                       , valueUsers = M.delete phi (valueUsers s)
+                       }
 
       -- Check each user
-      forM_ users $ \u ->
+      forM_ allUsers $ \u ->
         case u of
-          PhiUse phi' -> do
-            _ <- tryRemoveTrivialPhi phi'
-            return ()
+          PhiUse phi' | phi' /= phi -> do
+            -- There is an interesting note here.  This recursive call
+            -- to 'tryRemoveTrivialPhi' could remove a phi node that
+            -- is already being queried in 'globalValueNumbering'.  If
+            -- that is the case, 'globalValueNumbering' won't
+            -- necessarily see the change if we just return (and drop
+            -- it) here.  Instead, we have a side map of
+            -- eliminatedPhis that we can consult to figure out,
+            -- globally, which phis have been eliminated.
+            --
+            -- A cleaner alternative would be to add a layer of
+            -- indirection and register uses before we call
+            -- 'readRegister'.  Then all users would be registered and
+            -- could be updated in this loop.  Unfortunately, that
+            -- isn't really possible with the current formulation
+            -- since we can't allocate a label before we start
+            -- querying.  That would be a good next change.
+            tryRemoveTrivialPhi phi'
           _ -> return ()
-      return tval
-  where
-    isNotThisPhi :: Label -> Use -> Bool
-    isNotThisPhi _ (NormalUse _ _ _) = True
-    isNotThisPhi p (PhiUse l) = p == l
+
+      modify $ \s -> s { phiOperands = M.delete phi (phiOperands s)
+                       , phiOperandSources = M.delete phi (phiOperandSources s)
+                       , registersWithLabel = M.delete phi (registersWithLabel s)
+                       , eliminatedPhis = M.insert phi tval (eliminatedPhis s)
+                       }
+      return ()
 
 -- | Replace all of the given uses by the new label provided.
---
--- FIXME: This could be made more efficient.  If the new label,
--- @trivialValue@, isn't an argument, then it should be sufficient to
--- use writeRegisterLabel for each use.
 replacePhiBy :: (Failure DecodeError f) => [Use] -> Label -> Label -> SSALabeller f ()
 replacePhiBy uses oldPhi trivialValue = do
-  modify $ \s -> s { phiOperands = M.map (S.map replacePhiUses) (phiOperands s)
-                   , phiOperandSources = M.mapKeys (second replacePhiUses) (phiOperandSources s)
-                   , currentDefinition = fmap (fmap replacePhiUses) (currentDefinition s)
-                   }
-  -- Note that we do nothing right now in the phi use case.  This is
-  -- because we have handled phis in the above modify call.  That is
-  -- heavy handed - if we ever make that more efficient, we might need
-  -- to change the PhiUse case here.
+  regLabs <- gets registersWithLabel
+  case M.lookup oldPhi regLabs of
+    Nothing -> return ()
+    Just rls ->
+      F.forM_ rls $ \(r, b) -> do
+        modify $ \s ->
+          let replaceInBlock = M.insert b trivialValue
+          in s { currentDefinition = M.adjust replaceInBlock r (currentDefinition s)
+               , registersWithLabel = M.insertWith S.union trivialValue (S.singleton (r, b)) (registersWithLabel s)
+               }
   forM_ uses $ \u ->
     case u of
       NormalUse ix inst reg -> recordAssignment ix inst reg trivialValue
-      PhiUse _ -> return ()
-  where
-    replacePhiUses u = if oldPhi == u then trivialValue else u
+      PhiUse phiUser -> do
+        let replaceOp = S.insert trivialValue . S.delete oldPhi
+        modify $ \s ->
+          let opSrcs = fromMaybe M.empty $ M.lookup phiUser (phiOperandSources s)
+              bset = fromMaybe S.empty $ M.lookup oldPhi opSrcs
+              opSrcs' = M.delete oldPhi $ M.insert trivialValue bset opSrcs
+          in s { phiOperands = M.adjust replaceOp phiUser (phiOperands s)
+               , valueUsers = M.insertWith' S.union trivialValue (S.singleton u) (valueUsers s)
+               , phiOperandSources = M.insert phiUser opSrcs' (phiOperandSources s)
+               }
+        return ()
 
 -- | A phi node is trivial if it merges two or more distinct values
 -- (besides itself).  Unique operands and then remove self references.
@@ -778,7 +837,7 @@ appendPhiOperand phi bnum operand = modify appendOperand
   where
     appendOperand s =
       s { phiOperands = M.insertWith S.union phi (S.singleton operand) (phiOperands s)
-        , phiOperandSources = M.insertWith S.union (phi, operand) (S.singleton bnum) (phiOperandSources s)
+        , phiOperandSources = M.insertWith' (M.unionWith S.union) phi (M.singleton operand (S.singleton bnum)) (phiOperandSources s)
         , valueUsers = M.insertWith S.union operand (S.singleton (PhiUse phi)) (valueUsers s)
         }
 
