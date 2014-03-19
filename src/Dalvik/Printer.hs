@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Dalvik.Printer
@@ -32,8 +33,10 @@ import Dalvik.Types
 
 type Str = Builder
 
+#if ! MIN_VERSION_bytestring(0,10,4)
 instance IsString Builder where
   fromString = B.string7
+#endif
 
 (+++) :: (Monoid s) => s -> s -> s
 (+++) = mappend
