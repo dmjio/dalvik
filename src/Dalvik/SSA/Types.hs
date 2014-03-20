@@ -31,6 +31,7 @@ module Dalvik.SSA.Types (
   constantId,
   constantType,
   Instruction(..),
+  instructionOperands,
   InvokeDirectKind(..),
   InvokeVirtualKind(..),
   LL.CmpOp(..),
@@ -48,6 +49,7 @@ import Control.Exception ( Exception )
 import Control.Failure
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Char as C
+import qualified Data.Foldable as F
 import Data.Function ( on )
 import Data.Hashable
 import Data.HashMap.Strict ( HashMap )
@@ -55,6 +57,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import Data.List.NonEmpty ( NonEmpty )
 import Data.List.Split ( splitOn )
+import Data.Maybe ( fromMaybe )
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
@@ -553,3 +556,52 @@ instance Hashable InvokeVirtualKind where
   hashWithSalt s MethodInvokeSuper = hashWithSalt s (2 :: Int)
   hashWithSalt s MethodInvokeVirtual = hashWithSalt s (3 :: Int)
 
+
+-- | Returns a view of the operands of an instruction
+--
+-- Only 'Value' operands are included.  Constant Ints are not, nor are
+-- Types.
+instructionOperands :: Instruction -> [Value]
+instructionOperands i =
+  case i of
+    Return { returnValue = rv } -> maybe [] (:[]) rv
+    MoveException {} -> []
+    MonitorEnter { monitorReference = v } -> [v]
+    MonitorExit { monitorReference = v } -> [v]
+    CheckCast { castReference = r } -> [r]
+    InstanceOf { instanceOfReference = r } -> [r]
+    ArrayLength { arrayReference = r } -> [r]
+    NewInstance {} -> []
+    NewArray { newArrayLength = l
+             , newArrayContents = vs
+             } -> l : fromMaybe [] vs
+    FillArray { fillArrayReference = r } -> [r]
+    Throw { throwReference = r } -> [r]
+    ConditionalBranch { branchOperand1 = o1
+                      , branchOperand2 = o2
+                      } -> [o1, o2]
+    UnconditionalBranch {} -> []
+    Switch { switchValue = v } -> [v]
+    Compare { compareOperand1 = op1
+            , compareOperand2 = op2
+            } -> [op1, op2]
+    UnaryOp { unaryOperand = op } -> [op]
+    BinaryOp { binaryOperand1 = op1
+             , binaryOperand2 = op2
+             } -> [op1, op2]
+    ArrayGet { arrayReference = r
+             , arrayIndex = ix
+             } -> [r, ix]
+    ArrayPut { arrayReference = r
+             , arrayIndex = ix
+             , arrayPutValue = v
+             } -> [r, ix, v]
+    StaticGet {} -> []
+    StaticPut { staticOpPutValue = v } -> [v]
+    InstanceGet { instanceOpReference = r } -> [r]
+    InstancePut { instanceOpReference = r
+                , instanceOpPutValue = v
+                } -> [r, v]
+    InvokeVirtual { invokeVirtualArguments = args } -> F.toList args
+    InvokeDirect { invokeDirectArguments = args } -> args
+    Phi { phiValues = ivs } -> map snd ivs
