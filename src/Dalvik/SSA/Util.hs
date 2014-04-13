@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_HADDOCK hide #-}
@@ -11,8 +10,7 @@ module Dalvik.SSA.Util (
   LookupError(..)
   ) where
 
-import Control.Exception
-import Control.Failure
+import qualified Control.Monad.Catch as E
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.List as L
 import Data.Maybe ( fromMaybe )
@@ -32,34 +30,34 @@ data LookupError = NoClassFound BS.ByteString
                  | NoFieldFound BS.ByteString BS.ByteString
                  deriving (Eq, Ord, Show, Typeable)
 
-instance Exception LookupError
+instance E.Exception LookupError
 
-findClassByName :: (Failure LookupError f) => BS.ByteString -> DexFile -> f Class
+findClassByName :: (E.MonadThrow m) => BS.ByteString -> DexFile -> m Class
 findClassByName name df = maybe err return $ do
   L.find ((== name) . className) (dexClasses df)
   where
-    err = failure $ NoClassFound name
+    err = E.throwM $ NoClassFound name
 
-findMethodByName :: (Failure LookupError f) => BS.ByteString -> String -> Class -> f Method
+findMethodByName :: (E.MonadThrow m) => BS.ByteString -> String -> Class -> m Method
 findMethodByName mname sig klass = maybe err return $ do
   tsig <- parseMethodSignature (BS.pack sig)
   L.find (matchingMethod tsig) ms
   where
-    err = failure $ NoMethodFound mname sig (className klass)
+    err = E.throwM $ NoMethodFound mname sig (className klass)
     ms = classDirectMethods klass ++ classVirtualMethods klass
     matchingMethod tsig m =
       let ps = if methodIsVirtual m then tail (methodParameters m) else methodParameters m
           msig = (map parameterType ps, methodReturnType m)
       in methodName m == mname && msig == tsig
 
-findStaticFieldByName :: (Failure LookupError f) => BS.ByteString -> Class -> f Field
+findStaticFieldByName :: (E.MonadThrow m) => BS.ByteString -> Class -> m Field
 findStaticFieldByName name klass = maybe err (return . snd) $ do
   L.find ((== name) . fieldName . snd) (classStaticFields klass)
   where
-    err = failure $ NoFieldFound name (className klass)
+    err = E.throwM $ NoFieldFound name (className klass)
 
-findInstanceFieldByName :: (Failure LookupError f) => BS.ByteString -> Class -> f Field
+findInstanceFieldByName :: (E.MonadThrow m) => BS.ByteString -> Class -> m Field
 findInstanceFieldByName name klass = maybe err (return . snd) $ do
   L.find ((== name) . fieldName . snd) (classInstanceFields klass)
   where
-    err = failure $ NoFieldFound name (className klass)
+    err = E.throwM $ NoFieldFound name (className klass)

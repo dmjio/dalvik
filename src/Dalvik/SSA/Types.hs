@@ -45,10 +45,8 @@ module Dalvik.SSA.Types (
 
 import GHC.Generics ( Generic )
 
-import Control.Exception ( Exception )
-import Control.Failure
+import qualified Control.Monad.Catch as E
 import qualified Data.ByteString.Char8 as BS
-import qualified Data.Char as C
 import qualified Data.Foldable as F
 import Data.Function ( on )
 import Data.Hashable
@@ -56,7 +54,6 @@ import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import Data.List.NonEmpty ( NonEmpty )
-import Data.List.Split ( splitOn )
 import Data.Maybe ( fromMaybe )
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
@@ -112,12 +109,12 @@ instance IsValue Value where
 -- | Convenient and safe casting from 'Value' to a concrete type
 -- (either 'Constant', 'Instruction', or 'Parameter').
 class FromValue a where
-  fromValue :: (Failure CastException f) => Value -> f a
+  fromValue :: (E.MonadThrow m) => Value -> m a
 
 data CastException = CastException String
                    deriving (Eq, Ord, Show, Typeable)
 
-instance Exception CastException
+instance E.Exception CastException
 
 
 -- FIXME: For now, all numeric constants are integer types because we
@@ -155,7 +152,7 @@ instance IsValue Constant where
 
 instance FromValue Constant where
   fromValue (ConstantV c) = return c
-  fromValue _ = failure $ CastException "Not a Constant"
+  fromValue _ = E.throwM $ CastException "Not a Constant"
 
 data Type = VoidType
           | ByteType
@@ -416,7 +413,7 @@ instance IsValue Instruction where
 
 instance FromValue Instruction where
   fromValue (InstructionV i) = return i
-  fromValue _ = failure $ CastException "Not an Instruction"
+  fromValue _ = E.throwM $ CastException "Not an Instruction"
 
 data Parameter = Parameter { parameterId :: UniqueId
                            , parameterType :: Type
@@ -441,7 +438,7 @@ instance IsValue Parameter where
 
 instance FromValue Parameter where
   fromValue (ParameterV p) = return p
-  fromValue _ = failure $ CastException "Not a Parameter"
+  fromValue _ = E.throwM $ CastException "Not a Parameter"
 
 data Method = Method { methodId :: UniqueId
                      , methodName :: BS.ByteString

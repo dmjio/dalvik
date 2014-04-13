@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 -- | This module implements SSA value numbering over the low-level Dalvik IR
@@ -50,7 +49,7 @@ module Dalvik.SSA.Internal.Labeling (
   generatedLabelsAreUnique
   ) where
 
-import Control.Failure
+import qualified Control.Monad.Catch as E
 import Control.Monad ( filterM, forM_, liftM )
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.RWS.Strict
@@ -256,8 +255,8 @@ labelingInstructionAt l = (labelingInstructions l V.!?)
 -- transformation.
 --
 -- See note [Overview] for details
-labelMethod :: (Failure DecodeError f) => DT.DexFile -> DT.EncodedMethod -> f Labeling
-labelMethod _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
+labelMethod :: (E.MonadThrow m) => DT.DexFile -> DT.EncodedMethod -> m Labeling
+labelMethod _ (DT.EncodedMethod mId _ Nothing) = E.throwM $ NoCodeForMethod mId
 labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
   insts <- DT.decodeInstructions (codeInsns codeItem)
   regMap <- methodRegisterAssignment dx em
@@ -267,8 +266,8 @@ labelMethod dx em@(DT.EncodedMethod _ _ (Just codeItem)) = do
 -- | Parse the try/catch description tables for this 'EncodedMethod'
 -- from the DexFile.  The tables are reduced to summaries
 -- ('ExceptionRange') that are easier to work with.
-methodExceptionRanges :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [ExceptionRange]
-methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = failure $ NoCodeForMethod mId
+methodExceptionRanges :: (E.MonadThrow m) => DT.DexFile -> EncodedMethod -> m [ExceptionRange]
+methodExceptionRanges _ (DT.EncodedMethod mId _ Nothing) = E.throwM $ NoCodeForMethod mId
 methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) =
   mapM toExceptionRange (codeTryItems codeItem)
   where
@@ -276,7 +275,7 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) =
     toExceptionRange tryItem = do
       let hOffset = fromIntegral $ tryHandlerOff tryItem
       case V.findIndex ((==hOffset) . chHandlerOff) catches of
-        Nothing ->failure $ NoHandlerAtOffset hOffset
+        Nothing -> E.throwM $ NoHandlerAtOffset hOffset
         Just cix -> do
           let errMsg = error ("No catch handler entry for handler at offset " ++ show cix)
           let ch = fromMaybe errMsg $ catches V.!? cix
@@ -292,7 +291,7 @@ methodExceptionRanges dx (DT.EncodedMethod _ _ (Just codeItem)) =
 --
 -- If an argument has no name, it will be assigned a generic one that
 -- cannot conflict with the real arguments.
-labelInstructions :: (Failure DecodeError f)
+labelInstructions :: (E.MonadThrow m)
                      => DT.DexFile
                      -> [(Maybe BS.ByteString, Word16)]
                      -- ^ A mapping of argument names to the register numbers
@@ -300,7 +299,7 @@ labelInstructions :: (Failure DecodeError f)
                      -- ^ Information about exception handlers in the method
                      -> [Instruction]
                      -- ^ The instruction stream for the method
-                     -> f Labeling
+                     -> m Labeling
 labelInstructions df argRegs ers is = liftM fst $ evalRWST (label' df) e0 s0
   where
     s0 = emptyLabelState argRegs'
@@ -314,10 +313,10 @@ labelInstructions df argRegs ers is = liftM fst $ evalRWST (label' df) e0 s0
         Nothing -> (generateNameForParameter ix, reg)
 
 -- | An environment to carry state for the labeling algorithm
-type SSALabeller f = RWST LabelEnv () LabelState f
+type SSALabeller m = RWST LabelEnv () LabelState m
 
 -- | Driver for labeling
-label' :: (Failure DecodeError f) => DT.DexFile -> SSALabeller f Labeling
+label' :: (E.MonadThrow m) => DT.DexFile -> SSALabeller m Labeling
 label' df = do
   ivec <- asks envInstructionStream
   argRegs <- asks envRegisterAssignment
@@ -366,7 +365,7 @@ label' df = do
 -- If we do fill a block, we have to see if this filling will let us
 -- seal any other blocks.  A block can be sealed if all of its
 -- predecessors are filled.
-labelAndFillInstruction :: (Failure DecodeError f) => DT.DexFile -> (Int, Instruction) -> SSALabeller f ()
+labelAndFillInstruction :: (E.MonadThrow m) => DT.DexFile -> (Int, Instruction) -> SSALabeller m ()
 labelAndFillInstruction df i@(ix, _) = do
   bbs <- asks envBasicBlocks
   -- If an instruction doesn't have a block number, it is dead code.
@@ -398,7 +397,7 @@ labelAndFillInstruction df i@(ix, _) = do
 -- | Algorithm 4 (section 2.3) from the SSA algorithm.  This is called
 -- once all of the predecessors of the block are filled.  This
 -- computes the phi operands for incomplete phis.
-sealBlock :: (Failure DecodeError f) => BlockNumber -> SSALabeller f ()
+sealBlock :: (E.MonadThrow m) => BlockNumber -> SSALabeller m ()
 sealBlock block = do
   iphis <- gets incompletePhis
   let blockPhis = maybe [] M.toList $ M.lookup block iphis
@@ -411,14 +410,14 @@ sealBlock block = do
 
 -- | Check if the given block is sealed (i.e., all of its predecessors
 -- are filled).
-blockIsSealed :: (Failure DecodeError f) => BlockNumber -> SSALabeller f Bool
+blockIsSealed :: (E.MonadThrow m) => BlockNumber -> SSALabeller m Bool
 blockIsSealed bname = do
   sealed <- gets sealedBlocks
   return $ IS.member bname sealed
 
 -- | Add an empty phi node as a placeholder.  The operands will be
 -- filled in once the block is sealed.
-addIncompletePhi :: (Failure DecodeError f) => Word16 -> BlockNumber -> Label -> SSALabeller f ()
+addIncompletePhi :: (E.MonadThrow m) => Word16 -> BlockNumber -> Label -> SSALabeller m ()
 addIncompletePhi reg block l = modify addP
   where
     addP s = s { incompletePhis =
@@ -426,7 +425,7 @@ addIncompletePhi reg block l = modify addP
                }
 
 -- | Check if we can seal a block (we can if all predecessors are filled).
-canSealBlock :: (Failure DecodeError f) => BlockNumber -> SSALabeller f Bool
+canSealBlock :: (E.MonadThrow m) => BlockNumber -> SSALabeller m Bool
 canSealBlock bid = do
   ps <- basicBlockPredecessorsM bid
   go ps
@@ -440,17 +439,17 @@ canSealBlock bid = do
 -- instruction is processed separately.  Apply *read* before *write*
 -- rules.  This will update the per-instruction register map.  That
 -- map will be used for the translation step.
-labelInstruction :: (Failure DecodeError f) => DT.DexFile -> (Int, Instruction) -> SSALabeller f ()
+labelInstruction :: (E.MonadThrow m) => DT.DexFile -> (Int, Instruction) -> SSALabeller m ()
 labelInstruction df (ix, inst) = do
   bbs <- asks envBasicBlocks
   let instBlock = basicBlockForInstruction bbs ix
-  let rr :: (Failure DecodeError f, FromRegister a) => a -> SSALabeller f ()
+  let rr :: (E.MonadThrow m, FromRegister a) => a -> SSALabeller m ()
       rr = recordReadRegister ix inst instBlock
       -- If we are writing a wide register, we have to remove the
       -- mapping for the second register of the pair.
-      rw :: (Failure DecodeError f, FromRegister a) => Bool -> a -> SSALabeller f ()
+      rw :: (E.MonadThrow m, FromRegister a) => Bool -> a -> SSALabeller m ()
       rw wide = recordWriteRegister wide ix instBlock
-      rrs :: (Failure DecodeError f, FromRegister a) => [a] -> SSALabeller f ()
+      rrs :: (E.MonadThrow m, FromRegister a) => [a] -> SSALabeller m ()
       rrs = mapM_ rr
   case inst of
     Nop -> return ()
@@ -544,7 +543,7 @@ constWide carg =
 -- | Looks up the mapping for this register at this instruction (from
 -- the mutable @currentDefinition@) and record the label mapping for
 -- this instruction.
-recordReadRegister :: (Failure DecodeError f, FromRegister a) => Int -> Instruction -> BlockNumber -> a -> SSALabeller f ()
+recordReadRegister :: (E.MonadThrow m, FromRegister a) => Int -> Instruction -> BlockNumber -> a -> SSALabeller m ()
 recordReadRegister ix inst instBlock srcReg = do
   lbl <- readRegister srcReg instBlock
   recordAssignment ix inst srcReg lbl
@@ -555,7 +554,7 @@ recordReadRegister ix inst instBlock srcReg = do
 -- knowing that it will have a user here.
 
 -- | Create a label for this value, associated with the destination register.
-recordWriteRegister :: (Failure DecodeError f, FromRegister a) => Bool -> Int -> BlockNumber -> a -> SSALabeller f ()
+recordWriteRegister :: (E.MonadThrow m, FromRegister a) => Bool -> Int -> BlockNumber -> a -> SSALabeller m ()
 recordWriteRegister wide ix instBlock dstReg = do
   lbl <- writeRegister wide dstReg instBlock
   modify (addAssignment lbl)
@@ -567,12 +566,12 @@ recordWriteRegister wide ix instBlock dstReg = do
 -- | At this instruction, associate the new given 'Label' with the
 -- named register.  Also add an entry for the reverse mapping (Label
 -- is used by this instruction/reg).
-recordAssignment :: (Failure DecodeError f, FromRegister a)
+recordAssignment :: (E.MonadThrow m, FromRegister a)
                     => Int
                     -> Instruction
                     -> a
                     -> Label
-                    -> SSALabeller f ()
+                    -> SSALabeller m ()
 recordAssignment ix inst (fromRegister -> reg) lbl =
   modify $ \s ->
   let lbls = instructionLabels s
@@ -581,13 +580,13 @@ recordAssignment ix inst (fromRegister -> reg) lbl =
        , valueUsers = M.insertWith S.union lbl (S.singleton (NormalUse ix inst reg)) users
        }
 
-freshLabel :: (Failure DecodeError f) => SSALabeller f Label
+freshLabel :: (E.MonadThrow m) => SSALabeller m Label
 freshLabel = do
   s <- get
   put s { labelCounter = labelCounter s + 1 }
   return $ SimpleLabel (labelCounter s)
 
-freshPhi :: (Failure DecodeError f) => BlockNumber -> SSALabeller f Label
+freshPhi :: (E.MonadThrow m) => BlockNumber -> SSALabeller m Label
 freshPhi bn = do
   preds <- basicBlockPredecessorsM bn
   s <- get
@@ -603,7 +602,7 @@ freshPhi bn = do
 --
 -- >  writeVariable(variable, block, value):
 -- >    currentDef[variable][block] ← value
-writeRegister :: (Failure DecodeError f, FromRegister a) => Bool -> a -> BlockNumber -> SSALabeller f Label
+writeRegister :: (E.MonadThrow m, FromRegister a) => Bool -> a -> BlockNumber -> SSALabeller m Label
 writeRegister wide (fromRegister -> reg) block = do
   l <- freshLabel
   writeRegisterLabel wide reg block l
@@ -619,7 +618,7 @@ writeRegister wide (fromRegister -> reg) block = do
 -- old definition that was overwritten will appear to be live.  These
 -- phantom definitions show up in phi nodes and cannot be resolved
 -- (since they never existed in that predecessor branch).
-writeRegisterLabel :: (Failure DecodeError f, FromRegister a) => Bool -> a -> BlockNumber -> Label -> SSALabeller f ()
+writeRegisterLabel :: (E.MonadThrow m, FromRegister a) => Bool -> a -> BlockNumber -> Label -> SSALabeller m ()
 writeRegisterLabel wide (fromRegister -> reg) block l = do
   s <- get
   let defs' = M.insertWith M.union reg (M.singleton block l) (currentDefinition s)
@@ -633,7 +632,7 @@ writeRegisterLabel wide (fromRegister -> reg) block l = do
 -- local definition (due to local variable numbering, i.e., a write in
 -- the current block), return that.  Otherwise, check for a global
 -- variable numbering.
-readRegister :: (Failure DecodeError f, FromRegister a) => a -> BlockNumber -> SSALabeller f Label
+readRegister :: (E.MonadThrow m, FromRegister a) => a -> BlockNumber -> SSALabeller m Label
 readRegister (fromRegister -> reg) block = do
   curDefs <- gets currentDefinition
   case M.lookup reg curDefs of
@@ -652,7 +651,7 @@ readRegister (fromRegister -> reg) block = do
 --
 -- Note: If there are no predecessors, it is actually not defined.  We
 -- would probably want to know about that... maybe just error for now.
-readRegisterRecursive :: (Failure DecodeError f) => Word16 -> BlockNumber -> SSALabeller f Label
+readRegisterRecursive :: (E.MonadThrow m) => Word16 -> BlockNumber -> SSALabeller m Label
 readRegisterRecursive reg block = do
   isSealed <- blockIsSealed block
   case isSealed of
@@ -661,7 +660,7 @@ readRegisterRecursive reg block = do
 
 -- | When a block isn't sealed yet, we add a dummy phi empty phi node.
 -- It will be filled in (or eliminated) once the block is sealed.
-makeIncomplete :: (Failure DecodeError f) => Word16 -> BlockNumber -> SSALabeller f Label
+makeIncomplete :: (E.MonadThrow m) => Word16 -> BlockNumber -> SSALabeller m Label
 makeIncomplete r b = do
   p <- freshPhi b
   addIncompletePhi r b p
@@ -670,7 +669,7 @@ makeIncomplete r b = do
 
 -- | global value numbering, with some recursive calls.  The empty phi
 -- is inserted to prevent infinite recursion.
-globalNumbering :: (Failure DecodeError f) => Word16 -> BlockNumber -> SSALabeller f Label
+globalNumbering :: (E.MonadThrow m) => Word16 -> BlockNumber -> SSALabeller m Label
 globalNumbering r b = do
   preds <- basicBlockPredecessorsM b
   l <- case preds of
@@ -685,14 +684,14 @@ globalNumbering r b = do
   return l
 
 -- | Check if a basic block is filled
-isFilled :: (Failure DecodeError f) => BlockNumber -> SSALabeller f Bool
+isFilled :: (E.MonadThrow m) => BlockNumber -> SSALabeller m Bool
 isFilled b = do
   f <- gets filledBlocks
   return $ IS.member b f
 
 -- | Look backwards along control flow edges to find incoming phi
 -- values.  These are the operands to the phi node.
-addPhiOperands :: (Failure DecodeError f) => Word16 -> BlockNumber -> Label -> SSALabeller f Label
+addPhiOperands :: (E.MonadThrow m) => Word16 -> BlockNumber -> Label -> SSALabeller m Label
 addPhiOperands reg block phi = do
   let PhiLabel _ preds _ = phi
   preds' <- filterM isFilled preds
@@ -711,7 +710,7 @@ addPhiOperands reg block phi = do
   tryRemoveTrivialPhi phi
   remapPhi phi
 
-remapPhi :: (Failure DecodeError f) => Label -> SSALabeller f Label
+remapPhi :: (E.MonadThrow m) => Label -> SSALabeller m Label
 remapPhi l = do
   ep <- gets eliminatedPhis
   case M.lookup l ep of
@@ -723,7 +722,7 @@ remapPhi l = do
 -- phi nodes.  A phi node is trivial if it has only one operand
 -- (besides itself).  Removing a phi node requires finding all of its
 -- uses and replacing them with the trivial (singular) value.
-tryRemoveTrivialPhi :: (Failure DecodeError f) => Label -> SSALabeller f ()
+tryRemoveTrivialPhi :: (E.MonadThrow m) => Label -> SSALabeller m ()
 tryRemoveTrivialPhi phi = do
   triv <- trivialPhiValue phi
   case triv of
@@ -774,7 +773,7 @@ tryRemoveTrivialPhi phi = do
       return ()
 
 -- | Replace all of the given uses by the new label provided.
-replacePhiBy :: (Failure DecodeError f) => [Use] -> Label -> Label -> SSALabeller f ()
+replacePhiBy :: (E.MonadThrow m) => [Use] -> Label -> Label -> SSALabeller m ()
 replacePhiBy uses oldPhi trivialValue = do
   regLabs <- gets registersWithLabel
   case M.lookup oldPhi regLabs of
@@ -808,7 +807,7 @@ replacePhiBy uses oldPhi trivialValue = do
 -- Note that each phi incoming value label is tagged with the block number
 -- that it came from.  This information is important for the SSA translation
 -- later on, but it can get in the way here.
-trivialPhiValue :: (Failure DecodeError f) => Label -> SSALabeller f (Maybe Label)
+trivialPhiValue :: (E.MonadThrow m) => Label -> SSALabeller m (Maybe Label)
 trivialPhiValue phi = do
   operandMap <- gets phiOperands
   case M.lookup phi operandMap of
@@ -832,7 +831,7 @@ trivialPhiValue phi = do
 --
 -- Adds an @operand@ (that came from basic block @bnum@) to a @phi@
 -- node.
-appendPhiOperand :: (Failure DecodeError f) => Label -> BlockNumber -> Label -> SSALabeller f ()
+appendPhiOperand :: (E.MonadThrow m) => Label -> BlockNumber -> Label -> SSALabeller m ()
 appendPhiOperand phi bnum operand = modify appendOperand
   where
     appendOperand s =
@@ -854,7 +853,7 @@ appendPhiOperand phi bnum operand = modify appendOperand
 -- This prevents us from accidentally processing these extra registers
 -- and generating empty/undefined phi labels.  We need this both for
 -- the labeling and the SSA translation phases.
-filterWidePairs :: (Failure DecodeError f) => DT.DexFile -> DT.MethodId -> DT.InvokeKind -> [DT.Reg16] -> f [DT.Reg16]
+filterWidePairs :: (E.MonadThrow m) => DT.DexFile -> DT.MethodId -> DT.InvokeKind -> [DT.Reg16] -> m [DT.Reg16]
 filterWidePairs df mId ikind argRegs = do
   m <- getMethod df mId
   p <- getProto df (DT.methProtoId m)
@@ -880,8 +879,8 @@ filterWidePairs df mId ikind argRegs = do
         _ -> do
           rest' <- go tids rest
           return (r1 : rest')
-    go _ [] = failure $ DT.ArgumentTypeMismatch mId argRegs
-    dropNextReg _ [] = failure $ DT.ArgumentTypeMismatch mId argRegs
+    go _ [] = E.throwM $ DT.ArgumentTypeMismatch mId argRegs
+    dropNextReg _ [] = E.throwM $ DT.ArgumentTypeMismatch mId argRegs
     dropNextReg tids (_:rest) = go tids rest
 
 
@@ -890,13 +889,13 @@ filterWidePairs df mId ikind argRegs = do
 -- environment.
 
 -- | A wrapper around 'basicBlockPredecessors' handling the environment lookup
-basicBlockPredecessorsM :: (Failure DecodeError f) => BlockNumber -> SSALabeller f [BlockNumber]
+basicBlockPredecessorsM :: (E.MonadThrow m) => BlockNumber -> SSALabeller m [BlockNumber]
 basicBlockPredecessorsM bid = do
   bbs <- asks envBasicBlocks
   return $ basicBlockPredecessors bbs bid
 
 -- | A wrapper around 'basicBlockSuccessors' handling the environment lookup
-basicBlockSuccessorsM :: (Failure DecodeError f) => BlockNumber -> SSALabeller f [BlockNumber]
+basicBlockSuccessorsM :: (E.MonadThrow m) => BlockNumber -> SSALabeller m [BlockNumber]
 basicBlockSuccessorsM bid = do
   bbs <- asks envBasicBlocks
   return $ basicBlockSuccessors bbs bid

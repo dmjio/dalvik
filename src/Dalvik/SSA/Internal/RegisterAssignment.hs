@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
 module Dalvik.SSA.Internal.RegisterAssignment (
   getParamList,
   getParamListTypeNames,
@@ -7,17 +6,17 @@ module Dalvik.SSA.Internal.RegisterAssignment (
   ) where
 
 import Control.Arrow ( first )
-import Control.Failure
 import Control.Monad ( forM )
+import qualified Control.Monad.Catch as E
 import qualified Data.ByteString as BS
 import Data.Word ( Word16 )
 
 import Dalvik.Types as DT
 
-getParamList :: (Failure DecodeError f)
+getParamList :: (E.MonadThrow m)
                 => DT.DexFile
                 -> EncodedMethod
-                -> f [(Maybe BS.ByteString, DT.TypeId)]
+                -> m [(Maybe BS.ByteString, DT.TypeId)]
 getParamList df meth
   | isStatic meth = explicitParams df meth
   | otherwise     = do
@@ -57,10 +56,10 @@ getParamList df meth
 -- this method would return:
 --
 -- > Just [(Just "this","LTest;"), (Nothing, "Ljava/lang/String;")]
-getParamListTypeNames :: (Failure DecodeError f)
+getParamListTypeNames :: (E.MonadThrow m)
                          => DT.DexFile
                          -> EncodedMethod
-                         -> f [(Maybe BS.ByteString, BS.ByteString)]
+                         -> m [(Maybe BS.ByteString, BS.ByteString)]
 getParamListTypeNames df meth = do
   plist <- getParamList df meth
   forM plist $ \(n, tid) -> do
@@ -71,8 +70,8 @@ getParamListTypeNames df meth = do
 -- | Map argument names for a method to the initial register for that
 -- argument.
 --
-methodRegisterAssignment :: (Failure DecodeError f) => DT.DexFile -> EncodedMethod -> f [(Maybe BS.ByteString, Word16)]
-methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing)     = failure $ NoCodeForMethod mId
+methodRegisterAssignment :: (E.MonadThrow m) => DT.DexFile -> EncodedMethod -> m [(Maybe BS.ByteString, Word16)]
+methodRegisterAssignment _  (DT.EncodedMethod mId _ Nothing)     = E.throwM $ NoCodeForMethod mId
 methodRegisterAssignment df meth@(DT.EncodedMethod _ _ (Just code)) = do
   params <- getParamListTypeNames df meth
   return $ snd $ accumOffsets params

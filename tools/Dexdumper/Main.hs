@@ -2,6 +2,7 @@
 module Main ( main ) where
 
 import Control.Monad
+import qualified Control.Exception as E
 import Data.Bits
 import qualified Data.ByteString.Char8 as CBS
 import qualified Data.ByteString.Lazy.Char8 as LBS
@@ -252,9 +253,11 @@ codeLines dex flags mid code = do
             " - 0x" +++ A.word16HexFixed (fromIntegral e) +++ " reg=" +++
             A.word32Dec r +++ " " +++ nstr nid +++ " " +++ tstr tid +++
             " " +++ (if sid == -1 then "" else nstr sid)
+          decodeErrorMsg =
+            maybe "Unknown error" decodeErrorAsString . E.fromException
           insnText = either
                      (\msg -> p . B.string7 $
-                              "error parsing instructions: " ++ decodeErrorAsString msg)
+                              "error parsing instructions: " ++ decodeErrorMsg msg)
                      (insnLines dex addr 0 insnUnits)
                      insns
           nstr nid = getStr' dex . fromIntegral $ nid

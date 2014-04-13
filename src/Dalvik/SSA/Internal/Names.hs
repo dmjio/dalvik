@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 module Dalvik.SSA.Internal.Names (
   generateNameForParameter,
   parseTypeName,
@@ -6,7 +5,7 @@ module Dalvik.SSA.Internal.Names (
   ) where
 
 import Control.Applicative
-import Control.Failure
+import qualified Control.Monad.Catch as E
 import Data.Attoparsec.ByteString.Char8
 import Data.ByteString.Char8 ( ByteString )
 import Data.Monoid
@@ -21,10 +20,10 @@ generateNameForParameter :: (Monoid a, IsString a) => Int -> a
 generateNameForParameter ix = fromString "%arg" <> fromString (show ix)
 
 -- | Parse a raw Dalvik type descriptor string into a structured 'Type'
-parseTypeName :: (Failure DecodeError f) => ByteString -> f Type
+parseTypeName :: (E.MonadThrow m) => ByteString -> m Type
 parseTypeName bs =
   case parseOnly p' bs of
-    Left err -> failure $ TypeDecodeError err bs
+    Left err -> E.throwM $ TypeDecodeError err bs
     Right t -> return t
   where
     p' = do
@@ -35,10 +34,10 @@ parseTypeName bs =
 -- | Parse Java method type signatures of the form:
 --
 -- > (t1t2)rt
-parseMethodSignature :: (Failure DecodeError f) => ByteString -> f ([Type], Type)
+parseMethodSignature :: (E.MonadThrow m) => ByteString -> m ([Type], Type)
 parseMethodSignature bs =
   case parseOnly pSig bs of
-    Left err -> failure $ TypeDecodeError err bs
+    Left err -> E.throwM $ TypeDecodeError err bs
     Right sig -> return sig
 
 primType :: Type -> Parser Type

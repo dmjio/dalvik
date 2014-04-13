@@ -7,8 +7,8 @@ module Dalvik.ClassHierarchy (
   classHierarchyParent
   ) where
 
-import Control.Failure
 import Control.Monad ( foldM, liftM )
+import Control.Monad.Catch as E
 import qualified Data.ByteString.Char8 as BS
 import Data.Map
 import qualified Data.Map as M
@@ -22,7 +22,7 @@ data CHA = CHA (Map BS.ByteString BS.ByteString)
 
 -- | Extract the class hierarchy from a Dex file.  This hierarchy only
 -- includes the types referenced in the Dex file.
-classHierarchyAnalysis :: (Failure DecodeError f) => DexFile -> f CHA
+classHierarchyAnalysis :: (E.MonadThrow m) => DexFile -> m CHA
 classHierarchyAnalysis dex =
   liftM CHA $ foldM addClassParent M.empty $ M.toList (dexClasses dex)
   where

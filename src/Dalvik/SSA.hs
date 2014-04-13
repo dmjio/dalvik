@@ -1,6 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -57,7 +56,7 @@ module Dalvik.SSA (
   module Dalvik.SSA.Util
   ) where
 
-import Control.Failure
+import qualified Control.Monad.Catch as E
 import Control.Monad ( foldM, liftM )
 import Control.Monad.Fix
 import Control.Monad.Trans.Class
@@ -108,10 +107,10 @@ import qualified Dalvik.SSA.Internal.Stubs as St
 -- > main = do
 -- >   dexfile = ...
 -- >   ssafile <- toSSA [dexfile]
-toSSA :: (MonadFix f, Failure DT.DecodeError f)
+toSSA :: (MonadFix m, E.MonadThrow m)
          => Maybe Stubs -- ^ Custom stub methods
          -> [DT.DexFile] -- ^ Input dex files (to be merged)
-         -> f DexFile
+         -> m DexFile
 toSSA mstubs dfs = do
   tiedKnot <- mfix (tieKnot mstubs dfs)
   return DexFile { dexClasses = HM.elems (knotClasses tiedKnot)
@@ -125,11 +124,11 @@ toSSA mstubs dfs = do
 
 -- | We tie the knot by starting with an empty knot and processing a
 -- dex file at a time.  Each dex file proceeds by class.
-tieKnot :: (MonadFix f, Failure DT.DecodeError f)
+tieKnot :: (MonadFix m, E.MonadThrow m)
            => Maybe Stubs
            -> [DT.DexFile]
            -> Knot
-           -> f Knot
+           -> m Knot
 tieKnot mstubs dfs tiedKnot = do
   (k, s, _) <- runRWST go tiedKnot (initialKnotState mstubs)
   return k { knotConstants = concat [ HM.elems $ knotClassConstantCache s
@@ -140,7 +139,7 @@ tieKnot mstubs dfs tiedKnot = do
   where
     go = foldM translateDex emptyKnot dfs
 
-translateDex :: (MonadFix f, Failure DT.DecodeError f) => Knot -> DT.DexFile -> KnotMonad f Knot
+translateDex :: (MonadFix m, E.MonadThrow m) => Knot -> DT.DexFile -> KnotMonad m Knot
 translateDex knot0 df = do
   -- Note that we have to set the DexFile being processed here (it
   -- starts off undefined) and that we also reset the two caches that
@@ -158,7 +157,7 @@ translateDex knot0 df = do
   knot3 <- foldM translateMethodRef knot2 $ M.toList (DT.dexMethods df)
   foldM translateClass knot3 $ M.toList (DT.dexClasses df)
 
-type KnotMonad f = RWST Knot () KnotState f
+type KnotMonad m = RWST Knot () KnotState m
 
 -- | Before we start tying the knot, types, fields, and methodRefs are
 -- all completely defined.
@@ -170,11 +169,11 @@ data Knot = Knot { knotClasses :: !(HashMap BS.ByteString Class)
                  , knotConstants :: [Constant]
                  }
 
-getMethodRef :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f MethodRef
+getMethodRef :: (E.MonadThrow m) => DT.MethodId -> KnotMonad m MethodRef
 getMethodRef mid = do
   mkeys <- gets knotDexMethods
   case M.lookup mid mkeys of
-    Nothing -> failure $ DT.NoMethodAtIndex mid
+    Nothing -> E.throwM $ DT.NoMethodAtIndex mid
     Just stringKey -> do
       mrefs <- asks knotMethodRefs
       let errMsg = error ("No method for method id " ++ show mid)
@@ -224,11 +223,11 @@ initialKnotState mstubs =
 -- | Translate types from bytestrings into a structured
 -- representation.  Only add it if we haven't already seen it (we will
 -- get duplicates between different dex files).
-translateType :: (Failure DT.DecodeError f)
+translateType :: (E.MonadThrow m)
                  => DT.DexFile
                  -> Knot
                  -> (DT.TypeId, DT.StringId)
-                 -> f Knot
+                 -> m Knot
 translateType df !m (tid, _) = do
   tname <- DT.getTypeName df tid
   case HM.member tname (knotTypes m) of
@@ -237,16 +236,16 @@ translateType df !m (tid, _) = do
       ty <- parseTypeName tname
       return m { knotTypes = HM.insert tname ty (knotTypes m) }
 
-getStr' :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f BS.ByteString
+getStr' :: (E.MonadThrow m) => DT.StringId -> KnotMonad m BS.ByteString
 getStr' sid
   | sid == -1 = error "Missing string bt"
   | otherwise = do
     df <- getDex
     DT.getStr df sid
 
-lookupClass :: (Failure DT.DecodeError f)
+lookupClass :: (E.MonadThrow m)
                => DT.TypeId
-               -> KnotMonad f (Maybe Class)
+               -> KnotMonad m (Maybe Class)
 lookupClass tid
   | tid == -1 = return Nothing
   | otherwise = do
@@ -256,10 +255,10 @@ lookupClass tid
 
 -- | Note: I don't think that the DT.TypeId here is actually the type
 -- ID of the class...  DT.classId is accurate (and different).
-translateClass :: (MonadFix f, Failure DT.DecodeError f)
+translateClass :: (MonadFix m, E.MonadThrow m)
                   => Knot
                   -> (DT.TypeId, DT.Class)
-                  -> KnotMonad f Knot
+                  -> KnotMonad m Knot
 translateClass k (_, klass) = do
   cid <- freshId
   sname <- case DT.classSourceNameId klass of
@@ -303,15 +302,15 @@ translateClass k (_, klass) = do
   where
     addField (_, f) = HM.insert (fieldName f) f
 
-getDex :: (Failure DT.DecodeError f) => KnotMonad f DT.DexFile
+getDex :: (E.MonadThrow m) => KnotMonad m DT.DexFile
 getDex = gets knotDexFile
 
-getRawMethod' :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f DT.Method
+getRawMethod' :: (E.MonadThrow m) => DT.MethodId -> KnotMonad m DT.Method
 getRawMethod' mid = do
   df <- getDex
   lift $ DT.getMethod df mid
 
-getRawProto' :: (Failure DT.DecodeError f) => DT.ProtoId -> KnotMonad f DT.Proto
+getRawProto' :: (E.MonadThrow m) => DT.ProtoId -> KnotMonad m DT.Proto
 getRawProto' pid = do
   df <- getDex
   lift $ DT.getProto df pid
@@ -319,11 +318,11 @@ getRawProto' pid = do
 -- | This is a wrapper around the real @translateMethod@
 -- ('translateMethod'') that checks to see if we have an override
 -- stub.
-translateMethod :: (MonadFix f, Failure DT.DecodeError f)
+translateMethod :: (MonadFix m, E.MonadThrow m)
                    => Class
                    -> (Knot, [Method])
                    -> DT.EncodedMethod
-                   -> KnotMonad f (Knot, [Method])
+                   -> KnotMonad m (Knot, [Method])
 translateMethod klass acc em = do
   s <- get
   let oldDex = knotDexFile s
@@ -341,11 +340,12 @@ translateMethod klass acc em = do
           res <- translateMethod' klass acc em'
           modify $ \s' -> s' { knotDexFile = oldDex }
           return res
-translateMethod' :: (MonadFix f, Failure DT.DecodeError f)
+
+translateMethod' :: (MonadFix m, E.MonadThrow m)
                    => Class
                    -> (Knot, [Method])
                    -> DT.EncodedMethod
-                   -> KnotMonad f (Knot, [Method])
+                   -> KnotMonad m (Knot, [Method])
 translateMethod' klass (k, acc) em = do
   m <- getRawMethod' (DT.methId em)
   proto <- getRawProto' (DT.methProtoId m)
@@ -375,15 +375,15 @@ translateMethod' klass (k, acc) em = do
                     }
 
   mrefs <- gets knotDexMethods
-  let errMsg = failure $ DT.NoMethodAtIndex (DT.methId em)
+  let errMsg = E.throwM $ DT.NoMethodAtIndex (DT.methId em)
   stringKey <- maybe errMsg return $ M.lookup (DT.methId em) mrefs
   return (k { knotMethodDefs = HM.insert stringKey tm (knotMethodDefs k) }, tm : acc)
 
-makeParameter :: (Failure DT.DecodeError f)
+makeParameter :: (E.MonadThrow m)
                  => Method
                  -> Map Int Parameter
                  -> (Int, (Maybe BS.ByteString, DT.TypeId))
-                 -> KnotMonad f (Map Int Parameter)
+                 -> KnotMonad m (Map Int Parameter)
 makeParameter tm m (ix, (name, tid)) = do
   pid <- freshId
   t <- getTranslatedType tid
@@ -395,13 +395,13 @@ makeParameter tm m (ix, (name, tid)) = do
                     }
   return $ M.insert ix p m
 
-translateMethodBody :: (MonadFix f, Failure DT.DecodeError f)
+translateMethodBody :: (MonadFix m, E.MonadThrow m)
                        => DT.DexFile
                        -> Method
                        -> Map Int Parameter
                        -> MethodKnot
                        -> DT.EncodedMethod
-                       -> KnotMonad f (Maybe [BasicBlock], MethodKnot)
+                       -> KnotMonad m (Maybe [BasicBlock], MethodKnot)
 translateMethodBody _ _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, emptyMethodKnot)
 translateMethodBody df tm paramMap tiedMknot em = do
   labeling <- lift $ labelMethod df em
@@ -414,10 +414,10 @@ translateMethodBody df tm paramMap tiedMknot em = do
   where
     addParameterLabel mknot l@(ArgumentLabel _ ix) =
       case M.lookup ix paramMap of
-        Nothing -> failure $ DT.NoParameterAtIndex (DT.methId em) ix
+        Nothing -> E.throwM $ DT.NoParameterAtIndex (DT.methId em) ix
         Just param ->
           return mknot { mknotValues = M.insert l (ParameterV param) (mknotValues mknot) }
-    addParameterLabel _ l = failure $ DT.NonArgumentLabelInParameterList (DT.methId em) (show l)
+    addParameterLabel _ l = E.throwM $ DT.NonArgumentLabelInParameterList (DT.methId em) (show l)
 
 data MethodKnot = MethodKnot { mknotValues :: Map Label Value
                              , mknotBlocks :: Map BlockNumber BasicBlock
@@ -432,13 +432,13 @@ emptyMethodKnot = MethodKnot M.empty M.empty
 -- Note that the phi nodes (if any) are all at the beginning of the
 -- block in an arbitrary order.  Any analysis should process all of
 -- the phi nodes for a single block at once.
-translateBlock :: (Failure DT.DecodeError f, MonadFix f)
+translateBlock :: (MonadFix m, E.MonadThrow m)
                   => Method
                   -> Labeling
                   -> MethodKnot
                   -> ([BasicBlock], MethodKnot)
                   -> (BlockNumber, Int, Vector DT.Instruction)
-                  -> KnotMonad f ([BasicBlock], MethodKnot)
+                  -> KnotMonad m ([BasicBlock], MethodKnot)
 translateBlock tm labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
   bid <- freshId
   let blockPhis = M.findWithDefault [] bnum $ labelingBlockPhis labeling
@@ -464,27 +464,27 @@ translateBlock tm labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
 -- instruction...  That might not be useful, though, since there are
 -- already implicit terminators in the presence of exceptions.
 
-srcLabelForReg :: (Failure DT.DecodeError f, FromRegister r)
+srcLabelForReg :: (E.MonadThrow m, FromRegister r)
                   => Labeling
                   -> Int
                   -> r
-                  -> KnotMonad f Label
+                  -> KnotMonad m Label
 srcLabelForReg l ix r =
   maybe err return $ do
     regMap <- M.lookup ix (labelingReadRegs l)
     M.lookup (fromRegister r) regMap
   where
-    err = failure $ DT.NoLabelForExpectedRegister "source" (fromRegister r) ix
+    err = E.throwM $ DT.NoLabelForExpectedRegister "source" (fromRegister r) ix
 
-dstLabelForReg :: (Failure DT.DecodeError f, FromRegister r)
+dstLabelForReg :: (E.MonadThrow m, FromRegister r)
                   => Labeling
                   -> Int
                   -> r
-                  -> KnotMonad f Label
+                  -> KnotMonad m Label
 dstLabelForReg l ix r =
   maybe err return $ M.lookup ix (labelingWriteRegs l)
   where
-    err = failure $ DT.NoLabelForExpectedRegister "destination" (fromRegister r) ix
+    err = E.throwM $ DT.NoLabelForExpectedRegister "destination" (fromRegister r) ix
 
 getFinalValue :: MethodKnot -> Label -> Value
 getFinalValue mknot lbl =
@@ -494,14 +494,14 @@ getFinalBlock :: MethodKnot -> BlockNumber -> BasicBlock
 getFinalBlock mknot bnum =
   fromMaybe (error ("No basic block: " ++ show bnum)) $ M.lookup bnum (mknotBlocks mknot)
 
-translateInstruction :: forall f . (Failure DT.DecodeError f)
+translateInstruction :: forall m . (E.MonadThrow m)
                         => Labeling
                         -> MethodKnot
                         -> BlockNumber
                         -> BasicBlock
                         -> ([Instruction], MethodKnot)
                         -> (Int, DT.Instruction)
-                        -> KnotMonad f ([Instruction], MethodKnot)
+                        -> KnotMonad m ([Instruction], MethodKnot)
 translateInstruction labeling tiedMknot bnum bb acc@(insns, mknot) (instIndex, inst) =
   case inst of
     -- These instructions do not show up in SSA form
@@ -681,7 +681,7 @@ translateInstruction labeling tiedMknot bnum bb acc@(insns, mknot) (instIndex, i
                             , fillArrayContents = numbers
                             }
           in return (a : insns, mknot)
-        _ -> failure $ DT.NoArrayDataForFillArray instIndex
+        _ -> E.throwM $ DT.NoArrayDataForFillArray instIndex
     DT.Throw src -> do
       tid <- freshId
       srcLbl <- srcLabel src
@@ -974,16 +974,16 @@ translateInstruction labeling tiedMknot bnum bb acc@(insns, mknot) (instIndex, i
         DT.Direct -> translateDirectInvoke MethodInvokeDirect mId srcLbls
         DT.Static -> translateDirectInvoke MethodInvokeStatic mId srcLbls
   where
-    dstLabel :: (Failure DT.DecodeError f, FromRegister r) => r -> KnotMonad f Label
+    dstLabel :: (E.MonadThrow m, FromRegister r) => r -> KnotMonad m Label
     dstLabel = dstLabelForReg labeling instIndex
-    srcLabel :: (Failure DT.DecodeError f, FromRegister r) => r -> KnotMonad f Label
+    srcLabel :: (E.MonadThrow m, FromRegister r) => r -> KnotMonad m Label
     srcLabel = srcLabelForReg labeling instIndex
     bbs = labelingBasicBlocks labeling
     translateVirtualInvoke ikind mid argLbls = do
       iid <- freshId
       mref <- getMethodRef mid
       case NE.nonEmpty argLbls of
-        Nothing -> failure $ DT.NoReceiverForVirtualCall (show inst)
+        Nothing -> E.throwM $ DT.NoReceiverForVirtualCall (show inst)
         Just nonEmptyLbls -> do
           let i = InvokeVirtual { instructionId = iid
                                 , instructionType = methodRefReturnType mref
@@ -1019,7 +1019,7 @@ translateInstruction labeling tiedMknot bnum bb acc@(insns, mknot) (instIndex, i
 -- block is not listed in a handler descriptor, that means this is a
 -- finally block.  All we know in that case is that we have some
 -- Throwable.
-typeOfHandledException :: (Failure DT.DecodeError f) => Labeling -> BlockNumber -> KnotMonad f Type
+typeOfHandledException :: (E.MonadThrow m) => Labeling -> BlockNumber -> KnotMonad m Type
 typeOfHandledException labeling bnum =
   case basicBlockHandlesException (labelingBasicBlocks labeling) bnum of
     Just exname -> parseTypeName exname
@@ -1029,7 +1029,7 @@ isFallthroughEdge :: (JumpCondition, BlockNumber) -> Bool
 isFallthroughEdge (Fallthrough, _) = True
 isFallthroughEdge _ = False
 
-getConstant :: (Failure DT.DecodeError f) => DT.ConstArg -> KnotMonad f Value
+getConstant :: (E.MonadThrow m) => DT.ConstArg -> KnotMonad m Value
 getConstant ca =
   case ca of
     DT.Const4 i -> getConstantInt i
@@ -1054,7 +1054,7 @@ getConstant ca =
           modify $ \s -> s { knotClassConstantCache = HM.insert klassName c (knotClassConstantCache s) }
           return (ConstantV c)
 
-getConstantString :: (Failure DT.DecodeError f) => DT.StringId -> KnotMonad f Value
+getConstantString :: (E.MonadThrow m) => DT.StringId -> KnotMonad m Value
 getConstantString sid = do
   scache <- gets knotStringCache
   str <- getStr' sid
@@ -1066,7 +1066,7 @@ getConstantString sid = do
       modify $ \s -> s { knotStringCache = HM.insert str c (knotStringCache s) }
       return (ConstantV c)
 
-getConstantInt :: (Failure DT.DecodeError f, Integral n) => n -> KnotMonad f Value
+getConstantInt :: (E.MonadThrow m, Integral n) => n -> KnotMonad m Value
 getConstantInt (fromIntegral -> i) = do
   icache <- gets knotIntCache
   case M.lookup i icache of
@@ -1099,7 +1099,7 @@ unaryOpType o =
 
 -- | We pass in the index of the instruction that might be returning a
 -- value, not the index of the next instruction.
-resultSavedAs :: (Failure DT.DecodeError f) => Labeling -> Int -> KnotMonad f (Maybe Label)
+resultSavedAs :: (E.MonadThrow m) => Labeling -> Int -> KnotMonad m (Maybe Label)
 resultSavedAs labeling ix
   | Just (DT.Move1 _ dst) <- labelingInstructions labeling V.!? (ix + 1) =
     liftM Just $ dstLabelForReg labeling (ix + 1) dst
@@ -1123,13 +1123,13 @@ addInstMapping :: MethodKnot -> Label -> Instruction -> MethodKnot
 addInstMapping mknot lbl i = addValueMapping mknot lbl (InstructionV i)
 
 -- | Make a phi node based on the labels we computed earlier.
-makePhi :: (Failure DT.DecodeError f)
+makePhi :: (E.MonadThrow m)
            => Labeling
            -> MethodKnot
            -> BasicBlock
            -> ([Instruction], MethodKnot)
            -> Label
-           -> KnotMonad f ([Instruction], MethodKnot)
+           -> KnotMonad m ([Instruction], MethodKnot)
 makePhi labeling tiedMknot bb (insns, mknot) lbl@(PhiLabel _ _ _) = do
   phiId <- freshId
   let ivs = labelingPhiIncomingValues labeling lbl
@@ -1143,9 +1143,9 @@ makePhi labeling tiedMknot bb (insns, mknot) lbl@(PhiLabel _ _ _) = do
     labelToIncoming (incBlock, incLbl) =
       (fromMaybe (error ("No block for incoming block id: " ++ show incBlock)) $ M.lookup incBlock (mknotBlocks tiedMknot),
        fromMaybe (error ("No value for incoming value: " ++ show incLbl)) $ M.lookup incLbl (mknotValues tiedMknot))
-makePhi _ _ _ _ lbl = failure $ DT.NonPhiLabelInBlockHeader $ show lbl
+makePhi _ _ _ _ lbl = E.throwM $ DT.NonPhiLabelInBlockHeader $ show lbl
 
-getTypeName :: (Failure DT.DecodeError f) => DT.TypeId -> KnotMonad f BS.ByteString
+getTypeName :: (E.MonadThrow m) => DT.TypeId -> KnotMonad m BS.ByteString
 getTypeName tid = do
   df <- getDex
   DT.getTypeName df tid
@@ -1153,39 +1153,39 @@ getTypeName tid = do
 
 -- | We do not consult the tied knot for types since we can translate
 -- them all up-front.
-getTranslatedType :: (Failure DT.DecodeError f) => DT.TypeId -> KnotMonad f Type
+getTranslatedType :: (E.MonadThrow m) => DT.TypeId -> KnotMonad m Type
 getTranslatedType tid = do
   ts <- gets knotDexTypes
   tname <- getTypeName tid
   case HM.lookup tname ts of
-    Nothing -> failure $ DT.NoTypeAtIndex tid
+    Nothing -> E.throwM $ DT.NoTypeAtIndex tid
     Just t -> return t
 
-getTranslatedField :: (Failure DT.DecodeError f) => DT.FieldId -> KnotMonad f Field
+getTranslatedField :: (E.MonadThrow m) => DT.FieldId -> KnotMonad m Field
 getTranslatedField fid = do
   frefs <- gets knotDexFields
   case M.lookup fid frefs of
-    Nothing -> failure $ DT.NoFieldAtIndex fid
+    Nothing -> E.throwM $ DT.NoFieldAtIndex fid
     Just stringKey -> do
       fs <- asks knotFields
       let errMsg = error ("No field for field id " ++ show fid)
       return $ fromMaybe errMsg $ HM.lookup stringKey fs
 
-getTranslatedMethod :: (Failure DT.DecodeError f) => DT.MethodId -> KnotMonad f (Maybe Method)
+getTranslatedMethod :: (E.MonadThrow m) => DT.MethodId -> KnotMonad m (Maybe Method)
 getTranslatedMethod mid = do
   mrefs <- gets knotDexMethods
   case M.lookup mid mrefs of
-    Nothing -> failure $ DT.NoMethodAtIndex mid
+    Nothing -> E.throwM $ DT.NoMethodAtIndex mid
     Just stringKey -> do
       ms <- asks knotMethodDefs
       return $ HM.lookup stringKey ms
 
 -- | Translate an entry from the DexFile fields map.  These do not
 -- contain access flags, but have everything else.
-translateFieldRef :: (Failure DT.DecodeError f)
+translateFieldRef :: (E.MonadThrow m)
                      => Knot
                      -> (DT.FieldId, DT.Field)
-                     -> KnotMonad f Knot
+                     -> KnotMonad m Knot
 translateFieldRef !knot (fid, f) = do
   fname <- getStr' (DT.fieldNameId f)
   cname <- getTypeName (DT.fieldClassId f)
@@ -1201,10 +1201,10 @@ translateFieldRef !knot (fid, f) = do
   modify $ \(!s) -> s { knotDexFields = M.insert fid stringKey (knotDexFields s) }
   return knot { knotFields = HM.insert stringKey fld (knotFields knot) }
 
-translateMethodRef :: (Failure DT.DecodeError f)
+translateMethodRef :: (E.MonadThrow m)
                       => Knot
                       -> (DT.MethodId, DT.Method)
-                      -> KnotMonad f Knot
+                      -> KnotMonad m Knot
 translateMethodRef !knot (mid, m) = do
   proto <- getRawProto' (DT.methProtoId m)
   mname <- getStr' (DT.methNameId m)
@@ -1226,11 +1226,11 @@ translateMethodRef !knot (mid, m) = do
   modify $ \(!s) -> s { knotDexMethods = M.insert mid stringKey (knotDexMethods s) }
   return knot { knotMethodRefs = HM.insert stringKey mref (knotMethodRefs knot) }
 
-translateField :: (Failure DT.DecodeError f) => DT.EncodedField -> KnotMonad f (DT.AccessFlags, Field)
+translateField :: (E.MonadThrow m) => DT.EncodedField -> KnotMonad m (DT.AccessFlags, Field)
 translateField ef = do
   dfs <- gets knotDexFields
   case M.lookup (DT.fieldId ef) dfs of
-    Nothing -> failure $ DT.NoFieldAtIndex (DT.fieldId ef)
+    Nothing -> E.throwM $ DT.NoFieldAtIndex (DT.fieldId ef)
     Just stringKey -> do
       fs <- asks knotFields
       let errMsg = error ("No field for index " ++ show (DT.fieldId ef))
@@ -1238,7 +1238,7 @@ translateField ef = do
 
 -- | Allocate a fresh globally unique (within a single Dex file)
 -- identifier.
-freshId :: (Failure DT.DecodeError f) => KnotMonad f Int
+freshId :: (E.MonadThrow m) => KnotMonad m Int
 freshId = do
   s <- get
   put s { knotIdSrc = knotIdSrc s + 1 }

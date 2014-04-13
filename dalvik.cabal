@@ -22,7 +22,7 @@ Library
                     cereal,
                     conduit >= 1,
                     containers,
-                    failure >= 0.2.0,
+                    exceptions >= 0.5 && < 0.6,
                     floatshow,
                     IntervalMap >= 0.3.0.0,
                     prettyclass >= 1,

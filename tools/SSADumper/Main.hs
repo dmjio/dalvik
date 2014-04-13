@@ -102,10 +102,15 @@ realMain Options { optCommand =
   Right dexFile <- loadDexFromAnyIO fileName
   case DT.getEncodedMethod dexFile klass method sig of
     Nothing -> error ("Could not find method: " ++ toStr klass method sig)
-    Just m ->
-      case labelMethod dexFile m of
-        Left e -> error ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
-        Right lbls -> putStrLn (prettyLabeling lbls)
+    Just m -> do
+      lbls <- labelMethod dexFile m
+      putStrLn (prettyLabeling lbls)
+  -- case DT.getEncodedMethod dexFile klass method sig of
+  --   Nothing -> error ("Could not find method: " ++ toStr klass method sig)
+  --   Just m ->
+  --     case labelMethod dexFile m of
+  --       Left e -> error ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
+  --       Right lbls -> putStrLn (prettyLabeling lbls)
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Nothing
                                                  } } = do

@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 module Dalvik.Instruction
   ( decodeInstructions
   , insnUnitCount
@@ -19,7 +18,7 @@ module Dalvik.Instruction
   ) where
 
 import Control.Applicative ()
-import Control.Failure
+import qualified Control.Monad.Catch as E
 import Control.Monad
 import Data.Bits
 import Data.Function
@@ -249,11 +248,11 @@ splitWord16' :: Word16 -> (Word4, Word4, Word4, Word4)
 splitWord16' w = (fst4 b1, snd4 b1, fst4 b2, snd4 b2)
   where (b1, b2) = splitWord16 w
 
-prematureEnd :: (Failure DecodeError f) => Word8 -> Word16 -> f v
-prematureEnd op ix = failure $ PrematureEnd op ix
+prematureEnd :: (E.MonadThrow m) => Word8 -> Word16 -> m v
+prematureEnd op ix = E.throwM $ PrematureEnd op ix
 
-invalidOp :: (Failure DecodeError f) => Word8 -> f v
-invalidOp op = failure $ InvalidOpcode op
+invalidOp :: (E.MonadThrow m) => Word8 -> m v
+invalidOp op = E.throwM $ InvalidOpcode op
 
 {- As named in the Dalvik VM Instruction Formats document. -}
 data IFormatParser
@@ -641,7 +640,7 @@ signExt32 w =
 iparser :: Word8 -> IFormatParser
 iparser = (iparseTable!) . fromIntegral
 
-dataToInt8List :: (Failure DecodeError f) => [Word16] -> f [Int8]
+dataToInt8List :: (E.MonadThrow m) => [Word16] -> m [Int8]
 dataToInt8List ws = go ws
   where
     go [] = return []
@@ -650,26 +649,26 @@ dataToInt8List ws = go ws
       let (b1, b2) = splitWord16 w
       return $ fromIntegral b1 : fromIntegral b2 : r
 
-dataToInt32List :: (Failure DecodeError f) => [Word16] -> f [Int32]
+dataToInt32List :: (E.MonadThrow m) => [Word16] -> m [Int32]
 dataToInt32List ws = go ws
   where
     go [] = return []
     go (w1:w2:rest) = do
       r <- go rest
       return $ combine16 w2 w1 : r
-    go _ = failure $ InvalidArrayDataList 2 ws
+    go _ = E.throwM $ InvalidArrayDataList 2 ws
 
 -- FIXME What is the right order here to correctly decode an int64?
-dataToInt64List :: (Failure DecodeError f) => [Word16] -> f [Int64]
+dataToInt64List :: (E.MonadThrow m) => [Word16] -> m [Int64]
 dataToInt64List ws = go ws
   where
     go [] = return []
     go (w1:w2:w3:w4:rest) = do
       r <- go rest
       return $ combine16' w1 w2 w3 w4 : r
-    go _ = failure $ InvalidArrayDataList 4 ws
+    go _ = E.throwM $ InvalidArrayDataList 4 ws
 
-decodeInstructions :: (Failure DecodeError f) => [Word16] -> f [Instruction]
+decodeInstructions :: (E.MonadThrow m) => [Word16] -> m [Instruction]
 decodeInstructions [] = return []
 decodeInstructions (0x0100 : sz : k : k' : ws) = do
   ts' <- dataToInt32List ts
@@ -693,7 +692,7 @@ decodeInstructions (0x0300 : esz : sz : sz' : ws) = do
     2 -> return $ map fromIntegral vs
     4 -> liftM (map fromIntegral) $ dataToInt32List vs
     8 -> dataToInt64List vs
-    _ -> failure $ InvalidArrayDataElementSize esz
+    _ -> E.throwM $ InvalidArrayDataElementSize esz
   liftM (ArrayData esz size vs' :) $ decodeInstructions ws'
     where size = combine16 sz' sz
           count = ((size * fromIntegral esz) + 1) `div` 2
@@ -729,7 +728,7 @@ decodeInstructions (w : ws) = liftM2 (:) insn (decodeInstructions ws'')
         (IF35c  fn, w1 : w2 : ws') ->
           if b <= 5
             then (return $ fn w1 (take (fromIntegral b) [d, e, f, g, a]), ws')
-            else (failure $ InvalidBForIF35cEncoding b, ws')
+            else (E.throwM $ InvalidBForIF35cEncoding b, ws')
           where (g, f, e, d) = splitWord16' w2
         (IF3rc  fn, w1 : w2 : ws') ->
           (return $ fn w1 [w2..((w2 + fromIntegral aa) - 1)],  ws')

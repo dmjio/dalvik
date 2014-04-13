@@ -1,9 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE FlexibleContexts #-}
 module Dalvik.Types where
 
-import Control.Exception as E
-import Control.Failure
+import Control.Monad.Catch as E
 import Control.Monad ( guard )
 import qualified Data.ByteString as BS
 import qualified Data.Map as Map
@@ -295,29 +293,29 @@ data LocalInfo
 
 {- Utility functions -}
 
-getStr :: (Failure DecodeError f) => DexFile -> StringId -> f BS.ByteString
+getStr :: (E.MonadThrow m) => DexFile -> StringId -> m BS.ByteString
 getStr dex i =
-  maybe (failure (NoStringAtIndex i)) return $ Map.lookup i (dexStrings dex)
+  maybe (E.throwM (NoStringAtIndex i)) return $ Map.lookup i (dexStrings dex)
 
-getTypeName :: (Failure DecodeError f) => DexFile -> TypeId -> f BS.ByteString
+getTypeName :: (E.MonadThrow f) => DexFile -> TypeId -> f BS.ByteString
 getTypeName dex i =
-  maybe (failure (NoTypeAtIndex i)) (getStr dex) $ Map.lookup i (dexTypeNames dex)
+  maybe (E.throwM (NoTypeAtIndex i)) (getStr dex) $ Map.lookup i (dexTypeNames dex)
 
-getField :: (Failure DecodeError f) => DexFile -> FieldId -> f Field
+getField :: (E.MonadThrow f) => DexFile -> FieldId -> f Field
 getField dex i =
-  maybe (failure (NoFieldAtIndex i)) return $ Map.lookup i (dexFields dex)
+  maybe (E.throwM (NoFieldAtIndex i)) return $ Map.lookup i (dexFields dex)
 
-getMethod :: (Failure DecodeError f) => DexFile -> MethodId -> f Method
+getMethod :: (E.MonadThrow f) => DexFile -> MethodId -> f Method
 getMethod dex i =
-  maybe (failure (NoMethodAtIndex i)) return $ Map.lookup i (dexMethods dex)
+  maybe (E.throwM (NoMethodAtIndex i)) return $ Map.lookup i (dexMethods dex)
 
-getProto :: (Failure DecodeError f) => DexFile -> ProtoId -> f Proto
+getProto :: (E.MonadThrow f) => DexFile -> ProtoId -> f Proto
 getProto dex i =
-  maybe (failure (NoProtoAtIndex i)) return $ Map.lookup i (dexProtos dex)
+  maybe (E.throwM (NoProtoAtIndex i)) return $ Map.lookup i (dexProtos dex)
 
-getClass :: (Failure DecodeError f) => DexFile -> TypeId -> f Class
+getClass :: (E.MonadThrow f) => DexFile -> TypeId -> f Class
 getClass dex i =
-  maybe (failure (NoClassAtIndex i)) return $ Map.lookup i (dexClasses dex)
+  maybe (E.throwM (NoClassAtIndex i)) return $ Map.lookup i (dexClasses dex)
 
 findString :: DexFile -> BS.ByteString -> Maybe StringId
 findString dex t =
