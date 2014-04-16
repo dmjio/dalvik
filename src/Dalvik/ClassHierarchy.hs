@@ -1,4 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Dalvik.ClassHierarchy (
   -- * Class Hierarchy Analysis
