@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns #-}
 -- | This module defines tests for the SSA labeling code.
 --
 -- Each test description describes the method to label (class, method,
@@ -11,6 +12,7 @@
 -- phi label checking is done - we don't recursively check everything.
 module Tests.Dalvik.Labels ( tests ) where
 
+import qualified Control.Exception as E
 import qualified Data.List as L
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe )
@@ -150,7 +152,8 @@ getLabelTests getDex file (klass, method, sig, oracle, oracle') =
       Nothing -> T.assertFailure ("Could not find method: " ++ toStr klass method sig)
       Just m ->
         case labelMethod dexFile m of
-          Left e -> T.assertFailure ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
+          Left (E.fromException -> Just e) -> T.assertFailure ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
+          Left e -> T.assertFailure ("Unexpected failure: " ++ show e)
           Right lbls -> checkReturnValue lbls oracle oracle'
 
 toStr :: String -> String -> String -> String
