@@ -485,11 +485,11 @@ data Class = Class { classId :: UniqueId
                    , _classInstanceFieldMap :: HashMap BS.ByteString Field
                    }
 
-classStaticField :: Class -> String -> Maybe Field
-classStaticField k s = HM.lookup (BS.pack s) (_classStaticFieldMap k)
+classStaticField :: Class -> BS.ByteString -> Maybe Field
+classStaticField k s = HM.lookup s (_classStaticFieldMap k)
 
-classInstanceField :: Class -> String -> Maybe Field
-classInstanceField k s = HM.lookup (BS.pack s) (_classInstanceFieldMap k)
+classInstanceField :: Class -> BS.ByteString -> Maybe Field
+classInstanceField k s = HM.lookup s (_classInstanceFieldMap k)
 
 classMethods :: Class -> [Method]
 classMethods klass = classDirectMethods klass ++ classVirtualMethods klass
