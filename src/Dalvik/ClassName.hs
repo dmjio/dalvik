@@ -5,7 +5,8 @@ module Dalvik.ClassName (
   qualifiedClassName,
   unsafeClassName,
   renderClassName,
-  humanClassName
+  humanClassName,
+  mapClassName
   ) where
 
 import qualified Data.ByteString.Char8 as BS
@@ -44,3 +45,5 @@ humanClassName :: ClassName -> String
 humanClassName (ClassName components) =
   BS.unpack $ BS.intercalate "." components
 
+mapClassName :: ([BS.ByteString] -> [BS.ByteString]) -> ClassName -> ClassName
+mapClassName f (ClassName components) = ClassName (f components)
