@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Dalvik.SSA.ClassHierarchy (
   ClassHierarchy,
@@ -13,6 +14,7 @@ module Dalvik.SSA.ClassHierarchy (
   interfaces,
   allInterfaces,
   allSupertypes,
+  isAssignableTo,
   resolveMethodRef,
   virtualDispatch,
   anyTarget,
@@ -38,6 +40,9 @@ data ClassHierarchy =
                  , children       :: HashMap Type [Type]
                  , implementors   :: HashMap Type [Type]
                  , typeToClassMap :: HashMap Type Class
+                 , assignable     :: HashSet (Type, Type)
+                   -- ^ (x, y) ∈ assignable ⇒ an object of type x can
+                   -- be assigned to a reference of type y
                  }
   deriving (Eq)
 
@@ -56,11 +61,31 @@ emptyClassHierarchy =
                  , children = HM.empty
                  , implementors = HM.empty
                  , typeToClassMap = HM.empty
+                 , assignable = HS.empty
                  }
 
 -- | Perform a class hierarchy analysis
 classHierarchy :: DexFile -> ClassHierarchy
-classHierarchy = foldr addClass emptyClassHierarchy . dexClasses
+classHierarchy df =
+  cha0 { assignable = compat }
+  where
+    cha0 = foldr addClass emptyClassHierarchy (dexClasses df)
+    compat = F.foldl' (computeAssignableMatrix cha0) HS.empty (dexTypes df)
+
+-- | True if objects of the first type are assignable to references of
+-- the second type
+isAssignableTo :: ClassHierarchy -> Type -> Type -> Bool
+isAssignableTo cha otype reftype = HS.member (otype, reftype) (assignable cha)
+
+-- | For each type @t@, @t@ can be assigned to a reference of type T
+-- or any of its superclasses.  It can also be assigned to any
+-- interface implemented by T (or parents of t)
+computeAssignableMatrix :: ClassHierarchy -> HashSet (Type, Type) -> Type -> HashSet (Type, Type)
+computeAssignableMatrix cha !acc t =
+  F.foldl' (\ !a t' -> HS.insert (t, t') a) acc (ctypes ++ ifaces)
+  where
+    ctypes = t : allSuperclasses cha t
+    ifaces = concatMap (interfaces cha) ctypes
 
 addClass :: Class -> ClassHierarchy -> ClassHierarchy
 addClass klass ch =
