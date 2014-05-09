@@ -14,14 +14,13 @@ import qualified Data.ByteString as BS
 import Data.Conduit.List ( consume )
 import qualified Data.List as L
 import qualified Data.Map as M
-import System.Cmd ( rawSystem )
 import System.Directory ( getDirectoryContents )
 import System.Environment ( getEnvironment )
 import System.Exit ( ExitCode(..) )
 import System.FilePath ( (</>), (<.>), takeFileName, takeExtension )
 import System.IO
 import System.IO.Temp ( withSystemTempDirectory )
-import System.Process ( runProcess, waitForProcess )
+import System.Process ( runProcess, waitForProcess, readProcessWithExitCode )
 
 import Dalvik.Parser
 import Dalvik.Types as DT
@@ -78,7 +77,7 @@ androidJarPath = do
 runDX :: [FilePath] -> FilePath -> FilePath -> IO FilePath
 runDX inputs outFile targetDir = do
   cp <- androidJarPath
-  ec1 <- rawSystem "javac" (cp ++ "-d" : targetDir : inputs)
+  (ec1, _, _) <- readProcessWithExitCode "javac" (cp ++ "-d" : targetDir : inputs) ""
   case ec1 of
     ExitFailure err -> error ("Error running `javac` on " ++ show inputs ++ ": "++ show err)
     ExitSuccess -> do
