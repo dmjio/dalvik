@@ -7,11 +7,12 @@ module Dalvik.Apk (
   memoIO
   ) where
 
-import Codec.Archive.Zip
+import qualified Codec.Archive.Zip as Z
+import Control.Applicative
 import Control.Concurrent ( newMVar, modifyMVar )
 import Control.Exception ( handle, ErrorCall )
 import qualified Data.ByteString as BS
-import Data.Conduit.List ( consume )
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as L
 import qualified Data.Map as M
 import System.Directory ( getDirectoryContents )
@@ -27,12 +28,12 @@ import Dalvik.Types as DT
 
 -- | Load the first .dex file found in an Apk
 loadDexFromApkIO :: FilePath -> IO (Either String DexFile)
-loadDexFromApkIO f = do
-  handle handler $
-    do chunks <- withArchive f (sourceEntry "classes.dex" consume)
-       -- TODO: this is silly. Should we tweak the parser to work with
-       -- lazy ByteStrings?
-       return . loadDex . BS.concat $ chunks
+loadDexFromApkIO f = handle handler $ do
+  a <- Z.toArchive <$> LBS.readFile f
+  case Z.findEntryByPath "classes.dex" a of
+    Nothing -> return $ Left ("Could not find classes.dex in " ++ f)
+    -- Should we have the parser work over lazy bytestrings instead?
+    Just e -> return $ loadDex $ LBS.toStrict (Z.fromEntry e)
 
   where handler :: ErrorCall -> IO (Either String DexFile)
         handler err = return (Left ("Could not find classes.dex in apk: " ++ show err))

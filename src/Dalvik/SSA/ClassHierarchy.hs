@@ -82,9 +82,9 @@ isAssignableTo cha otype reftype = HS.member (otype, reftype) (assignable cha)
 -- interface implemented by T (or parents of t)
 computeAssignableMatrix :: ClassHierarchy -> HashSet (Type, Type) -> Type -> HashSet (Type, Type)
 computeAssignableMatrix cha !acc t =
-  F.foldl' (\ !a t' -> HS.insert (t, t') a) acc (ctypes ++ ifaces)
+  F.foldl' (\ !a t' -> HS.insert (t, t') a) acc (UnknownType : ctypes ++ ifaces)
   where
-    ctypes = t : allSuperclasses cha t
+    ctypes = UnknownType : t : allSuperclasses cha t
     ifaces = concatMap (interfaces cha) ctypes
 
 addClass :: Class -> ClassHierarchy -> ClassHierarchy
