@@ -82,9 +82,11 @@ prettyInstructionDoc i =
     CheckCast { castReference = r, castType = t } ->
       instBindDoc i <+> PP.text "check-cast" <+> prettyTypeDoc (valueType r) <+>
         valueDoc r <+> PP.text "to" <+> prettyTypeDoc t
-    InstanceOf { instanceOfReference = r } ->
+    InstanceOf { instanceOfReference = r
+               , instanceOfType = iot
+               } ->
       instBindDoc i <+> PP.text "instance-of" <+>
-        valueDoc r <+> PP.text "as" <+> prettyTypeDoc (instructionType i)
+        valueDoc r <+> PP.text "as" <+> prettyTypeDoc iot
     ArrayLength { arrayReference = r } ->
       instBindDoc i <+> PP.text "array-length" <+> valueDoc r
     NewInstance {} ->

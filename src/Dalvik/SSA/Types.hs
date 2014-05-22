@@ -265,6 +265,7 @@ data Instruction = Return { instructionId :: UniqueId
                               , instructionType :: Type
                               , instructionBasicBlock :: BasicBlock
                               , instanceOfReference :: Value
+                              , instanceOfType :: Type
                               }
                  | ArrayLength { instructionId :: UniqueId
                                , instructionType :: Type

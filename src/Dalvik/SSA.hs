@@ -578,9 +578,10 @@ translateInstruction labeling tiedMknot bnum bb acc@(insns, mknot) (instIndex, i
       dstLbl <- dstLabel dst
       t <- getTranslatedType tid
       let i = InstanceOf { instructionId = iid
-                         , instructionType = t
+                         , instructionType = BooleanType
                          , instructionBasicBlock = bb
                          , instanceOfReference = getFinalValue tiedMknot srcLbl
+                         , instanceOfType = t
                          }
       return (i : insns, addInstMapping mknot dstLbl i)
     DT.ArrayLength dst src -> do
