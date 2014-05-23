@@ -375,6 +375,12 @@ prettyClassDoc klass =
 prettyDexDoc :: DexFile -> Doc
 prettyDexDoc df = PP.vcat (map prettyClassDoc (dexClasses df))
 
+instance Pretty InvokeVirtualKind where
+  pPrint = prettyVirtualKindDoc
+
+instance Pretty InvokeDirectKind where
+  pPrint = prettyDirectKindDoc
+
 instance Show Instruction where
   show = PP.render . prettyInstructionDoc
 
