@@ -82,10 +82,11 @@ isAssignableTo cha otype reftype = HS.member (otype, reftype) (assignable cha)
 -- interface implemented by T (or parents of t)
 computeAssignableMatrix :: ClassHierarchy -> HashSet (Type, Type) -> Type -> HashSet (Type, Type)
 computeAssignableMatrix cha !acc t =
-  F.foldl' (\ !a t' -> HS.insert (t, t') a) acc (UnknownType : ctypes ++ ifaces)
+  F.foldl' (\ !a t' -> HS.insert (t, t') a) acc ts
   where
+    ts = ctypes ++ ifaces
     ctypes = UnknownType : t : allSuperclasses cha t
-    ifaces = concatMap (interfaces cha) ctypes
+    ifaces = concatMap (allInterfaces cha) ctypes
 
 addClass :: Class -> ClassHierarchy -> ClassHierarchy
 addClass klass ch =
@@ -134,7 +135,9 @@ interfaces ch t =
 
 -- | Get all interfaces transitively implemented by the given type
 allInterfaces :: ClassHierarchy -> Type -> [Type]
-allInterfaces ch = tClosure (interfaces ch)
+allInterfaces ch t = ifaces0 ++ concatMap (rtClosure (interfaces ch)) ifaces0
+  where
+    ifaces0 = interfaces ch t
 
 -- | Get all supertypes of the given type, including concrete classes,
 -- abstract classes, and interfaces
