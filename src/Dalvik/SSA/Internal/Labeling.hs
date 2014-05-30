@@ -67,7 +67,7 @@ import qualified Data.Set as S
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import Data.Word ( Word8, Word16 )
-import Text.PrettyPrint.HughesPJClass as PP
+import Text.PrettyPrint as PP
 import Text.Printf
 
 import Dalvik.Types as DT

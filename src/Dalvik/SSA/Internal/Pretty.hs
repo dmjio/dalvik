@@ -9,7 +9,8 @@ import qualified Data.Foldable as F
 import Data.Int ( Int64 )
 import qualified Data.List as L
 import qualified Data.Vector as V
-import Text.PrettyPrint.HughesPJClass as PP
+import Text.PrettyPrint as PP
+import qualified Text.PrettyPrint.GenericPretty as PP
 
 import Dalvik.MUTF8
 import Dalvik.SSA.Types
@@ -230,8 +231,9 @@ binaryOpDoc op =
     UShr -> PP.text "ushr"
     RSub -> PP.text "rsub"
 
-instance Pretty Binop where
-  pPrint = binaryOpDoc
+instance PP.Out Binop where
+  doc = binaryOpDoc
+  docPrec _ = PP.doc
 
 unop :: Unop -> Doc
 unop op =
@@ -244,8 +246,9 @@ unop op =
     NegDouble -> PP.text "neg"
     Convert _ _ -> PP.text "convert"
 
-instance Pretty Unop where
-  pPrint = unop
+instance PP.Out Unop where
+  doc = unop
+  docPrec _ = PP.doc
 
 unaryOpDoc :: Unop -> Value -> Doc
 unaryOpDoc op v =
@@ -271,8 +274,9 @@ convertTypeDoc t =
     Float -> PP.text "float"
     Double -> PP.text "double"
 
-instance Pretty CType where
-  pPrint = convertTypeDoc
+instance PP.Out CType where
+  doc = convertTypeDoc
+  docPrec _ = PP.doc
 
 cmpopDoc :: CmpOp -> Doc
 cmpopDoc o =
@@ -283,8 +287,9 @@ cmpopDoc o =
     CGDouble -> PP.text "double gt bias"
     CLong -> PP.text "long"
 
-instance Pretty CmpOp where
-  pPrint = cmpopDoc
+instance PP.Out CmpOp where
+  doc = cmpopDoc
+  docPrec _ = PP.doc
 
 switchCaseDoc :: (Int64, BasicBlock) -> Doc
 switchCaseDoc (i, target) =
@@ -300,8 +305,9 @@ ifopDoc o =
     Gt -> PP.text "gt"
     Ge -> PP.text "ge"
 
-instance Pretty IfOp where
-  pPrint = ifopDoc
+instance PP.Out IfOp where
+  doc = ifopDoc
+  docPrec _ = PP.doc
 
 blockIdDoc :: BasicBlock -> Doc
 blockIdDoc = PP.int . basicBlockNumber
@@ -375,71 +381,84 @@ prettyClassDoc klass =
 prettyDexDoc :: DexFile -> Doc
 prettyDexDoc df = PP.vcat (map prettyClassDoc (dexClasses df))
 
-instance Pretty InvokeVirtualKind where
-  pPrint = prettyVirtualKindDoc
+instance PP.Out InvokeVirtualKind where
+  doc = prettyVirtualKindDoc
+  docPrec _ = PP.doc
 
-instance Pretty InvokeDirectKind where
-  pPrint = prettyDirectKindDoc
+instance PP.Out InvokeDirectKind where
+  doc = prettyDirectKindDoc
+  docPrec _ = PP.doc
 
 instance Show Instruction where
-  show = PP.render . prettyInstructionDoc
+  show = PP.pretty
 
-instance Pretty Instruction where
-  pPrint = prettyInstructionDoc
+instance PP.Out Instruction where
+  doc = prettyInstructionDoc
+  docPrec _ = PP.doc
 
 instance Show MethodRef where
-  show = PP.render . prettyMethodRefDoc
+  show = PP.pretty
 
-instance Pretty MethodRef where
-  pPrint = prettyMethodRefDoc
+instance PP.Out MethodRef where
+  doc = prettyMethodRefDoc
+  docPrec _ = PP.doc
 
 instance Show Field where
-  show = PP.render . bareFieldDoc
+  show = PP.pretty
 
-instance Pretty Field where
-  pPrint = bareFieldDoc
+instance PP.Out Field where
+  doc = bareFieldDoc
+  docPrec _ = PP.doc
 
 instance Show Class where
-  show = PP.render . prettyClassDoc
+  show = PP.pretty
 
-instance Pretty Class where
-  pPrint = prettyClassDoc
+instance PP.Out Class where
+  doc = prettyClassDoc
+  docPrec _ = PP.doc
 
 instance Show Method where
-  show = PP.render . prettyMethodDoc
+  show = PP.pretty
 
-instance Pretty Method where
-  pPrint = prettyMethodDoc
+instance PP.Out Method where
+  doc = prettyMethodDoc
+  docPrec _ = PP.doc
 
 instance Show Parameter where
-  show = PP.render . prettyFormalParamDoc
+  show = PP.pretty
 
-instance Pretty Parameter where
-  pPrint = prettyFormalParamDoc
+instance PP.Out Parameter where
+  doc = prettyFormalParamDoc
+  docPrec _ = PP.doc
 
-instance Pretty Type where
-  pPrint = prettyTypeDoc
+instance PP.Out Type where
+  doc = prettyTypeDoc
+  docPrec _ = PP.doc
 
 instance Show BasicBlock where
-  show = PP.render . prettyBlockDoc
+  show = PP.pretty
 
-instance Pretty BasicBlock where
-  pPrint = prettyBlockDoc
+instance PP.Out BasicBlock where
+  doc = prettyBlockDoc
+  docPrec _ = PP.doc
 
 instance Show Value where
-  show = PP.render . valueDoc
+  show = PP.pretty
 
-instance Pretty Value where
-  pPrint = valueDoc
+instance PP.Out Value where
+  doc = valueDoc
+  docPrec _ = PP.doc
 
 instance Show Constant where
-  show = PP.render . prettyConstantDoc
+  show = PP.pretty
 
-instance Pretty Constant where
-  pPrint = prettyConstantDoc
+instance PP.Out Constant where
+  doc = prettyConstantDoc
+  docPrec _ = PP.doc
 
 instance Show DexFile where
-  show = PP.render . prettyDexDoc
+  show = PP.pretty
 
-instance Pretty DexFile where
-  pPrint = prettyDexDoc
+instance PP.Out DexFile where
+  doc = prettyDexDoc
+  docPrec _ = PP.doc
