@@ -85,6 +85,7 @@ import Dalvik.SSA.Internal.Labeling
 import Dalvik.SSA.Internal.Names
 import Dalvik.SSA.Internal.Pretty ()
 import Dalvik.SSA.Internal.RegisterAssignment
+import Dalvik.SSA.Internal.Serialize ()
 import Dalvik.SSA.Internal.Stubs ( Stubs )
 import qualified Dalvik.SSA.Internal.Stubs as St
 
@@ -118,6 +119,7 @@ toSSA mstubs dfs = do
                  , dexConstants = knotConstants tiedKnot
                  , SSA._dexClassesByType =
                    HM.foldr addTypeMap HM.empty (knotClasses tiedKnot)
+                 , dexIdSrc = knotMaxId tiedKnot
                  }
   where
     addTypeMap klass m = HM.insert (classType klass) klass m
@@ -135,6 +137,7 @@ tieKnot mstubs dfs tiedKnot = do
                                     , M.elems $ knotIntCache s
                                     , HM.elems $ knotStringCache s
                                     ]
+           , knotMaxId = knotIdSrc s
            }
   where
     go = foldM translateDex emptyKnot dfs
@@ -167,6 +170,7 @@ data Knot = Knot { knotClasses :: !(HashMap BS.ByteString Class)
                  , knotFields :: !(HashMap (BS.ByteString, BS.ByteString) Field)
                  , knotTypes :: !(HashMap BS.ByteString Type)
                  , knotConstants :: [Constant]
+                 , knotMaxId :: !Int
                  }
 
 getMethodRef :: (E.MonadThrow m) => DT.MethodId -> KnotMonad m MethodRef
@@ -186,6 +190,7 @@ emptyKnot  = Knot { knotClasses = HM.empty
                   , knotFields = HM.empty
                   , knotTypes = HM.empty
                   , knotConstants = []
+                  , knotMaxId = 0
                   }
 
 data KnotState =

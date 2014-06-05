@@ -69,6 +69,7 @@ data DexFile =
   DexFile { dexClasses :: [Class]
           , dexConstants :: [Constant]
           , dexTypes :: [Type]
+          , dexIdSrc :: Int
           , _dexClassesByType :: HashMap Type Class
           }
 
