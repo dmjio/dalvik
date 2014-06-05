@@ -54,6 +54,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import Data.List.NonEmpty ( NonEmpty )
 import Data.Maybe ( fromMaybe )
+import qualified Data.Serialize as S
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
@@ -170,6 +171,7 @@ data Type = VoidType
             -- during the SSA translation
           deriving (Eq, Ord, Read, Show, Generic)
 
+instance S.Serialize Type
 instance PP.PrettyVal Type
 
 instance Hashable Type where

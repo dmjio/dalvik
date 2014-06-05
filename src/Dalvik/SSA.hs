@@ -53,7 +53,9 @@ module Dalvik.SSA (
   Stubs,
   St.stubs,
   module Dalvik.SSA.Types,
-  module Dalvik.SSA.Util
+  module Dalvik.SSA.Util,
+  -- * Serialization
+  module Dalvik.SSA.Internal.Serialize
   ) where
 
 import qualified Control.Monad.Catch as E
@@ -85,7 +87,7 @@ import Dalvik.SSA.Internal.Labeling
 import Dalvik.SSA.Internal.Names
 import Dalvik.SSA.Internal.Pretty ()
 import Dalvik.SSA.Internal.RegisterAssignment
-import Dalvik.SSA.Internal.Serialize ()
+import Dalvik.SSA.Internal.Serialize
 import Dalvik.SSA.Internal.Stubs ( Stubs )
 import qualified Dalvik.SSA.Internal.Stubs as St
 
