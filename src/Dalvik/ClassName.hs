@@ -9,9 +9,11 @@ module Dalvik.ClassName (
   mapClassName
   ) where
 
+import Control.Applicative
 import qualified Data.ByteString.Char8 as BS
 import Data.Hashable
 import Data.Monoid
+import qualified Data.Serialize as S
 import qualified Text.Show.Pretty as PP
 
 -- | An abstract representation of a Java class name.  These can be
@@ -20,6 +22,10 @@ import qualified Text.Show.Pretty as PP
 -- > Ljava/lang/Object;
 data ClassName = ClassName [BS.ByteString]
                deriving (Eq, Ord, Read, Show)
+
+instance S.Serialize ClassName where
+  put (ClassName cs) = S.put cs
+  get = ClassName <$> S.get
 
 instance PP.PrettyVal ClassName where
   prettyVal = PP.prettyVal . humanClassName
