@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
 module Dalvik.SSA.Internal.Serialize (
   deserializeDex,
@@ -5,11 +6,11 @@ module Dalvik.SSA.Internal.Serialize (
   ) where
 
 import qualified Data.ByteString as BS
-import qualified Data.Foldable as F
 import Control.Applicative
 import qualified Data.HashMap.Strict as HM
 import Data.Map ( Map )
 import qualified Data.Map as M
+import Data.Maybe ( fromMaybe )
 import qualified Data.Serialize as S
 
 import Dalvik.SSA.Types
@@ -24,12 +25,14 @@ deserializeDex bs =
 
 data Knot = Knot { knotTypeTable :: Map Int Type
                  , knotClasses :: Map Int Class
+                 , knotMethods :: Map Int Method
                  , knotValues :: Map Int Value
                  }
 
 emptyKnot :: Knot
 emptyKnot = Knot { knotTypeTable = M.empty
                  , knotClasses = M.empty
+                 , knotMethods = M.empty
                  , knotValues = M.empty
                  }
 
@@ -58,11 +61,10 @@ getDex fknot = do
   let knot0 = emptyKnot { knotTypeTable = tt
                         , knotValues = foldr (\c -> M.insert (constantId c) (toValue c)) M.empty constants
                         }
-  nClasses <- S.getWord64le
-  (classes, knot1) <- F.foldlM (getClass fknot) ([], knot0) [0..nClasses - 1]
+  (classes, knot1) <- getList (getClass fknot) knot0
   let cache = foldr (\klass -> HM.insert (classType klass) klass) HM.empty classes
-  return (DexFile { dexClasses = classes
-                  , dexConstants = constants
+  return (DexFile { dexClasses = reverse classes
+                  , dexConstants = reverse constants
                   , dexTypes = M.elems tt
                   , dexIdSrc = idSrc
                   , _dexClassesByType = cache
@@ -130,15 +132,13 @@ putClass tt klass = do
   S.putMaybeOf (putType tt) (classParent klass)
   S.putMaybeOf S.put (fmap classId (classParentReference klass))
   S.putListOf (putType tt) (classInterfaces klass)
-  S.putWord64le (fromIntegral (length (classDirectMethods klass)))
-  mapM_ (putMethod tt) (classDirectMethods klass)
-  S.putWord64le (fromIntegral (length (classVirtualMethods klass)))
-  mapM_ (putMethod tt) (classVirtualMethods klass)
+  putList (putMethod tt) (classDirectMethods klass)
+  putList (putMethod tt) (classVirtualMethods klass)
   S.putListOf (putAccessField tt) (classStaticFields klass)
   S.putListOf (putAccessField tt) (classInstanceFields klass)
 
-getClass :: Knot -> ([Class], Knot) -> a -> S.Get ([Class], Knot)
-getClass fknot (classes, k0) _ = do
+getClass :: Knot -> Knot -> S.Get (Class, Knot)
+getClass fknot k0 = do
   let tt = knotTypeTable k0
   cid <- S.get
   ct <- getType tt
@@ -149,10 +149,8 @@ getClass fknot (classes, k0) _ = do
   parentRefId <- S.get
   let parentRef = M.lookup parentRefId (knotClasses fknot)
   ifaces <- S.getListOf (getType tt)
-  nStatics <- S.getWord64le
-  (dms, k1) <- F.foldlM (getMethod fknot) ([], k0) [0..nStatics - 1]
-  nVirts <- S.getWord64le
-  (vms, k2) <- F.foldlM (getMethod fknot) ([], k1) [0..nVirts - 1]
+  (dms, k1) <- getList (getMethod fknot) k0
+  (vms, k2) <- getList (getMethod fknot) k1
   sfields <- S.getListOf (getAccessField tt)
   ifields <- S.getListOf (getAccessField tt)
   let klass = Class { classId = cid
@@ -162,15 +160,15 @@ getClass fknot (classes, k0) _ = do
                     , classAccessFlags = flags
                     , classParent = parent
                     , classParentReference = parentRef
-                    , classInterfaces = ifaces
+                    , classInterfaces = reverse ifaces
                     , classDirectMethods = dms
                     , classVirtualMethods = vms
-                    , classStaticFields = sfields
-                    , classInstanceFields = ifields
+                    , classStaticFields = reverse sfields
+                    , classInstanceFields = reverse ifields
                     , _classStaticFieldMap = indexFields sfields
                     , _classInstanceFieldMap = indexFields ifields
                     }
-  return (klass : classes, k2)
+  return (klass, k2)
   where
     indexFields = foldr (\(_, f) -> HM.insert (fieldName f) f) HM.empty
 
@@ -203,7 +201,59 @@ getField tt = do
                }
 
 putMethod :: Map Type Int -> Method -> S.Put
-putMethod = undefined
+putMethod tt m = do
+  S.put (methodId m)
+  S.put (methodName m)
+  putType tt (methodReturnType m)
+  S.put (methodAccessFlags m)
+  putList (putParameter tt) (methodParameters m)
+  S.putMaybeOf (putList (putBlock tt)) (methodBody m)
+  S.put (classId (methodClass m))
 
-getMethod :: Knot -> ([Method], Knot) -> a -> S.Get ([Method], Knot)
+getMethod :: Knot -> Knot -> S.Get (Method, Knot)
 getMethod = undefined
+
+putParameter :: Map Type Int -> Parameter -> S.Put
+putParameter tt p = do
+  S.put (parameterId p)
+  putType tt (parameterType p)
+  S.put (parameterName p)
+  S.put (parameterIndex p)
+  S.put (methodId (parameterMethod p))
+
+
+getParameter :: Knot -> Knot -> S.Get (Parameter, Knot)
+getParameter fknot k = do
+  pid <- S.get
+  pt <- getType (knotTypeTable k)
+  name <- S.get
+  ix <- S.get
+  mix <- S.get
+  let errMsg = error ("No method " ++ show mix ++ " for parameter " ++ show pid)
+      m = fromMaybe errMsg $ M.lookup mix (knotMethods fknot)
+      p = Parameter { parameterId = pid
+                    , parameterType = pt
+                    , parameterName = name
+                    , parameterIndex = ix
+                    , parameterMethod = m
+                    }
+      k' = k { knotValues = M.insert pid (toValue p) (knotValues k) }
+  return (p, k')
+
+putBlock :: Map Type Int -> BasicBlock -> S.Put
+putBlock = undefined
+
+
+
+putList :: (a -> S.PutM ()) -> [a] -> S.Put
+putList p l = do
+  S.putWord64le (fromIntegral (length l))
+  mapM_ p l
+
+getList :: (Knot -> S.Get (a, Knot)) -> Knot -> S.Get ([a], Knot)
+getList p knot0 = S.getWord64le >>= go ([], knot0)
+  where
+    go (lst, k) 0 = return (reverse lst, k)
+    go (lst, k) !n = do
+      (elt, k') <- p k
+      go (elt : lst, k') (n - 1)
