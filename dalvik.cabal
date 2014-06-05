@@ -59,6 +59,7 @@ Library
                      Dalvik.SSA.Internal.Names,
                      Dalvik.SSA.Internal.Pretty,
                      Dalvik.SSA.Internal.RegisterAssignment,
+                     Dalvik.SSA.Internal.Serialize,
                      Dalvik.SSA.Internal.Stubs,
                      Dalvik.SSA.ClassHierarchy,
                      Dalvik.SSA.StringUtils,
