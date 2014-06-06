@@ -18,7 +18,11 @@ import qualified Data.Serialize as S
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 
+import Dalvik.SSA.Internal.Pretty ()
 import Dalvik.SSA.Types
+
+import Debug.Trace
+debug = flip trace
 
 deserializeDex :: BS.ByteString -> Either String DexFile
 deserializeDex bs =
@@ -75,7 +79,7 @@ getDex fknot = do
                         }
   -- We don't need the method refs here, we just need to populate the
   -- state with them
-  (_, knot1) <- getListAccum getMethodRef knot0
+  (mrefs, knot1) <- getListAccum getMethodRef knot0
   (classes, knot2) <- getListAccum (getClass fknot) knot1
   let cache = foldr (\klass -> HM.insert (classType klass) klass) HM.empty classes
   return (DexFile { dexClasses = classes
@@ -161,8 +165,9 @@ getClass fknot k0 = do
   sourceName <- S.get
   flags <- S.get
   parent <- S.getMaybeOf (getType tt)
-  parentRefId <- S.get
-  let parentRef = M.lookup parentRefId (knotClasses fknot)
+  mparentRefId <- S.get
+  let classErr = error ("Unknown class parent while decoding " ++ show cid)
+      parentRef = fmap (\p -> fromMaybe classErr $ M.lookup p (knotClasses fknot)) mparentRefId
   ifaces <- S.getListOf (getType tt)
   (dms, k1) <- getListAccum (getMethod fknot) k0
   (vms, k2) <- getListAccum (getMethod fknot) k1
