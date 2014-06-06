@@ -469,16 +469,16 @@ getInstruction fknot k0 = do
       toBlock b = fromMaybe (blockErr b) $ M.lookup b (knotBlocks fknot)
       valueErr v = error ("No value with id " ++ show v ++ " while decoding instruction " ++ show iid)
       toVal v = fromMaybe (valueErr v) $ M.lookup v (knotValues fknot)
-      fieldErr f = error ("No field with id " ++ show f ++ " while decoding instruction " ++ show iid)
-      toField f = fromMaybe (fieldErr f) $ M.lookup f (knotFields fknot)
       mrefErr m = error ("No method ref with id " ++ show m ++ " while decoding instruction " ++ show iid)
       toMethodRef m = fromMaybe (mrefErr m) $ M.lookup m (knotMethodRefs fknot)
-      getF = toField <$> S.get
       getValue = toVal <$> S.get
       getBB = toBlock <$> S.get
       getMRef = toMethodRef <$> S.get
   bb <- getBB
   tag <- S.getWord8
+  let fieldErr f = error ("No field with id " ++ show f ++ " while decoding instruction " ++ show iid ++ " tag " ++ show tag)
+      toField f = fromMaybe (fieldErr f) $ M.lookup f (knotFields fknot)
+      getF = toField <$> S.get
   case tag of
     0 -> do
       mrvid <- S.get
