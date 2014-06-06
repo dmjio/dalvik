@@ -418,17 +418,17 @@ putInstruction tt i = do
     StaticGet { staticOpField = f } -> do
       S.putWord8 19
       -- putField tt f
-      S.putField (fieldId f)
+      S.put (fieldId f)
     StaticPut { staticOpField = f, staticOpPutValue = v } -> do
       S.putWord8 20
       -- putField tt f
-      S.putField (fieldId f)
+      S.put (fieldId f)
       S.put (valueId v)
     InstanceGet { instanceOpReference = r, instanceOpField = f } -> do
       S.putWord8 21
       S.put (valueId r)
       -- putField tt f
-      S.putField (fieldId f)
+      S.put (fieldId f)
     InstancePut { instanceOpReference = r
                 , instanceOpField = f
                 , instanceOpPutValue = v
@@ -463,7 +463,131 @@ putInstruction tt i = do
       S.put (map (\(b, v) -> (basicBlockId b, valueId v)) ivs)
 
 getInstruction :: Knot -> Knot -> S.Get (Instruction, Knot)
-getInstruction = undefined
+getInstruction fknot k0 = do
+  iid <- S.get
+  it <- getType (knotTypeTable k0)
+  let blockErr b = error ("No block with id " ++ show b ++ " while decoding instruction " ++ show iid)
+      toBlock b = fromMaybe (blockErr b) $ M.lookup b (knotBlocks fknot)
+      valueErr v = error ("No value with id " ++ show v ++ " while decoding instruction " ++ show iid)
+      toVal v = fromMaybe (valueErr v) $ M.lookup v (knotValues fknot)
+      getValue = toVal <$> S.get
+      getBB = toBlock <$> S.get
+  bb <- getBB
+  tag <- S.getWord8
+  case tag of
+    0 -> do
+      mrvid <- S.get
+      let i = Return { instructionId = iid
+                     , instructionType = it
+                     , instructionBasicBlock = bb
+                     , returnValue = fmap toVal mrvid
+                     }
+      return (i, addInstruction i k0)
+    1 -> do
+      let i = MoveException { instructionId = iid
+                            , instructionType = it
+                            , instructionBasicBlock = bb
+                            }
+      return (i, addInstruction i k0)
+    2 -> do
+      r <- getValue
+      let i = MonitorEnter { instructionId = iid
+                           , instructionType = it
+                           , instructionBasicBlock = bb
+                           , monitorReference = r
+                           }
+      return (i, addInstruction i k0)
+    3 -> do
+      r <- getValue
+      let i = MonitorExit { instructionId = iid
+                          , instructionType = it
+                          , instructionBasicBlock = bb
+                          , monitorReference = r
+                          }
+      return (i, addInstruction i k0)
+    4 -> do
+      r <- getValue
+      t <- getType tt
+      let i = CheckCast { instructionId = iid
+                        , instructionType = it
+                        , instructionBasicBlock = bb
+                        , castReference = r
+                        , castType = t
+                        }
+      return (i, addInstruction i k0)
+    5 -> do
+      r <- getValue
+      t <- getType tt
+      let i = InstanceOf { instructionId = iid
+                         , instructionType = it
+                         , instructionBasicBlock = bb
+                         , instanceOfReference = r
+                         , instanceOfType = t
+                         }
+      return (i, addInstruction i k0)
+    6 -> do
+      r <- getValue
+      let i = ArrayLength { instructionId = iid
+                          , instructionType = it
+                          , instructionBasicBlock = bb
+                          , arrayReference = r
+                          }
+      return (i, addInstruction i k0)
+    7 -> do
+      let i = NewInstance { instructionId = iid
+                          , instructionType = it
+                          , instructionBasicBlock = bb
+                          }
+      return (i, addInstruction i k0)
+    8 -> do
+      len <- getValue
+      cids <- S.get
+      let i = NewArray { instructionId = iid
+                       , instructionType = it
+                       , instructionBasicBlock = bb
+                       , newArrayLength = len
+                       , newArrayContents = fmap (map toVal) cids
+                       }
+      return (i, addInstruction i k0)
+    9 -> do
+      r <- getValue
+      contents <- S.get
+      let i = FillArray { instructionId = iid
+                        , instructionType = it
+                        , instructionBasicBlock = bb
+                        , fillArrayReference = r
+                        , fillArrayContents = contents
+                        }
+      return (i, addInstruction i k0)
+    10 -> do
+      r <- getValue
+      let i = Throw { instructionId = iid
+                    , instructionType = it
+                    , instructionBasicBlock = bb
+                    , throwReference = r
+                    }
+      return (i, addInstruction i k0)
+    11 -> do
+      op1 <- getValue
+      op2 <- getValue
+      test <- S.get
+      dest <- getBB
+      fallthrough <- getBB
+      let i = ConditionalBranch { instructionId = iid
+                                , instructionType = it
+                                , instructionBasicBlock = bb
+                                , branchOperand1 = op1
+                                , branchOperand2 = op2
+                                , branchTestType = test
+                                , branchTarget = dest
+                                , branchFallthrough = fallthrough
+                                }
+      return (i, addInstruction i k0)
+  where
+    tt = knotTypeTable k0
+
+addInstruction :: Instruction -> Knot -> Knot
+addInstruction i k = k { knotValues = M.insert (instructionId i) (toValue i) (knotValues k) }
 
 putMethodRef :: Map Type Int -> MethodRef -> S.Put
 putMethodRef tt mref = do
