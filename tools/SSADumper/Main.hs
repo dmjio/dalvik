@@ -1,6 +1,7 @@
 module Main ( main ) where
 
 import Control.Monad ( liftM )
+import qualified Data.ByteString as BS
 import Data.Either ( rights )
 import Data.String ( fromString )
 import Options.Applicative
@@ -25,6 +26,7 @@ data Command =
                   , prettyTypeSignature :: Maybe String
                   , prettyStubs :: Maybe FilePath
                   , prettyStubsPrefix :: Maybe String
+                  , prettyOutput :: Maybe FilePath
                   }
 
 commandStubs :: Command -> IO (Maybe Stubs)
@@ -66,6 +68,10 @@ optionParser = Options <$>
       <*> optional (strOption ( long "stub-prefix"
                                 <> metavar "PREFIX"
                                 <> help "A prefix to strip from package names in the stub bundle"))
+      <*> optional (strOption ( long "output"
+                                <> short 'o'
+                                <> metavar "FILE"
+                                <> help "A file to save the SSA IR to" ))
 
 
     labelOptions = LabelCommand <$>
@@ -113,11 +119,15 @@ realMain Options { optCommand =
   --       Right lbls -> putStrLn (prettyLabeling lbls)
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Nothing
+                                                 , prettyOutput = output
                                                  } } = do
   dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
   st <- commandStubs pc
   ssaDex <- toSSA st dexFiles
   print ssaDex
+  case output of
+    Nothing -> return ()
+    Just outFile -> BS.writeFile outFile $ serializeDex ssaDex
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Just cname
                                                  , prettyMethodName = Nothing
