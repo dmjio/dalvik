@@ -540,7 +540,9 @@ instance Hashable MethodRef where
 
 data InvokeDirectKind = MethodInvokeStatic
                       | MethodInvokeDirect
-                      deriving (Eq, Ord, Show)
+                      deriving (Eq, Ord, Show, Generic)
+
+instance S.Serialize InvokeDirectKind
 
 instance Hashable InvokeDirectKind where
   hashWithSalt s MethodInvokeStatic = hashWithSalt s (1 :: Int)
@@ -549,7 +551,9 @@ instance Hashable InvokeDirectKind where
 data InvokeVirtualKind = MethodInvokeInterface
                        | MethodInvokeSuper
                        | MethodInvokeVirtual
-                       deriving (Eq, Ord, Show)
+                       deriving (Eq, Ord, Show, Generic)
+
+instance S.Serialize InvokeVirtualKind
 
 instance Hashable InvokeVirtualKind where
   hashWithSalt s MethodInvokeInterface = hashWithSalt s (1 :: Int)

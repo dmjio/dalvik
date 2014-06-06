@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 module Dalvik.Instruction
   ( decodeInstructions
   , insnUnitCount
@@ -17,12 +18,15 @@ module Dalvik.Instruction
   , DecodeError
   ) where
 
+import GHC.Generics ( Generic )
+
 import Control.Applicative ()
 import qualified Control.Monad.Catch as E
 import Control.Monad
 import Data.Bits
 import Data.Function
 import Data.Int
+import qualified Data.Serialize as S
 import Data.Vector ( Vector, (!) )
 import qualified Data.Vector as V
 import Data.Word
@@ -94,7 +98,9 @@ data CType
   | Long
   | Float
   | Double
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic)
+
+instance S.Serialize CType
 
 data CmpOp
   = CLFloat
@@ -102,7 +108,9 @@ data CmpOp
   | CLDouble
   | CGDouble
   | CLong
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic)
+
+instance S.Serialize CmpOp
 
 data IfOp
   = Eq
@@ -111,7 +119,9 @@ data IfOp
   | Ge
   | Gt
   | Le
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic)
+
+instance S.Serialize IfOp
 
 data Unop
   = NegInt
@@ -121,7 +131,9 @@ data Unop
   | NegFloat
   | NegDouble
   | Convert CType CType
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic)
+
+instance S.Serialize Unop
 
 data Binop
   = Add
@@ -136,7 +148,9 @@ data Binop
   | Shr
   | UShr
   | RSub
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Ord, Show, Generic)
+
+instance S.Serialize Binop
 
 data Instruction
   = Nop
