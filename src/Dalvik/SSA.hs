@@ -71,7 +71,8 @@ import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
 import Data.Map ( Map )
 import qualified Data.Map as M
-import Data.Maybe ( fromMaybe )
+import Data.Maybe ( fromMaybe, maybeToList )
+import qualified Data.Set as S
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import qualified Text.PrettyPrint.GenericPretty as PP
@@ -116,8 +117,21 @@ toSSA :: (MonadFix m, E.MonadThrow m)
          -> m DexFile
 toSSA mstubs dfs = do
   tiedKnot <- mfix (tieKnot mstubs dfs)
-  return DexFile { dexClasses = HM.elems (knotClasses tiedKnot)
-                 , dexTypes = HM.elems (knotTypes tiedKnot)
+  let declaredTypes = HM.elems (knotTypes tiedKnot)
+      classes = HM.elems (knotClasses tiedKnot)
+      insnTypes = [ instructionType i
+                  | klass <- classes
+                  , m <- classDirectMethods klass ++ classVirtualMethods klass
+                  , body <- maybeToList $ methodBody m
+                  , block <- body
+                  , i <- basicBlockInstructions block
+                  ]
+      allTypes = S.fromList $ concat [ [UnknownType]
+                                     , declaredTypes
+                                     , insnTypes
+                                     ]
+  return DexFile { dexClasses = classes
+                 , dexTypes = S.toList allTypes
                  , dexConstants = knotConstants tiedKnot
                  , SSA._dexClassesByType =
                    HM.foldr addTypeMap HM.empty (knotClasses tiedKnot)
