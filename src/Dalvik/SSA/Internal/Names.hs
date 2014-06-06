@@ -1,4 +1,5 @@
 module Dalvik.SSA.Internal.Names (
+  encodeType,
   generateNameForParameter,
   parseTypeName,
   parseMethodSignature
@@ -8,6 +9,8 @@ import Control.Applicative
 import qualified Control.Monad.Catch as E
 import Data.Attoparsec.ByteString.Char8
 import Data.ByteString.Char8 ( ByteString )
+import qualified Data.ByteString.Lazy.Char8 as LBS
+import qualified Data.ByteString.Lazy.Builder as LBS
 import Data.Monoid
 import Data.String ( IsString, fromString )
 import Dalvik.SSA.Types
@@ -73,4 +76,23 @@ p = do
       let c:rcomps = reverse cs
       _ <- char ';'
       return $ ReferenceType (qualifiedClassName (reverse rcomps) c)
+    'U' -> primType UnknownType
     _ -> fail "Not a valid Java type name"
+
+encodeType :: Type -> ByteString
+encodeType = LBS.toStrict . LBS.toLazyByteString . go
+  where
+    go t =
+      case t of
+        VoidType -> LBS.char8 'V'
+        BooleanType -> LBS.char8 'Z'
+        ByteType -> LBS.char8 'B'
+        ShortType -> LBS.char8 'S'
+        CharType -> LBS.char8 'C'
+        IntType -> LBS.char8 'I'
+        LongType -> LBS.char8 'J'
+        FloatType -> LBS.char8 'F'
+        DoubleType -> LBS.char8 'D'
+        ArrayType t' -> LBS.char8 '[' `mappend` go t'
+        ReferenceType n -> LBS.byteString (renderClassName n)
+        UnknownType -> LBS.char8 'U'
