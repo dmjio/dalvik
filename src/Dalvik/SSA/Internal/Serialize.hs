@@ -61,16 +61,15 @@ putDex :: DexFile -> S.Put
 putDex df = do
   S.put (dexIdSrc df)
   tt <- putTypeTable (dexTypes df)
-  S.putListOf (putConstant tt) (dexConstants df)
-  S.putWord64le (fromIntegral (length (dexClasses df)))
-  mapM_ (putMethodRef tt) (dexMethodRefs df)
-  mapM_ (putClass tt) (dexClasses df)
+  putList (putConstant tt) (dexConstants df)
+  putList (putMethodRef tt) (dexMethodRefs df)
+  putList (putClass tt) (dexClasses df)
 
 getDex :: Knot -> S.Get (DexFile, Knot)
 getDex fknot = do
   idSrc <- S.get
   tt <- getTypeTable
-  constants <- S.getListOf (getConstant tt)
+  constants <- getList (getConstant tt)
   let knot0 = emptyKnot { knotTypeTable = tt
                         , knotValues = foldr (\c -> M.insert (constantId c) (toValue c)) M.empty constants
                         }
