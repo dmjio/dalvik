@@ -10,6 +10,7 @@ import Control.Arrow ( second )
 import qualified Data.ByteString as BS
 import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
+import qualified Data.List.NonEmpty as NEL
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe, maybeToList )
@@ -417,17 +418,14 @@ putInstruction tt i = do
       S.put (valueId v)
     StaticGet { staticOpField = f } -> do
       S.putWord8 19
-      -- putField tt f
       S.put (fieldId f)
     StaticPut { staticOpField = f, staticOpPutValue = v } -> do
       S.putWord8 20
-      -- putField tt f
       S.put (fieldId f)
       S.put (valueId v)
     InstanceGet { instanceOpReference = r, instanceOpField = f } -> do
       S.putWord8 21
       S.put (valueId r)
-      -- putField tt f
       S.put (fieldId f)
     InstancePut { instanceOpReference = r
                 , instanceOpField = f
@@ -435,7 +433,6 @@ putInstruction tt i = do
                 } -> do
       S.putWord8 22
       S.put (valueId r)
-      -- putField tt f
       S.put (fieldId f)
       S.put (valueId v)
     InvokeVirtual { invokeVirtualKind = k
@@ -444,7 +441,6 @@ putInstruction tt i = do
                   } -> do
       S.putWord8 23
       S.put k
-      -- putMethodRef tt mref
       S.put (methodRefId mref)
       S.put $ F.toList $ fmap valueId args
     InvokeDirect { invokeDirectKind = k
@@ -454,7 +450,6 @@ putInstruction tt i = do
                  } -> do
       S.putWord8 24
       S.put k
-      -- putMethodRef tt mref
       S.put (methodRefId mref)
       S.put (fmap methodId mdef)
       S.put (fmap valueId args)
@@ -470,8 +465,14 @@ getInstruction fknot k0 = do
       toBlock b = fromMaybe (blockErr b) $ M.lookup b (knotBlocks fknot)
       valueErr v = error ("No value with id " ++ show v ++ " while decoding instruction " ++ show iid)
       toVal v = fromMaybe (valueErr v) $ M.lookup v (knotValues fknot)
+      fieldErr f = error ("No field with id " ++ show f ++ " while decoding instruction " ++ show iid)
+      toField f = fromMaybe (fieldErr f) $ M.lookup f (knotFields fknot)
+      mrefErr m = error ("No method ref with id " ++ show m ++ " while decoding instruction " ++ show iid)
+      toMethodRef m = fromMaybe (mrefErr m) $ M.lookup m (knotMethodRefs fknot)
+      getF = toField <$> S.get
       getValue = toVal <$> S.get
       getBB = toBlock <$> S.get
+      getMRef = toMethodRef <$> S.get
   bb <- getBB
   tag <- S.getWord8
   case tag of
@@ -583,6 +584,162 @@ getInstruction fknot k0 = do
                                 , branchFallthrough = fallthrough
                                 }
       return (i, addInstruction i k0)
+    12 -> do
+      t <- getBB
+      let i = UnconditionalBranch { instructionId = iid
+                                  , instructionType = it
+                                  , instructionBasicBlock = bb
+                                  , branchTarget = t
+                                  }
+      return (i, addInstruction i k0)
+    13 -> do
+      sv <- getValue
+      rawTs <- S.get
+      ft <- getBB
+      let i = Switch { instructionId = iid
+                     , instructionType = it
+                     , instructionBasicBlock = bb
+                     , switchValue = sv
+                     , switchTargets = map (second toBlock) rawTs
+                     , switchFallthrough = ft
+                     }
+      return (i, addInstruction i k0)
+    14 -> do
+      op <- S.get
+      op1 <- getValue
+      op2 <- getValue
+      let i = Compare { instructionId = iid
+                      , instructionType = it
+                      , instructionBasicBlock = bb
+                      , compareOperation = op
+                      , compareOperand1 = op1
+                      , compareOperand2 = op2
+                      }
+      return (i, addInstruction i k0)
+    15 -> do
+      v <- getValue
+      op <- S.get
+      let i = UnaryOp { instructionId = iid
+                      , instructionType = it
+                      , instructionBasicBlock = bb
+                      , unaryOperand = v
+                      , unaryOperation = op
+                      }
+      return (i, addInstruction i k0)
+    16 -> do
+      op1 <- getValue
+      op2 <- getValue
+      op <- S.get
+      let i = BinaryOp { instructionId = iid
+                       , instructionType = it
+                       , instructionBasicBlock = bb
+                       , binaryOperand1 = op1
+                       , binaryOperand2 = op2
+                       , binaryOperation = op
+                       }
+      return (i, addInstruction i k0)
+    17 -> do
+      r <- getValue
+      ix <- getValue
+      let i = ArrayGet { instructionId = iid
+                       , instructionType = it
+                       , instructionBasicBlock = bb
+                       , arrayReference = r
+                       , arrayIndex = ix
+                       }
+      return (i, addInstruction i k0)
+    18 -> do
+      r <- getValue
+      ix <- getValue
+      v <- getValue
+      let i = ArrayPut { instructionId = iid
+                       , instructionType = it
+                       , instructionBasicBlock = bb
+                       , arrayReference = r
+                       , arrayIndex = ix
+                       , arrayPutValue = v
+                       }
+      return (i, addInstruction i k0)
+    19 -> do
+      f <- getF
+      let i = StaticGet { instructionId = iid
+                        , instructionType = it
+                        , instructionBasicBlock = bb
+                        , staticOpField = f
+                        }
+      return (i, addInstruction i k0)
+    20 -> do
+      f <- getF
+      v <- getValue
+      let i = StaticPut { instructionId = iid
+                        , instructionType = it
+                        , instructionBasicBlock = bb
+                        , staticOpField = f
+                        , staticOpPutValue = v
+                        }
+      return (i, addInstruction i k0)
+    21 -> do
+      r <- getValue
+      f <- getF
+      let i = InstanceGet { instructionId = iid
+                          , instructionType = it
+                          , instructionBasicBlock = bb
+                          , instanceOpReference = r
+                          , instanceOpField = f
+                          }
+      return (i, addInstruction i k0)
+    22 -> do
+      r <- getValue
+      f <- getF
+      v <- getValue
+      let i = InstancePut { instructionId = iid
+                          , instructionType = it
+                          , instructionBasicBlock = bb
+                          , instanceOpReference = r
+                          , instanceOpField = f
+                          , instanceOpPutValue = v
+                          }
+      return (i, addInstruction i k0)
+    23 -> do
+      k <- S.get
+      mref <- getMRef
+      args <- map toVal <$> S.get
+      case NEL.nonEmpty args of
+        Nothing -> error ("Encountered an empty argument list for InvokeVirtual at instruction " ++ show iid)
+        Just args' -> do
+          let i = InvokeVirtual { instructionId = iid
+                                , instructionType = it
+                                , instructionBasicBlock = bb
+                                , invokeVirtualKind = k
+                                , invokeVirtualMethod = mref
+                                , invokeVirtualArguments = args'
+                                }
+          return (i, addInstruction i k0)
+    24 -> do
+      let methodErr m = error ("No method for id " ++ show m ++ " while decoding instruction " ++ show iid)
+          toM m = fromMaybe (methodErr m) $ M.lookup m (knotMethods fknot)
+      k <- S.get
+      mref <- getMRef
+      m <- fmap toM <$> S.get
+      args <- map toVal <$> S.get
+      let i = InvokeDirect { instructionId = iid
+                           , instructionType = it
+                           , instructionBasicBlock = bb
+                           , invokeDirectKind = k
+                           , invokeDirectMethod = mref
+                           , invokeDirectMethodDef = m
+                           , invokeDirectArguments = args
+                           }
+      return (i, addInstruction i k0)
+    25 -> do
+      ivs <- map (\(b, v) -> (toBlock b, toVal v)) <$> S.get
+      let i = Phi { instructionId = iid
+                  , instructionType = it
+                  , instructionBasicBlock = bb
+                  , phiValues = ivs
+                  }
+      return (i, addInstruction i k0)
+    _ -> error ("Unexpected instruction tag " ++ show tag)
   where
     tt = knotTypeTable k0
 
