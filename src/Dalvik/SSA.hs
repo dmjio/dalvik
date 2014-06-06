@@ -126,6 +126,7 @@ toSSA mstubs dfs = do
                   , block <- body
                   , i <- basicBlockInstructions block
                   ]
+      -- See Note [Synthesized Types]
       allTypes = S.fromList $ concat [ [UnknownType]
                                      , declaredTypes
                                      , insnTypes
@@ -1281,5 +1282,19 @@ This is fairly different from the Cytron algorithm.  It works
 backwards instead of forwards and does not require a dominance
 frontier or a full CFG.  Once each value is identified this way,
 making an SSA value for it should be simpler.
+
+-}
+
+{- Note [Synthesized Types]
+
+We record a table of all of the types in the DexFile.  The raw dex
+file from an Apk has a similar table, however ours has more entries.
+The raw type table only includes types mentioned by name in the dalvik
+source.  Our SSA transformation "synthesizes" new types for certain
+instructions (e.g., array-get, which shares a type with the inner type
+of the array being operated on).  If these synthetic types do not
+appear in the original dalvik, they would not have appeared in our
+table.  We use a post-processing pass over the instruction stream to
+pick up all of our synthesized types.
 
 -}
