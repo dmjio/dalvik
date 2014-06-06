@@ -28,6 +28,7 @@ data Command =
                   , prettyStubsPrefix :: Maybe String
                   , prettyOutput :: Maybe FilePath
                   }
+  | LoadCommand { loadFilename :: FilePath }
 
 commandStubs :: Command -> IO (Maybe Stubs)
 commandStubs PrettyCommand { prettyStubs = Just stubFile
@@ -43,8 +44,13 @@ optionParser :: Parser Options
 optionParser = Options <$>
                 subparser (  command "label" (info labelOptions (progDesc "Dump SSA value labels"))
                              <> command "pretty" (info prettyOptions (progDesc "Pretty print the SSA IR"))
+                             <> command "load" (info loadOptions (progDesc "Load and print serialized SSA IR"))
                           )
   where
+    loadOptions = LoadCommand <$> strOption ( long "filename"
+                                              <> short 'f'
+                                              <> metavar "FILE"
+                                              <> help "The serialized dalvik to load" )
     prettyOptions = PrettyCommand <$>
       some (strOption ( long "filename"
                   <> short 'f'
@@ -117,6 +123,11 @@ realMain Options { optCommand =
   --     case labelMethod dexFile m of
   --       Left e -> error ("Could not label method: " ++ toStr klass method sig ++ " " ++ DT.decodeErrorAsString e)
   --       Right lbls -> putStrLn (prettyLabeling lbls)
+realMain Options { optCommand = LoadCommand { loadFilename = fileName } } = do
+  bs <- BS.readFile fileName
+  case deserializeDex bs of
+    Left err -> error err
+    Right ssa -> print ssa
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Nothing
                                                  , prettyOutput = output
