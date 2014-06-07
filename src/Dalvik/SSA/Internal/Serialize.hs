@@ -59,6 +59,7 @@ serializeDex = S.runPut . putDex
 -- Int (id source)
 -- Type list
 -- Constant list
+-- Field list
 -- Method ref list
 -- Class list
 putDex :: DexFile -> S.Put
@@ -66,6 +67,7 @@ putDex df = do
   S.put (dexIdSrc df)
   tt <- putTypeTable (dexTypes df)
   putList (putConstant tt) (dexConstants df)
+  putList (putField tt) (dexFields df)
   putList (putMethodRef tt) (dexMethodRefs df)
   putList (putClass tt) (dexClasses df)
 
@@ -79,15 +81,16 @@ getDex fknot = do
                         }
   -- We don't need the method refs here, we just need to populate the
   -- state with them
-  (mrefs, knot1) <- getListAccum getMethodRef knot0
-  (classes, knot2) <- getListAccum (getClass fknot) knot1
+  (_, knot1) <- getListAccum getField knot0
+  (_, knot2) <- getListAccum getMethodRef knot1
+  (classes, knot3) <- getListAccum (getClass fknot) knot2
   let cache = foldr (\klass -> HM.insert (classType klass) klass) HM.empty classes
   return (DexFile { dexClasses = classes
                   , dexConstants = constants
                   , dexTypes = M.elems tt
                   , dexIdSrc = idSrc
                   , _dexClassesByType = cache
-                  }, knot2)
+                  }, knot3)
 
 getTypeTable :: S.Get (Map Int Type)
 getTypeTable = do
@@ -153,8 +156,8 @@ putClass tt klass = do
   S.putListOf (putType tt) (classInterfaces klass)
   putList (putMethod tt) (classDirectMethods klass)
   putList (putMethod tt) (classVirtualMethods klass)
-  putList (putAccessField tt) (classStaticFields klass)
-  putList (putAccessField tt) (classInstanceFields klass)
+  putList putAccessField (classStaticFields klass)
+  putList putAccessField (classInstanceFields klass)
 
 getClass :: Knot -> Knot -> S.Get (Class, Knot)
 getClass fknot k0 = do
@@ -171,8 +174,8 @@ getClass fknot k0 = do
   ifaces <- S.getListOf (getType tt)
   (dms, k1) <- getListAccum (getMethod fknot) k0
   (vms, k2) <- getListAccum (getMethod fknot) k1
-  (sfields, k3) <- getListAccum getAccessField k2
-  (ifields, k4) <- getListAccum getAccessField k3
+  sfields <- getList (getAccessField fknot)
+  ifields <- getList (getAccessField fknot)
   let klass = Class { classId = cid
                     , classType = ct
                     , className = name
@@ -188,19 +191,21 @@ getClass fknot k0 = do
                     , _classStaticFieldMap = indexFields sfields
                     , _classInstanceFieldMap = indexFields ifields
                     }
-      k5 = k4 { knotClasses = M.insert cid klass (knotClasses k4) }
-  return (klass, k5)
+      k3 = k2 { knotClasses = M.insert cid klass (knotClasses k2) }
+  return (klass, k3)
   where
     indexFields = foldr (\(_, f) -> HM.insert (fieldName f) f) HM.empty
 
-putAccessField :: Map Type Int -> (AccessFlags, Field) -> S.Put
-putAccessField tt (flags, f) = S.put flags >> putField tt f
+putAccessField :: (AccessFlags, Field) -> S.Put
+putAccessField (flags, f) = S.put flags >> S.put (fieldId f)
 
-getAccessField :: Knot -> S.Get ((AccessFlags, Field), Knot)
-getAccessField k0 = do
+getAccessField :: Knot -> S.Get (AccessFlags, Field)
+getAccessField fknot = do
   flags <- S.get
-  (f, k1) <- getField k0
-  return ((flags, f), k1)
+  fid <- S.get
+  let errMsg = error ("No field for id " ++ show fid)
+      f = fromMaybe errMsg $ M.lookup fid (knotFields fknot)
+  return (flags, f)
 
 putField :: Map Type Int -> Field -> S.Put
 putField tt f = do
@@ -811,4 +816,27 @@ dexMethodRefs df = Set.toList $ Set.fromList $
       case i of
         InvokeVirtual { invokeVirtualMethod = mref } -> [mref]
         InvokeDirect { invokeDirectMethod = mref } -> [mref]
+        _ -> []
+
+dexFields :: DexFile -> [Field]
+dexFields df = Set.toList $ Set.fromList (ifields ++ cfields)
+  where
+    cfields = [ f
+              | klass <- dexClasses df
+              , (_, f) <- classStaticFields klass ++ classInstanceFields klass
+              ]
+    ifields = [ f
+              | k <- dexClasses df
+              , m <- classDirectMethods k ++ classVirtualMethods k
+              , body <- maybeToList (methodBody m)
+              , block <- body
+              , i <- basicBlockInstructions block
+              , f <- referencedField i
+              ]
+    referencedField i =
+      case i of
+        StaticGet { staticOpField = f } -> [f]
+        StaticPut { staticOpField = f } -> [f]
+        InstanceGet { instanceOpField = f } -> [f]
+        InstancePut { instanceOpField = f } -> [f]
         _ -> []
