@@ -127,7 +127,7 @@ realMain Options { optCommand = LoadCommand { loadFilename = fileName } } = do
   bs <- BS.readFile fileName
   case deserializeDex bs of
     Left err -> error err
-    Right ssa -> print ssa
+    Right ssa -> print (length (dexClasses ssa))
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Nothing
                                                  , prettyOutput = output
