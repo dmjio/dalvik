@@ -21,19 +21,39 @@ module Dalvik.SSA.Internal.Serialize (
 
 import Control.Applicative
 import Control.Arrow ( second )
+import Control.Monad ( unless )
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy.Builder as LBS
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NEL
 import Data.Map ( Map )
 import qualified Data.Map as M
 import Data.Maybe ( fromMaybe, maybeToList )
+import Data.Monoid
 import qualified Data.Serialize as S
 import qualified Data.Set as Set
 import qualified Data.Vector as V
 
 import Dalvik.SSA.Internal.Pretty ()
 import Dalvik.SSA.Types
+
+formatVersion :: Int
+formatVersion = 1
+
+-- | This file header is a clone of the PNG header, but with a
+-- different ASCII tag.
+fileHeader :: BS.ByteString
+fileHeader = LBS.toStrict $ LBS.toLazyByteString bldr
+  where
+    bldr = mconcat [ LBS.word8 0x89
+                   , LBS.string8 "DLVK"
+                   , LBS.word8 0x0d
+                   , LBS.word8 0x0a
+                   , LBS.word8 0x1a
+                   , LBS.word8 0x0a
+                   ]
 
 -- | Deserialize a previously serialized Dex file from a strict 'ByteString'
 --
@@ -79,6 +99,8 @@ emptyKnot = Knot { knotTypeTable = M.empty
 -- Class list
 putDex :: DexFile -> S.Put
 putDex df = do
+  S.putByteString fileHeader
+  S.put formatVersion
   S.put (dexIdSrc df)
   tt <- putTypeTable (dexTypes df)
   putList (putConstant tt) (dexConstants df)
@@ -88,6 +110,10 @@ putDex df = do
 
 getDex :: Knot -> S.Get (DexFile, Knot)
 getDex fknot = do
+  sig <- S.getByteString $ fromIntegral $ BS.length fileHeader
+  unless (sig == fileHeader) $ fail ("Deserialize: Signature mismatch, got " ++ show sig)
+  fv <- S.get
+  unless (fv == formatVersion) $ fail ("Deserialize: File format mismatch, got " ++ show fv ++ " but was expecting " ++ show formatVersion)
   idSrc <- S.get
   tt <- getTypeTable
   constants <- getList (getConstant tt)
