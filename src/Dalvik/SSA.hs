@@ -113,10 +113,11 @@ import qualified Dalvik.SSA.Internal.Stubs as St
 -- >   ssafile <- toSSA [dexfile]
 toSSA :: (MonadFix m, E.MonadThrow m)
          => Maybe Stubs -- ^ Custom stub methods
+         -> Maybe DexFile -- ^ A base Dex file to build on top of
          -> [DT.DexFile] -- ^ Input dex files (to be merged)
          -> m DexFile
-toSSA mstubs dfs = do
-  tiedKnot <- mfix (tieKnot mstubs dfs)
+toSSA mstubs mbase dfs = do
+  tiedKnot <- mfix (tieKnot mstubs mbase dfs)
   let declaredTypes = HM.elems (knotTypes tiedKnot)
       classes = HM.elems (knotClasses tiedKnot)
       insnTypes = [ instructionType i
@@ -145,11 +146,12 @@ toSSA mstubs dfs = do
 -- dex file at a time.  Each dex file proceeds by class.
 tieKnot :: (MonadFix m, E.MonadThrow m)
            => Maybe Stubs
+           -> Maybe DexFile
            -> [DT.DexFile]
            -> Knot
            -> m Knot
-tieKnot mstubs dfs tiedKnot = do
-  (k, s, _) <- runRWST go tiedKnot (initialKnotState mstubs)
+tieKnot mstubs mbase dfs tiedKnot = do
+  (k, s, _) <- runRWST go tiedKnot (initialKnotState mstubs mbase)
   return k { knotConstants = concat [ HM.elems $ knotClassConstantCache s
                                     , M.elems $ knotIntCache s
                                     , HM.elems $ knotStringCache s
@@ -157,7 +159,7 @@ tieKnot mstubs dfs tiedKnot = do
            , knotMaxId = knotIdSrc s
            }
   where
-    go = foldM translateDex emptyKnot dfs
+    go = foldM translateDex (emptyKnot mbase) dfs
 
 translateDex :: (MonadFix m, E.MonadThrow m) => Knot -> DT.DexFile -> KnotMonad m Knot
 translateDex knot0 df = do
@@ -200,15 +202,28 @@ getMethodRef mid = do
       let errMsg = error ("No method for method id " ++ show mid)
       return $ fromMaybe errMsg $ HM.lookup stringKey mrefs
 
-emptyKnot :: Knot
-emptyKnot  = Knot { knotClasses = HM.empty
-                  , knotMethodDefs = HM.empty
-                  , knotMethodRefs = HM.empty
-                  , knotFields = HM.empty
-                  , knotTypes = HM.empty
-                  , knotConstants = []
-                  , knotMaxId = 0
-                  }
+-- | Create an initial knot, possibly including information from a
+-- base dex file.  We don't need to set the id or constants fields
+-- because those are always just populated after the knot is tied.
+emptyKnot :: Maybe DexFile -> Knot
+emptyKnot mbase =
+  Knot { knotClasses = maybe HM.empty collectClasses mbase
+       , knotMethodDefs = maybe HM.empty collectMethodDefs mbase
+       , knotMethodRefs = maybe HM.empty collectMethodRefs mbase
+       , knotFields = maybe HM.empty collectFields mbase
+       , knotTypes = maybe HM.empty collectTypes mbase
+       , knotConstants = []
+       , knotMaxId = 0
+       }
+  where
+    collectClasses = foldr addClass HM.empty . dexClasses
+    addClass klass = HM.insert (encodeType (classType klass)) klass
+    collectFields = foldr addField HM.empty . dexFields
+    addField f = HM.insert (encodeType (fieldClass f), fieldName f) f
+    collectMethodRefs = foldr addMethodRef HM.empty . dexMethodRefs
+    addMethodRef mref = HM.insert (encodeType (methodRefClass mref), methodRefName mref, methodRefParameterTypes mref) mref
+    collectMethodDefs = foldr addMethodDef HM.empty . dexMethods
+    addMethodDef m = HM.insert (encodeType (classType (methodClass m)), methodName m, map parameterType (methodParameters m)) m
 
 data KnotState =
   KnotState { knotIdSrc :: !Int
@@ -229,18 +244,35 @@ data KnotState =
               -- to and including the current dex file.
             }
 
-initialKnotState :: Maybe Stubs -> KnotState
-initialKnotState mstubs =
-  KnotState { knotIdSrc = 0
+initialKnotState :: Maybe Stubs -> Maybe DexFile -> KnotState
+initialKnotState mstubs mbase =
+  KnotState { knotIdSrc = maybe 0 dexIdSrc mbase
             , knotDexFile = undefined
-            , knotStringCache = HM.empty
-            , knotIntCache = M.empty
-            , knotClassConstantCache = HM.empty
+            , knotStringCache = strs -- HM.empty
+            , knotIntCache = ints -- M.empty
+            , knotClassConstantCache = klasses -- HM.empty
             , knotDexFields = M.empty
             , knotDexMethods = M.empty
-            , knotDexTypes = HM.empty
+            , knotDexTypes = maybe HM.empty collectTypes mbase
             , knotStubs = mstubs
             }
+  where
+    (strs, ints, klasses) = maybe (HM.empty, M.empty, HM.empty) collectConstants mbase
+    collectConstants = foldr addConstant (HM.empty, M.empty, HM.empty) . dexConstants
+
+collectTypes :: DexFile -> HashMap BS.ByteString Type
+collectTypes = foldr addType HM.empty . dexTypes
+  where
+    addType t = HM.insert (encodeType t) t
+
+addConstant :: Constant
+            -> (HashMap BS.ByteString Constant, Map Int64 Constant, HashMap BS.ByteString Constant)
+            -> (HashMap BS.ByteString Constant, Map Int64 Constant, HashMap BS.ByteString Constant)
+addConstant k (strs, ints, klasses) =
+  case k of
+    ConstantInt _ i -> (strs, M.insert i k ints, klasses)
+    ConstantString _ s -> (HM.insert s k strs, ints, klasses)
+    ConstantClass _ t -> (strs, ints, HM.insert (encodeType t) k klasses)
 
 -- | Translate types from bytestrings into a structured
 -- representation.  Only add it if we haven't already seen it (we will
@@ -1268,8 +1300,11 @@ freshId = do
   return $ knotIdSrc s
 
 
-
-
+dexMethods :: DexFile -> [Method]
+dexMethods df = [ m
+                | k <- dexClasses df
+                , m <- classDirectMethods k ++ classVirtualMethods k
+                ]
 
 {- Note [Translation]
 

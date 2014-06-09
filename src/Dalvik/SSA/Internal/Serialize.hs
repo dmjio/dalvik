@@ -13,7 +13,10 @@
 -- cleanly.
 module Dalvik.SSA.Internal.Serialize (
   deserializeDex,
-  serializeDex
+  serializeDex,
+  -- Helpers
+  dexFields,
+  dexMethodRefs
   ) where
 
 import Control.Applicative

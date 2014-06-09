@@ -27,6 +27,8 @@ data Command =
                   , prettyStubs :: Maybe FilePath
                   , prettyStubsPrefix :: Maybe String
                   , prettyOutput :: Maybe FilePath
+                  , prettyBase :: Maybe FilePath
+                    -- ^ A base dex file to build on
                   }
   | LoadCommand { loadFilename :: FilePath }
 
@@ -78,6 +80,10 @@ optionParser = Options <$>
                                 <> short 'o'
                                 <> metavar "FILE"
                                 <> help "A file to save the SSA IR to" ))
+      <*> optional (strOption ( long "base"
+                                <> short 'b'
+                                <> metavar "FILE"
+                                <> help "A base Dex file to build on (previously serialized)"))
 
 
     labelOptions = LabelCommand <$>
@@ -103,6 +109,7 @@ main :: IO ()
 main = execParser opts >>= realMain
   where
     opts = info (helper <*> optionParser) ( fullDesc <> progDesc "Simple viewer for the dalvik SSA IR" <> header "SSADumper" )
+
 
 realMain :: Options -> IO ()
 realMain Options { optCommand =
@@ -131,10 +138,12 @@ realMain Options { optCommand = LoadCommand { loadFilename = fileName } } = do
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Nothing
                                                  , prettyOutput = output
+                                                 , prettyBase = baseFile
                                                  } } = do
   dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
   st <- commandStubs pc
-  ssaDex <- toSSA st dexFiles
+  base <- loadBase baseFile
+  ssaDex <- toSSA st base dexFiles
   print ssaDex
   case output of
     Nothing -> return ()
@@ -146,7 +155,7 @@ realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  } } = do
   dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
   st <- commandStubs pc
-  ssaDex <- toSSA st dexFiles
+  ssaDex <- toSSA st Nothing dexFiles
   klass <- findClassByName (fromString cname) ssaDex
   print klass
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
@@ -156,13 +165,20 @@ realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  } } = do
   dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
   st <- commandStubs pc
-  ssaDex <- toSSA st dexFiles
+  ssaDex <- toSSA st Nothing dexFiles
   klass <- findClassByName (fromString cname) ssaDex
   method <- findMethodByName (fromString mname) sig klass
   print method
 realMain _ = error "You must specify a method and a signature"
 
 
+loadBase :: Maybe FilePath -> IO (Maybe DexFile)
+loadBase Nothing = return Nothing
+loadBase (Just baseFile) = do
+  bs <- BS.readFile baseFile
+  case deserializeDex bs of
+    Right df -> return (Just df)
+    Left err -> error err
 
 toStr :: String -> String -> String -> String
 toStr []      m sig = printf "%s%s" m sig
