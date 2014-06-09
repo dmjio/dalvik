@@ -48,7 +48,7 @@ makeTest expectedFile =
     case eDF of
       Left err -> T.assertFailure err
       Right df -> do
-        ssa <- toSSA Nothing [df]
+        ssa <- toSSA Nothing Nothing [df]
         expectedValue <- liftM read (readFile expectedFile)
         case expectedValue of
           SimplePhi { numBlocks = nbs
