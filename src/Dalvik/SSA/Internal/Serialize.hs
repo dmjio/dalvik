@@ -1,5 +1,16 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ViewPatterns #-}
+-- | Support serializing Dalvik code in SSA form.
+--
+-- This is binary serialization and it preserves sharing.  Explicit
+-- functions are provided (as opposed to class instances) for two
+-- reasons:
+--
+-- 1) Decoupling from a specific serialization library
+--
+-- 2) Some trickiness was required to deal with knot tying during
+-- deserialization.  The trick did not fit in the instance declaration
+-- cleanly.
 module Dalvik.SSA.Internal.Serialize (
   deserializeDex,
   serializeDex
@@ -20,9 +31,6 @@ import qualified Data.Vector as V
 
 import Dalvik.SSA.Internal.Pretty ()
 import Dalvik.SSA.Types
-
-import Debug.Trace
-debug = flip trace
 
 deserializeDex :: BS.ByteString -> Either String DexFile
 deserializeDex bs =
