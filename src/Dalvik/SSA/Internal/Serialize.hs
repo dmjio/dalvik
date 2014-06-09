@@ -32,6 +32,9 @@ import qualified Data.Vector as V
 import Dalvik.SSA.Internal.Pretty ()
 import Dalvik.SSA.Types
 
+-- | Deserialize a previously serialized Dex file from a strict 'ByteString'
+--
+-- This operation preserves the sharing of the original dex file.
 deserializeDex :: BS.ByteString -> Either String DexFile
 deserializeDex bs =
   let getKnot = snd . either error id
@@ -40,6 +43,10 @@ deserializeDex bs =
     Left err -> Left err
     Right (df, _) -> Right df
 
+serializeDex :: DexFile -> BS.ByteString
+serializeDex = S.runPut . putDex
+
+-- | A type holding state for the knot tying procedure.
 data Knot = Knot { knotTypeTable :: !(Map Int Type)
                  , knotClasses :: !(Map Int Class)
                  , knotMethods :: !(Map Int Method)
@@ -58,9 +65,6 @@ emptyKnot = Knot { knotTypeTable = M.empty
                  , knotMethodRefs = M.empty
                  , knotFields = M.empty
                  }
-
-serializeDex :: DexFile -> BS.ByteString
-serializeDex = S.runPut . putDex
 
 -- | Format:
 --
