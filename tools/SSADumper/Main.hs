@@ -31,6 +31,7 @@ data Command =
                     -- ^ A base dex file to build on
                   }
   | LoadCommand { loadFilename :: FilePath }
+  | DumpCommand { dumpFilename :: FilePath }
 
 commandStubs :: Command -> IO (Maybe Stubs)
 commandStubs PrettyCommand { prettyStubs = Just stubFile
@@ -47,9 +48,14 @@ optionParser = Options <$>
                 subparser (  command "label" (info labelOptions (progDesc "Dump SSA value labels"))
                              <> command "pretty" (info prettyOptions (progDesc "Pretty print the SSA IR"))
                              <> command "load" (info loadOptions (progDesc "Load and print serialized SSA IR"))
+                             <> command "dump" (info dumpOptions (progDesc "Dump a serialized SSA IR file"))
                           )
   where
     loadOptions = LoadCommand <$> strOption ( long "filename"
+                                              <> short 'f'
+                                              <> metavar "FILE"
+                                              <> help "The serialized dalvik to load" )
+    dumpOptions = DumpCommand <$> strOption ( long "filename"
                                               <> short 'f'
                                               <> metavar "FILE"
                                               <> help "The serialized dalvik to load" )
@@ -135,6 +141,11 @@ realMain Options { optCommand = LoadCommand { loadFilename = fileName } } = do
   case deserializeDex bs of
     Left err -> error err
     Right ssa -> print (length (dexClasses ssa))
+realMain Options { optCommand = DumpCommand { dumpFilename = fileName } } = do
+  bs <- BS.readFile fileName
+  case deserializeDex bs of
+    Left err -> error err
+    Right ssa -> print ssa
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Nothing
                                                  , prettyOutput = output
