@@ -92,6 +92,9 @@ import Dalvik.SSA.Internal.Serialize
 import Dalvik.SSA.Internal.Stubs ( Stubs )
 import qualified Dalvik.SSA.Internal.Stubs as St
 
+import Debug.Trace
+debug = flip trace
+
 -- | Convert a 'Dalvik.Types.DexFile' into SSA form.  The result is a
 -- different DexFile with as many references as possible resolved and
 -- instructions in SSA form.  Some simple dead code elimination is
@@ -221,7 +224,9 @@ emptyKnot mbase =
     collectFields = foldr addField HM.empty . dexFields
     addField f = HM.insert (encodeType (fieldClass f), fieldName f) f
     collectMethodRefs = foldr addMethodRef HM.empty . dexMethodRefs
-    addMethodRef mref = HM.insert (encodeType (methodRefClass mref), methodRefName mref, methodRefParameterTypes mref) mref
+    addMethodRef mref m =
+      let key = (encodeType (methodRefClass mref), methodRefName mref, methodRefParameterTypes mref)
+      in HM.insert key mref m
     collectMethodDefs = foldr addMethodDef HM.empty . dexMethods
     addMethodDef m = HM.insert (encodeType (classType (methodClass m)), methodName m, map parameterType (methodParameters m)) m
 

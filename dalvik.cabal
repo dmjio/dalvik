@@ -132,15 +132,16 @@ test-suite SSALabels
                  directory,
                  bytestring
 
--- test-suite stubs
---   default-language: Haskell2010
---   type: exitcode-stdio-1.0
---   main-is: stubs.hs
---   ghc-options: -Wall
---   ghc-prof-options: -prof -auto-all
---   hs-source-dirs: tests/stubs
---   build-depends: base == 4.*,
---                  HUnit,
---                  test-framework,
---                  test-framework-hunit,
---                  dalvik == 0.2.0.0
+test-suite roundtrip
+  default-language: Haskell2010
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  hs-source-dirs: tests/roundtrip
+  ghc-options: -Wall -O
+  build-depends: base,
+                 bytestring,
+                 containers,
+                 HUnit,
+                 test-framework,
+                 test-framework-hunit,
+                 dalvik
