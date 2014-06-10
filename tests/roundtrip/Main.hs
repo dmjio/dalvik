@@ -15,7 +15,7 @@ main = T.defaultMain [t1, t2]
     t1 = T.testCase "Roundtrip Test 1" $ do
       Right core <- Apk.loadDexFromAnyIO "tests/roundtrip/core.dex"
       Right frame <- Apk.loadDexFromAnyIO "tests/roundtrip/framework.dex"
-      Right app <- Apk.loadDexFromAnyIO "tests/roundtrip/ReadsContactApp.apk"
+      Right app <- Apk.loadDexFromAnyIO "tests/roundtrip/CreateChooser.apk"
       ssa0 <- toSSA Nothing Nothing [core, frame]
       let Right ssa1 = deserializeDex $ serializeDex ssa0
       expected <- toSSA Nothing Nothing [core, frame, app]
