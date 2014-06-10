@@ -225,7 +225,21 @@ emptyKnot mbase =
       let key = (encodeType (methodRefClass mref), methodRefName mref, methodRefParameterTypes mref)
       in HM.insert key mref m
     collectMethodDefs = foldr addMethodDef HM.empty . dexMethods
-    addMethodDef m = HM.insert (encodeType (classType (methodClass m)), methodName m, map parameterType (methodParameters m)) m
+    -- The keys for methods do not include the <this> parameter for
+    -- instance methods or constructors because the MethodRefs never
+    -- mention them.  The keys are generated from the method refs.
+    addMethodDef m mp =
+      let key = (encodeType (classType (methodClass m)), methodName m, methodTypeKey m)
+      in HM.insert key m mp
+
+methodTypeKey :: Method -> [Type]
+methodTypeKey m
+  | methodName m == "<init>" ||
+    not (hasAccessFlag ACC_STATIC flags) =
+      map parameterType $ tail (methodParameters m)
+  | otherwise = map parameterType $ methodParameters m
+  where
+    flags = methodAccessFlags m
 
 data KnotState =
   KnotState { knotIdSrc :: !Int
