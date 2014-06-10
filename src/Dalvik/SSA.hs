@@ -92,9 +92,6 @@ import Dalvik.SSA.Internal.Serialize
 import Dalvik.SSA.Internal.Stubs ( Stubs )
 import qualified Dalvik.SSA.Internal.Stubs as St
 
-import Debug.Trace
-debug = flip trace
-
 -- | Convert a 'Dalvik.Types.DexFile' into SSA form.  The result is a
 -- different DexFile with as many references as possible resolved and
 -- instructions in SSA form.  Some simple dead code elimination is
@@ -1259,7 +1256,11 @@ translateFieldRef !knot (fid, f) = do
                   }
       stringKey = (cname, fname)
   modify $ \(!s) -> s { knotDexFields = M.insert fid stringKey (knotDexFields s) }
-  return knot { knotFields = HM.insert stringKey fld (knotFields knot) }
+  -- We may already have a definition of a field in the knot due to an
+  -- input DexFile.  We don't want to overwrite it.
+  case HM.member stringKey (knotFields knot) of
+    True -> return knot
+    False -> return knot { knotFields = HM.insert stringKey fld (knotFields knot) }
 
 translateMethodRef :: (E.MonadThrow m)
                       => Knot
@@ -1284,7 +1285,9 @@ translateMethodRef !knot (mid, m) = do
                        }
       stringKey = (cname, mname, ptypes)
   modify $ \(!s) -> s { knotDexMethods = M.insert mid stringKey (knotDexMethods s) }
-  return knot { knotMethodRefs = HM.insert stringKey mref (knotMethodRefs knot) }
+  case HM.member stringKey (knotMethodRefs knot) of
+    True -> return knot
+    False -> return knot { knotMethodRefs = HM.insert stringKey mref (knotMethodRefs knot) }
 
 translateField :: (E.MonadThrow m) => DT.EncodedField -> KnotMonad m (DT.AccessFlags, Field)
 translateField ef = do
