@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 module Dalvik.SSA.ClassHierarchy (
   ClassHierarchy,
   classHierarchy,
@@ -32,6 +33,7 @@ import qualified Data.HashSet as HS
 import Data.Maybe ( fromMaybe, mapMaybe )
 import Data.Set ( Set )
 import qualified Data.Set as S
+import Data.Typeable (Typeable)
 
 import Dalvik.SSA
 
@@ -44,7 +46,7 @@ data ClassHierarchy =
                    -- ^ (x, y) ∈ assignable ⇒ an object of type x can
                    -- be assigned to a reference of type y
                  }
-  deriving (Eq)
+  deriving (Eq, Typeable)
 
 -- | Return all methods in the 'ClassHierarchy' that satisfy a predicate.
 findMethods :: (Method -> Bool) ->ClassHierarchy ->  HashSet Method

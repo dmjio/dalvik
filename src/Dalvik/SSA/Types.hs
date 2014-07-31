@@ -72,7 +72,7 @@ data DexFile =
           , dexTypes :: [Type]
           , dexIdSrc :: Int
           , _dexClassesByType :: HashMap Type Class
-          }
+          } deriving (Typeable)
 
 dexFileClass :: DexFile -> Type -> Maybe Class
 dexFileClass df t = HM.lookup t (_dexClassesByType df)
@@ -124,6 +124,7 @@ instance E.Exception CastException
 data Constant = ConstantInt !UniqueId !Int64
               | ConstantString !UniqueId BS.ByteString
               | ConstantClass !UniqueId Type
+                deriving (Typeable)
 
 instance Eq Constant where
   (==) = (==) `on` constantId
