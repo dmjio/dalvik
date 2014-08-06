@@ -11,7 +11,6 @@ import qualified Codec.Archive.Zip as Z
 import Control.Applicative
 import Control.Concurrent ( newMVar, modifyMVar )
 import Control.Exception ( handle, ErrorCall )
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.List as L
 import qualified Data.Map as M
