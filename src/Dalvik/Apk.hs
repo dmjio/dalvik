@@ -58,7 +58,7 @@ type DexReader = FilePath -> IO (Either String DT.DexFile)
 -- the required pre-processing to generate a dex file and load it with
 -- the dex parser.
 readSourceAsDex :: FilePath -> IO (Either String DT.DexFile)
-readSourceAsDex fname = withSystemTempDirectory "fuse.tmp" $
+readSourceAsDex fname = withSystemTempDirectory "dalvikparser.tmp" $
   \dirName -> do
     let outFile = takeFileName fname <.> "dex"
     dexFilePath <- runDX [fname] outFile dirName
