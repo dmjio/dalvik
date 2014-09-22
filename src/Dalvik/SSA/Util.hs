@@ -6,6 +6,7 @@ module Dalvik.SSA.Util (
   findMethodByName,
   findInstanceFieldByName,
   findStaticFieldByName,
+  resolveStaticField,
   stripCasts,
   LookupError(..)
   ) where
@@ -16,6 +17,7 @@ import qualified Data.List as L
 import Data.Maybe ( fromMaybe )
 import Data.Typeable
 
+import qualified Dalvik.SSA.ClassHierarchy as CHA
 import Dalvik.SSA.Internal.Names
 import Dalvik.SSA.Types
 
@@ -61,3 +63,20 @@ findInstanceFieldByName name klass = maybe err (return . snd) $ do
   L.find ((== name) . fieldName . snd) (classInstanceFields klass)
   where
     err = E.throwM $ NoFieldFound name (className klass)
+
+-- | Static field references in the Java source (and bytecode) do not
+-- necessarily refer to the class containing that static field.  For example
+--
+-- > F.bar
+--
+-- refers to the @bar@ field in the parent class of @F@ if @F@ does
+-- not have its own declaration of @bar@.  This method resolves static
+-- field references to the real underlying field.
+resolveStaticField :: CHA.ClassHierarchy -> Field -> Field
+resolveStaticField cha f0 = fromMaybe f0 (go (fieldClass f0))
+  where
+    go t = do
+      dfn <- CHA.definition cha t
+      case classStaticField dfn (fieldName f0) of
+        Just f -> return f
+        Nothing -> classParent dfn >>= go

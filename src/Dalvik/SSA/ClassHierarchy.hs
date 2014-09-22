@@ -35,7 +35,7 @@ import Data.Set ( Set )
 import qualified Data.Set as S
 import Data.Typeable (Typeable)
 
-import Dalvik.SSA
+import Dalvik.SSA.Types
 
 data ClassHierarchy =
   ClassHierarchy { hierarchy      :: HashMap Type Type
@@ -49,7 +49,7 @@ data ClassHierarchy =
   deriving (Eq, Typeable)
 
 -- | Return all methods in the 'ClassHierarchy' that satisfy a predicate.
-findMethods :: (Method -> Bool) ->ClassHierarchy ->  HashSet Method
+findMethods :: (Method -> Bool) -> ClassHierarchy -> HashSet Method
 findMethods predicate cha = HM.foldl' collect HS.empty (typeToClassMap cha)
   where
     collect :: HashSet Method -> Class -> HashSet Method
