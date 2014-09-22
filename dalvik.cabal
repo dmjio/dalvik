@@ -42,18 +42,18 @@ Library
                     directory
 
     Hs-Source-Dirs: src
-    Exposed-Modules: Dalvik.AccessFlags
-                     Dalvik.Apk
-                     Dalvik.ClassHierarchy
-                     Dalvik.ClassName
-                     Dalvik.DebugInfo
-                     Dalvik.Instruction
+    Exposed-Modules: Dalvik.AccessFlags,
+                     Dalvik.Apk,
+                     Dalvik.ClassHierarchy,
+                     Dalvik.ClassName,
+                     Dalvik.DebugInfo,
+                     Dalvik.Instruction,
                      Dalvik.LEB128
                      Dalvik.MUTF8,
-                     Dalvik.Parser
-                     Dalvik.Printer
-                     Dalvik.SSA
-                     Dalvik.Types
+                     Dalvik.Parser,
+                     Dalvik.Printer,
+                     Dalvik.SSA,
+                     Dalvik.Types,
                      Dalvik.SSA.Internal.BasicBlocks,
                      Dalvik.SSA.Internal.Labeling,
                      Dalvik.SSA.Internal.Names,
