@@ -4,6 +4,7 @@
 module Dalvik.SSA.Util (
   findClassByName,
   findMethodByName,
+  findMethodByNameString,
   findInstanceFieldByName,
   findStaticFieldByName,
   resolveStaticField,
@@ -13,6 +14,7 @@ module Dalvik.SSA.Util (
 
 import qualified Control.Monad.Catch as E
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.HashMap.Strict as HM
 import qualified Data.List as L
 import Data.Maybe ( fromMaybe )
 import Data.Typeable
@@ -36,21 +38,20 @@ instance E.Exception LookupError
 
 findClassByName :: (E.MonadThrow m) => BS.ByteString -> DexFile -> m Class
 findClassByName name df = maybe err return $ do
-  L.find ((== name) . className) (dexClasses df)
+  HM.lookup name (_dexClassesByName df)
   where
     err = E.throwM $ NoClassFound name
 
-findMethodByName :: (E.MonadThrow m) => BS.ByteString -> String -> Class -> m Method
+findMethodByName :: (E.MonadThrow m) => BS.ByteString -> MethodSignature -> Class -> m Method
 findMethodByName mname sig klass = maybe err return $ do
-  tsig <- parseMethodSignature (BS.pack sig)
-  L.find (matchingMethod tsig) ms
+  HM.lookup (mname, sig) (_classMethodMap klass)
   where
-    err = E.throwM $ NoMethodFound mname sig (className klass)
-    ms = classDirectMethods klass ++ classVirtualMethods klass
-    matchingMethod tsig m =
-      let ps = if methodIsVirtual m then tail (methodParameters m) else methodParameters m
-          msig = (map parameterType ps, methodReturnType m)
-      in methodName m == mname && msig == tsig
+    err = E.throwM $ NoMethodFound mname (show sig) (className klass)
+
+findMethodByNameString :: (E.MonadThrow m) => BS.ByteString -> String -> Class -> m Method
+findMethodByNameString name ssig klass = do
+  sig <- parseMethodSignature (BS.pack ssig)
+  findMethodByName name sig klass
 
 findStaticFieldByName :: (E.MonadThrow m) => BS.ByteString -> Class -> m Field
 findStaticFieldByName name klass = maybe err (return . snd) $ do

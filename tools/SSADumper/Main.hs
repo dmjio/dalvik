@@ -178,7 +178,7 @@ realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
   st <- commandStubs pc
   ssaDex <- toSSA st Nothing dexFiles
   klass <- findClassByName (fromString cname) ssaDex
-  method <- findMethodByName (fromString mname) sig klass
+  method <- findMethodByNameString (fromString mname) sig klass
   print method
 realMain _ = error "You must specify a method and a signature"
 

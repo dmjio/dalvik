@@ -126,11 +126,13 @@ getDex fknot = do
   (_, knot2) <- getListAccum getMethodRef knot1
   (classes, knot3) <- getListAccum (getClass fknot) knot2
   let cache = foldr (\klass -> HM.insert (classType klass) klass) HM.empty classes
+      ncache = foldr (\klass -> HM.insert (className klass) klass) HM.empty classes
   return (DexFile { dexClasses = classes
                   , dexConstants = constants
                   , dexTypes = M.elems tt
                   , dexIdSrc = idSrc
                   , _dexClassesByType = cache
+                  , _dexClassesByName = ncache
                   }, knot3)
 
 getTypeTable :: S.Get (Map Int Type)
@@ -231,11 +233,13 @@ getClass fknot k0 = do
                     , classInstanceFields = ifields
                     , _classStaticFieldMap = indexFields sfields
                     , _classInstanceFieldMap = indexFields ifields
+                    , _classMethodMap = indexMethods (vms ++ dms)
                     }
       k3 = k2 { knotClasses = M.insert cid klass (knotClasses k2) }
   return (klass, k3)
   where
     indexFields = foldr (\(_, f) -> HM.insert (fieldName f) f) HM.empty
+    indexMethods = foldr (\m -> HM.insert (methodName m, methodSignature m) m) HM.empty
 
 putAccessField :: (AccessFlags, Field) -> S.Put
 putAccessField (flags, f) = S.put flags >> S.put (fieldId f)

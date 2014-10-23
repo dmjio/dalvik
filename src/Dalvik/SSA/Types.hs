@@ -13,6 +13,7 @@ module Dalvik.SSA.Types (
   classMethods,
   Field(..),
   Method(..),
+  MethodSignature,
   methodSignature,
   methodIsVirtual,
   Parameter(..),
@@ -72,6 +73,9 @@ data DexFile =
           , dexTypes :: [Type]
           , dexIdSrc :: Int
           , _dexClassesByType :: HashMap Type Class
+          , _dexClassesByName :: HashMap BS.ByteString Class
+            -- ^ An index by Class.className to the class. These are
+            -- dotted fully-qualified names
           } deriving (Typeable)
 
 dexFileClass :: DexFile -> Type -> Maybe Class
@@ -456,7 +460,9 @@ data Method = Method { methodId :: UniqueId
 methodIsVirtual :: Method -> Bool
 methodIsVirtual = not . hasAccessFlag ACC_STATIC . methodAccessFlags
 
-methodSignature :: Method -> ([Type], Type)
+type MethodSignature = ([Type], Type)
+
+methodSignature :: Method -> MethodSignature
 methodSignature m = (map parameterType ps, methodReturnType m)
   where
     ps = case methodIsVirtual m of
@@ -488,6 +494,8 @@ data Class = Class { classId :: UniqueId
                    , classInstanceFields :: [(AccessFlags, Field)]
                    , _classStaticFieldMap :: HashMap BS.ByteString Field
                    , _classInstanceFieldMap :: HashMap BS.ByteString Field
+                   , _classMethodMap :: HashMap (BS.ByteString, MethodSignature) Method
+                     -- ^ A map of method name + signature to methods
                    }
 
 classStaticField :: Class -> BS.ByteString -> Maybe Field

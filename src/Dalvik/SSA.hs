@@ -137,9 +137,12 @@ toSSA mstubs mbase dfs = do
                  , dexConstants = knotConstants tiedKnot
                  , SSA._dexClassesByType =
                    HM.foldr addTypeMap HM.empty (knotClasses tiedKnot)
+                 , SSA._dexClassesByName =
+                   HM.foldr addNameMap HM.empty (knotClasses tiedKnot)
                  , dexIdSrc = knotMaxId tiedKnot
                  }
   where
+    addNameMap klass m = HM.insert (className klass) klass m
     addTypeMap klass m = HM.insert (classType klass) klass m
 
 -- | We tie the knot by starting with an empty knot and processing a
@@ -361,6 +364,7 @@ translateClass k (_, klass) = do
                   , classVirtualMethods = reverse virtualMethods
                   , _classStaticFieldMap = foldr addField HM.empty staticFields
                   , _classInstanceFieldMap = foldr addField HM.empty instanceFields
+                  , _classMethodMap = foldr addMethod HM.empty (directMethods ++ virtualMethods)
                   }
     return (c, k2)
 
@@ -371,6 +375,7 @@ translateClass k (_, klass) = do
   --   False -> return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
   where
     addField (_, f) = HM.insert (fieldName f) f
+    addMethod m = HM.insert (methodName m, methodSignature m) m
 
 getDex :: (E.MonadThrow m) => KnotMonad m DT.DexFile
 getDex = gets knotDexFile
