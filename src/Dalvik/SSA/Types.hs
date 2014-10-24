@@ -6,6 +6,7 @@
 module Dalvik.SSA.Types (
   DexFile(..),
   dexFileClass,
+  dexFields,
   Type(..),
   Class(..),
   classStaticField,
@@ -54,8 +55,9 @@ import Data.HashMap.Strict ( HashMap )
 import qualified Data.HashMap.Strict as HM
 import Data.Int ( Int64 )
 import Data.List.NonEmpty ( NonEmpty )
-import Data.Maybe ( fromMaybe )
+import Data.Maybe ( fromMaybe, maybeToList )
 import qualified Data.Serialize as S
+import qualified Data.Set as Set
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
@@ -618,3 +620,32 @@ instructionOperands i =
     InvokeVirtual { invokeVirtualArguments = args } -> F.toList args
     InvokeDirect { invokeDirectArguments = args } -> args
     Phi { phiValues = ivs } -> map snd ivs
+
+-- | All of the fields referenced in a dex file.
+--
+-- This is a superset of the fields contained by all classes.  In the
+-- case where an instruction references a field not defined in the dex
+-- file, 'dexFields' will return it while just inspecting the fields
+-- of all available classes will not find it.
+dexFields :: DexFile -> [Field]
+dexFields df = Set.toList $ Set.fromList (ifields ++ cfields)
+  where
+    cfields = [ f
+              | klass <- dexClasses df
+              , (_, f) <- classStaticFields klass ++ classInstanceFields klass
+              ]
+    ifields = [ f
+              | k <- dexClasses df
+              , m <- classDirectMethods k ++ classVirtualMethods k
+              , body <- maybeToList (methodBody m)
+              , block <- body
+              , i <- basicBlockInstructions block
+              , f <- referencedField i
+              ]
+    referencedField i =
+      case i of
+        StaticGet { staticOpField = f } -> [f]
+        StaticPut { staticOpField = f } -> [f]
+        InstanceGet { instanceOpField = f } -> [f]
+        InstancePut { instanceOpField = f } -> [f]
+        _ -> []

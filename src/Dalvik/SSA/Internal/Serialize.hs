@@ -865,26 +865,3 @@ dexMethodRefs df = Set.toList $ Set.fromList $
         InvokeVirtual { invokeVirtualMethod = mref } -> [mref]
         InvokeDirect { invokeDirectMethod = mref } -> [mref]
         _ -> []
-
-dexFields :: DexFile -> [Field]
-dexFields df = Set.toList $ Set.fromList (ifields ++ cfields)
-  where
-    cfields = [ f
-              | klass <- dexClasses df
-              , (_, f) <- classStaticFields klass ++ classInstanceFields klass
-              ]
-    ifields = [ f
-              | k <- dexClasses df
-              , m <- classDirectMethods k ++ classVirtualMethods k
-              , body <- maybeToList (methodBody m)
-              , block <- body
-              , i <- basicBlockInstructions block
-              , f <- referencedField i
-              ]
-    referencedField i =
-      case i of
-        StaticGet { staticOpField = f } -> [f]
-        StaticPut { staticOpField = f } -> [f]
-        InstanceGet { instanceOpField = f } -> [f]
-        InstancePut { instanceOpField = f } -> [f]
-        _ -> []
