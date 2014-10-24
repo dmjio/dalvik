@@ -27,6 +27,8 @@ import qualified Data.ByteString.Lazy.Builder as LBS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Foldable as F
 import qualified Data.HashMap.Strict as HM
+import Data.IntMap ( IntMap )
+import qualified Data.IntMap as IM
 import qualified Data.List.NonEmpty as NEL
 import Data.Map ( Map )
 import qualified Data.Map as M
@@ -70,23 +72,23 @@ serializeDex :: DexFile -> BS.ByteString
 serializeDex = S.runPut . putDex
 
 -- | A type holding state for the knot tying procedure.
-data Knot = Knot { knotTypeTable :: !(Map Int Type)
-                 , knotClasses :: !(Map Int Class)
-                 , knotMethods :: !(Map Int Method)
-                 , knotValues :: !(Map Int Value)
-                 , knotBlocks :: !(Map Int BasicBlock)
-                 , knotMethodRefs :: !(Map Int MethodRef)
-                 , knotFields :: !(Map Int Field)
+data Knot = Knot { knotTypeTable :: !(IntMap Type)
+                 , knotClasses :: !(IntMap Class)
+                 , knotMethods :: !(IntMap Method)
+                 , knotValues :: !(IntMap Value)
+                 , knotBlocks :: !(IntMap BasicBlock)
+                 , knotMethodRefs :: !(IntMap MethodRef)
+                 , knotFields :: !(IntMap Field)
                  }
 
 emptyKnot :: Knot
-emptyKnot = Knot { knotTypeTable = M.empty
-                 , knotClasses = M.empty
-                 , knotMethods = M.empty
-                 , knotValues = M.empty
-                 , knotBlocks = M.empty
-                 , knotMethodRefs = M.empty
-                 , knotFields = M.empty
+emptyKnot = Knot { knotTypeTable = IM.empty
+                 , knotClasses = IM.empty
+                 , knotMethods = IM.empty
+                 , knotValues = IM.empty
+                 , knotBlocks = IM.empty
+                 , knotMethodRefs = IM.empty
+                 , knotFields = IM.empty
                  }
 
 -- | Format:
@@ -118,7 +120,7 @@ getDex fknot = do
   tt <- getTypeTable
   constants <- getList (getConstant tt)
   let knot0 = emptyKnot { knotTypeTable = tt
-                        , knotValues = foldr (\c -> M.insert (constantId c) (toValue c)) M.empty constants
+                        , knotValues = foldr (\c -> IM.insert (constantId c) (toValue c)) IM.empty constants
                         }
   -- We don't need the method refs here, we just need to populate the
   -- state with them
@@ -129,16 +131,16 @@ getDex fknot = do
       ncache = foldr (\klass -> HM.insert (className klass) klass) HM.empty classes
   return (DexFile { dexClasses = classes
                   , dexConstants = constants
-                  , dexTypes = M.elems tt
+                  , dexTypes = IM.elems tt
                   , dexIdSrc = idSrc
                   , _dexClassesByType = cache
                   , _dexClassesByName = ncache
                   }, knot3)
 
-getTypeTable :: S.Get (Map Int Type)
+getTypeTable :: S.Get (IntMap Type)
 getTypeTable = do
   lst <- S.get
-  return $ foldr (\(i, t) -> M.insert i t) M.empty lst
+  return $ foldr (\(i, t) -> IM.insert i t) IM.empty lst
 
 putTypeTable :: [Type] -> S.PutM (Map Type Int)
 putTypeTable (zip [0..] -> ts) = do
@@ -162,7 +164,7 @@ putConstant tt c =
       S.put uid
       putType tt t
 
-getConstant :: Map Int Type -> S.Get Constant
+getConstant :: IntMap Type -> S.Get Constant
 getConstant tt = do
   tag <- S.getWord8
   case tag of
@@ -180,10 +182,10 @@ putType tt t =
     Just tid -> S.put tid
     Nothing -> error ("Serializing type with no id: " ++ show t)
 
-getType :: Map Int Type -> S.Get Type
+getType :: IntMap Type -> S.Get Type
 getType tt = do
   tid <- S.get
-  case M.lookup tid tt of
+  case IM.lookup tid tt of
     Just t -> return t
     Nothing -> error ("Deserializing type with unknown id: " ++ show tid)
 
@@ -213,7 +215,7 @@ getClass fknot k0 = do
   parent <- S.getMaybeOf (getType tt)
   mparentRefId <- S.get
   let classErr = error ("Unknown class parent while decoding " ++ show cid)
-      parentRef = fmap (\p -> fromMaybe classErr $ M.lookup p (knotClasses fknot)) mparentRefId
+      parentRef = fmap (\p -> fromMaybe classErr $ IM.lookup p (knotClasses fknot)) mparentRefId
   ifaces <- S.getListOf (getType tt)
   (dms, k1) <- getListAccum (getMethod fknot) k0
   (vms, k2) <- getListAccum (getMethod fknot) k1
@@ -235,7 +237,7 @@ getClass fknot k0 = do
                     , _classInstanceFieldMap = indexFields ifields
                     , _classMethodMap = indexMethods (vms ++ dms)
                     }
-      k3 = k2 { knotClasses = M.insert cid klass (knotClasses k2) }
+      k3 = k2 { knotClasses = IM.insert cid klass (knotClasses k2) }
   return (klass, k3)
   where
     indexFields = foldr (\(_, f) -> HM.insert (fieldName f) f) HM.empty
@@ -249,7 +251,7 @@ getAccessField fknot = do
   flags <- S.get
   fid <- S.get
   let errMsg = error ("No field for id " ++ show fid)
-      f = fromMaybe errMsg $ M.lookup fid (knotFields fknot)
+      f = fromMaybe errMsg $ IM.lookup fid (knotFields fknot)
   return (flags, f)
 
 putField :: Map Type Int -> Field -> S.Put
@@ -270,7 +272,7 @@ getField k0 = do
                 , fieldType = ft
                 , fieldClass = fc
                 }
-      k1 = k0 { knotFields = M.insert fid f (knotFields k0) }
+      k1 = k0 { knotFields = IM.insert fid f (knotFields k0) }
   return (f, k1)
   where
     tt = knotTypeTable k0
@@ -296,7 +298,7 @@ getMethod fknot k0 = do
   (b, k2) <- getListAccum (getBlock fknot) k1
   cid <- S.get
   let errMsg = error ("No class " ++ show cid ++ " while decoding method " ++ show mid)
-      klass = fromMaybe errMsg $ M.lookup cid (knotClasses fknot)
+      klass = fromMaybe errMsg $ IM.lookup cid (knotClasses fknot)
       m = Method { methodId = mid
                  , methodName = name
                  , methodReturnType = rt
@@ -305,7 +307,7 @@ getMethod fknot k0 = do
                  , methodBody = if null b then Nothing else Just b
                  , methodClass = klass
                  }
-      k3 = k2 { knotMethods = M.insert mid m (knotMethods k2) }
+      k3 = k2 { knotMethods = IM.insert mid m (knotMethods k2) }
   return (m, k3)
 
 putParameter :: Map Type Int -> Parameter -> S.Put
@@ -324,14 +326,14 @@ getParameter fknot k = do
   ix <- S.get
   mix <- S.get
   let errMsg = error ("No method " ++ show mix ++ " for parameter " ++ show pid)
-      m = fromMaybe errMsg $ M.lookup mix (knotMethods fknot)
+      m = fromMaybe errMsg $ IM.lookup mix (knotMethods fknot)
       p = Parameter { parameterId = pid
                     , parameterType = pt
                     , parameterName = name
                     , parameterIndex = ix
                     , parameterMethod = m
                     }
-      k' = k { knotValues = M.insert pid (toValue p) (knotValues k) }
+      k' = k { knotValues = IM.insert pid (toValue p) (knotValues k) }
   return (p, k')
 
 putBlock :: Map Type Int -> BasicBlock -> S.Put
@@ -354,9 +356,9 @@ getBlock fknot k0 = do
   pids <- S.get
   mid <- S.get
   let errMsg = error ("Could not find method " ++ show mid ++ " while decoding block " ++ show bid)
-      m = fromMaybe errMsg $ M.lookup mid (knotMethods fknot)
+      m = fromMaybe errMsg $ IM.lookup mid (knotMethods fknot)
       berrMsg i = error ("Could not translate block id " ++ show i ++ " while decoding block " ++ show bid)
-      fromBlockId i = fromMaybe (berrMsg i) $ M.lookup i (knotBlocks fknot)
+      fromBlockId i = fromMaybe (berrMsg i) $ IM.lookup i (knotBlocks fknot)
       b = BasicBlock { basicBlockId = bid
                      , basicBlockNumber = bnum
                      , _basicBlockInstructions = V.fromList is
@@ -365,7 +367,7 @@ getBlock fknot k0 = do
                      , basicBlockPredecessors = map fromBlockId pids
                      , basicBlockMethod = m
                      }
-      k2 = k1 { knotBlocks = M.insert bid b (knotBlocks k1) }
+      k2 = k1 { knotBlocks = IM.insert bid b (knotBlocks k1) }
   return (b, k2)
 
 -- | Output the common values for each instruction, followed by a tag,
@@ -516,18 +518,18 @@ getInstruction fknot k0 = do
   iid <- S.get
   it <- getType (knotTypeTable k0)
   let blockErr b = error ("No block with id " ++ show b ++ " while decoding instruction " ++ show iid)
-      toBlock b = fromMaybe (blockErr b) $ M.lookup b (knotBlocks fknot)
+      toBlock b = fromMaybe (blockErr b) $ IM.lookup b (knotBlocks fknot)
       valueErr v = error ("No value with id " ++ show v ++ " while decoding instruction " ++ show iid)
-      toVal v = fromMaybe (valueErr v) $ M.lookup v (knotValues fknot)
+      toVal v = fromMaybe (valueErr v) $ IM.lookup v (knotValues fknot)
       mrefErr m = error ("No method ref with id " ++ show m ++ " while decoding instruction " ++ show iid)
-      toMethodRef m = fromMaybe (mrefErr m) $ M.lookup m (knotMethodRefs fknot)
+      toMethodRef m = fromMaybe (mrefErr m) $ IM.lookup m (knotMethodRefs fknot)
       getValue = toVal <$> S.get
       getBB = toBlock <$> S.get
       getMRef = toMethodRef <$> S.get
   bb <- getBB
   tag <- S.getWord8
   let fieldErr f = error ("No field with id " ++ show f ++ " while decoding instruction " ++ show iid ++ " tag " ++ show tag)
-      toField f = fromMaybe (fieldErr f) $ M.lookup f (knotFields fknot)
+      toField f = fromMaybe (fieldErr f) $ IM.lookup f (knotFields fknot)
       getF = toField <$> S.get
   case tag of
     0 -> do
@@ -771,7 +773,7 @@ getInstruction fknot k0 = do
           return (i, addInstruction i k0)
     24 -> do
       let methodErr m = error ("No method for id " ++ show m ++ " while decoding instruction " ++ show iid)
-          toM m = fromMaybe (methodErr m) $ M.lookup m (knotMethods fknot)
+          toM m = fromMaybe (methodErr m) $ IM.lookup m (knotMethods fknot)
       k <- S.get
       mref <- getMRef
       m <- fmap toM <$> S.get
@@ -797,8 +799,9 @@ getInstruction fknot k0 = do
   where
     tt = knotTypeTable k0
 
+{-# INLINE addInstruction #-}
 addInstruction :: Instruction -> Knot -> Knot
-addInstruction i k = k { knotValues = M.insert (instructionId i) (toValue i) (knotValues k) }
+addInstruction i k = k { knotValues = IM.insert (instructionId i) (toValue i) (knotValues k) }
 
 putMethodRef :: Map Type Int -> MethodRef -> S.Put
 putMethodRef tt mref = do
@@ -822,7 +825,7 @@ getMethodRef k0 = do
                        , methodRefParameterTypes = pts
                        , methodRefName = name
                        }
-      k1 = k0 { knotMethodRefs = M.insert rid mref (knotMethodRefs k0) }
+      k1 = k0 { knotMethodRefs = IM.insert rid mref (knotMethodRefs k0) }
   return (mref, k1)
 
 putList :: (a -> S.PutM ()) -> [a] -> S.Put
