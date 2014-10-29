@@ -369,10 +369,10 @@ translateClass k (_, klass) = do
     return (c, k2)
 
   classString <- getTypeName (DT.classId klass)
-  return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
-  -- case HM.member classString (knotClasses k2) of
-  --   True -> failure $ DT.ClassAlreadyDefined (show t)
-  --   False -> return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
+  -- See Note [Duplicate Class Definitions]
+  case HM.member classString (knotClasses k2) of
+    True -> return k2
+    False -> return k2 { knotClasses = HM.insert classString c (knotClasses k2) }
   where
     addField (_, f) = HM.insert (fieldName f) f
     addMethod m = HM.insert (methodName m, methodSignature m) m
@@ -1358,5 +1358,31 @@ of the array being operated on).  If these synthetic types do not
 appear in the original dalvik, they would not have appeared in our
 table.  We use a post-processing pass over the instruction stream to
 pick up all of our synthesized types.
+
+-}
+
+{- Note [Duplicate Class Definitions]
+
+When a DEX file defines a class that is also defined in the Android
+framework (usually represented in this library as the _base_ DEX
+file), we prefer the version from the _base_.  This is the secure
+choice from the perspective of the Android platform and is
+corroborated by some documentation:
+
+ * https://android.googlesource.com/platform/dalvik.git/+/9735865121118f255c4c15183b236f9f30e795f1/vm/oo/Class.cpp
+
+ * http://paulononaka.wordpress.com/2011/07/02/how-to-install-a-application-in-background-on-android/
+
+If users could provide alternative implementations of framework
+classes, they could trivially bypass permission checks.  Duplicate
+definitions appear in the wild, for some reason.  One reason,
+discussed in the second link above, seems to be related to accessing
+private functions in the framework.  The framework contains many
+classes required for it to run that are not available to users.  It
+can all be accessed via reflection, but that approach is not very
+convenient.  Instead, people provide no-op stubs exposing the same
+classes and methods linked into their own applications.  The dalvik
+loader just ignores the duplicates in the application and links the
+calls to the private framework methods.
 
 -}
