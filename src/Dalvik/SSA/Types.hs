@@ -82,12 +82,12 @@ import qualified Dalvik.Instruction as LL
 
 -- | A Dalvik Dex file represented in SSA form.
 data DexFile =
-  DexFile { _dexClasses :: Vector Class
-          , _dexConstants :: Vector Constant
-          , _dexTypes :: Vector Type
-          , dexIdSrc :: Int
-          , _dexClassesByType :: HashMap Type Class
-          , _dexClassesByName :: HashMap BS.ByteString Class
+  DexFile { _dexClasses :: !(Vector Class)
+          , _dexConstants :: !(Vector Constant)
+          , _dexTypes :: !(Vector Type)
+          , dexIdSrc :: !Int
+          , _dexClassesByType :: !(HashMap Type Class)
+          , _dexClassesByName :: !(HashMap BS.ByteString Class)
             -- ^ An index by Class.className to the class. These are
             -- dotted fully-qualified names
           } deriving (Typeable)

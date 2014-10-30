@@ -57,7 +57,8 @@ makeTest expectedFile =
                     , assignedPhis = aphis
                     } -> do
             klass <- findClassByName (BS.pack testName) ssa
-            Method { methodBody = Just blocks } <- findAnyMethodByName (BS.pack "entry") klass
+            m <- findAnyMethodByName (BS.pack "entry") klass
+            Just blocks <- return (methodBody m)
             T.assertEqual "Wrong block count" nbs (length blocks)
             F.forM_ phiDescriptors $ \(phiNumber, incVals) -> do
               let Just bnum = lookup phiNumber bphis

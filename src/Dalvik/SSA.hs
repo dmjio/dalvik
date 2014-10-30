@@ -132,15 +132,15 @@ toSSA mstubs mbase dfs = do
                                      , declaredTypes
                                      , insnTypes
                                      ]
-  return DexFile { _dexClasses = V.fromList classes
-                 , _dexTypes = V.fromList (S.toList allTypes)
-                 , _dexConstants = V.fromList (knotConstants tiedKnot)
-                 , SSA._dexClassesByType =
-                   HM.foldr addTypeMap HM.empty (knotClasses tiedKnot)
-                 , SSA._dexClassesByName =
-                   HM.foldr addNameMap HM.empty (knotClasses tiedKnot)
-                 , dexIdSrc = knotMaxId tiedKnot
-                 }
+  return $! DexFile { _dexClasses = V.fromList classes
+                    , _dexTypes = V.fromList (S.toList allTypes)
+                    , _dexConstants = V.fromList (knotConstants tiedKnot)
+                    , SSA._dexClassesByType =
+                      HM.foldr addTypeMap HM.empty (knotClasses tiedKnot)
+                    , SSA._dexClassesByName =
+                        HM.foldr addNameMap HM.empty (knotClasses tiedKnot)
+                    , dexIdSrc = knotMaxId tiedKnot
+                    }
   where
     addNameMap klass m = HM.insert (className klass) klass m
     addTypeMap klass m = HM.insert (classType klass) klass m
