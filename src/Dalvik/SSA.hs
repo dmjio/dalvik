@@ -122,7 +122,7 @@ toSSA mstubs mbase dfs = do
       classes = HM.elems (knotClasses tiedKnot)
       insnTypes = [ instructionType i
                   | klass <- classes
-                  , m <- classDirectMethods klass ++ classVirtualMethods klass
+                  , m <- classMethods klass
                   , body <- maybeToList $ methodBody m
                   , block <- body
                   , i <- basicBlockInstructions block
@@ -132,9 +132,9 @@ toSSA mstubs mbase dfs = do
                                      , declaredTypes
                                      , insnTypes
                                      ]
-  return DexFile { dexClasses = classes
-                 , dexTypes = S.toList allTypes
-                 , dexConstants = knotConstants tiedKnot
+  return DexFile { _dexClasses = V.fromList classes
+                 , _dexTypes = V.fromList (S.toList allTypes)
+                 , _dexConstants = V.fromList (knotConstants tiedKnot)
                  , SSA._dexClassesByType =
                    HM.foldr addTypeMap HM.empty (knotClasses tiedKnot)
                  , SSA._dexClassesByName =
@@ -357,11 +357,11 @@ translateClass k (_, klass) = do
                   , classAccessFlags = DT.classAccessFlags klass
                   , classParent = parent
                   , classParentReference = parentRef
-                  , classInterfaces = itypes
-                  , classStaticFields = staticFields
-                  , classInstanceFields = instanceFields
-                  , classDirectMethods = reverse directMethods
-                  , classVirtualMethods = reverse virtualMethods
+                  , _classInterfaces = V.fromList itypes
+                  , _classStaticFields = V.fromList staticFields
+                  , _classInstanceFields = V.fromList instanceFields
+                  , _classDirectMethods = V.fromList (reverse directMethods)
+                  , _classVirtualMethods = V.fromList (reverse virtualMethods)
                   , _classStaticFieldMap = foldr addField HM.empty staticFields
                   , _classInstanceFieldMap = foldr addField HM.empty instanceFields
                   , _classMethodMap = foldr addMethod HM.empty (directMethods ++ virtualMethods)
@@ -444,8 +444,8 @@ translateMethod' klass (k, acc) em = do
                     , methodName = mname
                     , methodReturnType = rt
                     , methodAccessFlags = DT.methAccessFlags em
-                    , methodParameters = ps
-                    , methodBody = body
+                    , _methodParameters = V.fromList ps
+                    , _methodBody = body
                     , methodClass = klass
                     }
 
@@ -476,7 +476,7 @@ translateMethodBody :: (MonadFix m, E.MonadThrow m)
                        -> Map Int Parameter
                        -> MethodKnot
                        -> DT.EncodedMethod
-                       -> KnotMonad m (Maybe [BasicBlock], MethodKnot)
+                       -> KnotMonad m (Maybe (V.Vector BasicBlock), MethodKnot)
 translateMethodBody _ _ _ _ DT.EncodedMethod { DT.methCode = Nothing } = return (Nothing, emptyMethodKnot)
 translateMethodBody df tm paramMap tiedMknot em = do
   labeling <- lift $ labelMethod df em
@@ -485,7 +485,7 @@ translateMethodBody df tm paramMap tiedMknot em = do
       blockList = basicBlocksAsList bbs
   mknot0 <- foldM addParameterLabel emptyMethodKnot parameterLabels
   (bs, resultKnot) <- foldM (translateBlock tm labeling tiedMknot) ([], mknot0) blockList
-  return (Just (reverse bs), resultKnot)
+  return (Just (V.fromList (reverse bs)), resultKnot)
   where
     addParameterLabel mknot l@(ArgumentLabel _ ix) =
       case M.lookup ix paramMap of
@@ -525,8 +525,8 @@ translateBlock tm labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
                          , basicBlockNumber = bnum
                          , _basicBlockInstructions = V.fromList $ phis ++ reverse insns
                          , basicBlockPhiCount = length phis
-                         , SSA.basicBlockSuccessors = map (getFinalBlock tiedMknot) $ BB.basicBlockSuccessors bbs bnum
-                         , SSA.basicBlockPredecessors = map (getFinalBlock tiedMknot) $ BB.basicBlockPredecessors bbs bnum
+                         , SSA._basicBlockSuccessors = V.fromList $ map (getFinalBlock tiedMknot) $ BB.basicBlockSuccessors bbs bnum
+                         , SSA._basicBlockPredecessors = V.fromList $ map (getFinalBlock tiedMknot) $ BB.basicBlockPredecessors bbs bnum
                          , basicBlockMethod = tm
                          }
     return (blk, mknot'')

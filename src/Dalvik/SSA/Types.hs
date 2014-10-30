@@ -7,18 +7,30 @@ module Dalvik.SSA.Types (
   DexFile(..),
   dexFileClass,
   dexFields,
+  dexConstants,
+  dexTypes,
+  dexClasses,
   Type(..),
   Class(..),
   classStaticField,
   classInstanceField,
   classMethods,
+  classVirtualMethods,
+  classDirectMethods,
+  classInstanceFields,
+  classStaticFields,
+  classInterfaces,
   Field(..),
   Method(..),
   MethodSignature,
   methodSignature,
   methodIsVirtual,
+  methodParameters,
+  methodBody,
   Parameter(..),
   BasicBlock(..),
+  basicBlockSuccessors,
+  basicBlockPredecessors,
   basicBlockInstructions,
   basicBlockTerminator,
   basicBlockSplitPhis,
@@ -70,9 +82,9 @@ import qualified Dalvik.Instruction as LL
 
 -- | A Dalvik Dex file represented in SSA form.
 data DexFile =
-  DexFile { dexClasses :: [Class]
-          , dexConstants :: [Constant]
-          , dexTypes :: [Type]
+  DexFile { _dexClasses :: Vector Class
+          , _dexConstants :: Vector Constant
+          , _dexTypes :: Vector Type
           , dexIdSrc :: Int
           , _dexClassesByType :: HashMap Type Class
           , _dexClassesByName :: HashMap BS.ByteString Class
@@ -82,6 +94,15 @@ data DexFile =
 
 dexFileClass :: DexFile -> Type -> Maybe Class
 dexFileClass df t = HM.lookup t (_dexClassesByType df)
+
+dexClasses :: DexFile -> [Class]
+dexClasses = V.toList . _dexClasses
+
+dexConstants :: DexFile -> [Constant]
+dexConstants = V.toList . _dexConstants
+
+dexTypes :: DexFile -> [Type]
+dexTypes = V.toList . _dexTypes
 
 data Value = InstructionV Instruction
            | ConstantV Constant
@@ -206,14 +227,20 @@ data BasicBlock = BasicBlock { basicBlockId :: {-# UNPACK #-} !UniqueId
                              , basicBlockNumber :: {-# UNPACK #-} !Int
                              , basicBlockPhiCount :: {-# UNPACK #-} !Int
                              , _basicBlockInstructions :: Vector Instruction
-                             , basicBlockSuccessors :: [BasicBlock]
-                             , basicBlockPredecessors :: [BasicBlock]
+                             , _basicBlockSuccessors :: Vector BasicBlock
+                             , _basicBlockPredecessors :: Vector BasicBlock
                              , basicBlockMethod :: Method
                              }
 
 -- | The instructions in the 'BasicBlock'
 basicBlockInstructions :: BasicBlock -> [Instruction]
 basicBlockInstructions = V.toList . _basicBlockInstructions
+
+basicBlockSuccessors :: BasicBlock -> [BasicBlock]
+basicBlockSuccessors = V.toList . _basicBlockSuccessors
+
+basicBlockPredecessors :: BasicBlock -> [BasicBlock]
+basicBlockPredecessors = V.toList . _basicBlockPredecessors
 
 -- | The last non-phi instruction in the block.  There may not be one
 -- if the block is empty.
@@ -454,13 +481,19 @@ data Method = Method { methodId :: {-# UNPACK #-} !UniqueId
                      , methodAccessFlags :: {-# UNPACK #-} !AccessFlags
                      , methodName :: BS.ByteString
                      , methodReturnType :: Type
-                     , methodParameters :: [Parameter]
-                     , methodBody :: Maybe [BasicBlock]
+                     , _methodParameters :: Vector Parameter
+                     , _methodBody :: Maybe (Vector BasicBlock)
                      , methodClass :: Class
                      }
 
 methodIsVirtual :: Method -> Bool
 methodIsVirtual = not . hasAccessFlag ACC_STATIC . methodAccessFlags
+
+methodParameters :: Method -> [Parameter]
+methodParameters = V.toList . _methodParameters
+
+methodBody :: Method -> Maybe [BasicBlock]
+methodBody = fmap V.toList . _methodBody
 
 type MethodSignature = ([Type], Type)
 
@@ -489,25 +522,40 @@ data Class = Class { classId :: {-# UNPACK #-} !UniqueId
                    , classSourceName :: BS.ByteString
                    , classParent :: Maybe Type
                    , classParentReference :: Maybe Class
-                   , classInterfaces :: [Type]
-                   , classDirectMethods :: [Method]
-                   , classVirtualMethods :: [Method]
-                   , classStaticFields :: [(AccessFlags, Field)]
-                   , classInstanceFields :: [(AccessFlags, Field)]
+                   , _classInterfaces :: Vector Type
+                   , _classDirectMethods :: Vector Method
+                   , _classVirtualMethods :: Vector Method
+                   , _classStaticFields :: Vector (AccessFlags, Field)
+                   , _classInstanceFields :: Vector (AccessFlags, Field)
                    , _classStaticFieldMap :: HashMap BS.ByteString Field
                    , _classInstanceFieldMap :: HashMap BS.ByteString Field
                    , _classMethodMap :: HashMap (BS.ByteString, MethodSignature) Method
                      -- ^ A map of method name + signature to methods
                    }
 
+classInterfaces :: Class -> [Type]
+classInterfaces = V.toList . _classInterfaces
+
+classDirectMethods :: Class -> [Method]
+classDirectMethods = V.toList . _classDirectMethods
+
+classVirtualMethods :: Class -> [Method]
+classVirtualMethods = V.toList . _classVirtualMethods
+
+classMethods :: Class -> [Method]
+classMethods klass = classDirectMethods klass ++ classVirtualMethods klass
+
+classStaticFields :: Class -> [(AccessFlags, Field)]
+classStaticFields = V.toList . _classStaticFields
+
+classInstanceFields :: Class -> [(AccessFlags, Field)]
+classInstanceFields = V.toList . _classInstanceFields
+
 classStaticField :: Class -> BS.ByteString -> Maybe Field
 classStaticField k s = HM.lookup s (_classStaticFieldMap k)
 
 classInstanceField :: Class -> BS.ByteString -> Maybe Field
 classInstanceField k s = HM.lookup s (_classInstanceFieldMap k)
-
-classMethods :: Class -> [Method]
-classMethods klass = classDirectMethods klass ++ classVirtualMethods klass
 
 instance Eq Class where
   (==) = (==) `on` classId

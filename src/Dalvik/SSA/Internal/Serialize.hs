@@ -129,9 +129,9 @@ getDex fknot = do
   (classes, knot3) <- getListAccum (getClass fknot) knot2
   let cache = foldr (\klass -> HM.insert (classType klass) klass) HM.empty classes
       ncache = foldr (\klass -> HM.insert (className klass) klass) HM.empty classes
-  return (DexFile { dexClasses = classes
-                  , dexConstants = constants
-                  , dexTypes = IM.elems tt
+  return (DexFile { _dexClasses = V.fromList classes
+                  , _dexConstants = V.fromList constants
+                  , _dexTypes = V.fromList (IM.elems tt)
                   , dexIdSrc = idSrc
                   , _dexClassesByType = cache
                   , _dexClassesByName = ncache
@@ -228,11 +228,11 @@ getClass fknot k0 = do
                     , classAccessFlags = flags
                     , classParent = parent
                     , classParentReference = parentRef
-                    , classInterfaces = ifaces
-                    , classDirectMethods = dms
-                    , classVirtualMethods = vms
-                    , classStaticFields = sfields
-                    , classInstanceFields = ifields
+                    , _classInterfaces = V.fromList ifaces
+                    , _classDirectMethods = V.fromList dms
+                    , _classVirtualMethods = V.fromList vms
+                    , _classStaticFields = V.fromList sfields
+                    , _classInstanceFields = V.fromList ifields
                     , _classStaticFieldMap = indexFields sfields
                     , _classInstanceFieldMap = indexFields ifields
                     , _classMethodMap = indexMethods (vms ++ dms)
@@ -303,8 +303,8 @@ getMethod fknot k0 = do
                  , methodName = name
                  , methodReturnType = rt
                  , methodAccessFlags = flags
-                 , methodParameters = ps
-                 , methodBody = if null b then Nothing else Just b
+                 , _methodParameters = V.fromList ps
+                 , _methodBody = if null b then Nothing else Just (V.fromList b)
                  , methodClass = klass
                  }
       k3 = k2 { knotMethods = IM.insert mid m (knotMethods k2) }
@@ -363,8 +363,8 @@ getBlock fknot k0 = do
                      , basicBlockNumber = bnum
                      , _basicBlockInstructions = V.fromList is
                      , basicBlockPhiCount = phis
-                     , basicBlockSuccessors = map fromBlockId sids
-                     , basicBlockPredecessors = map fromBlockId pids
+                     , _basicBlockSuccessors = V.fromList $ map fromBlockId sids
+                     , _basicBlockPredecessors = V.fromList $ map fromBlockId pids
                      , basicBlockMethod = m
                      }
       k2 = k1 { knotBlocks = IM.insert bid b (knotBlocks k1) }
