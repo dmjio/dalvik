@@ -127,9 +127,9 @@ instance E.Exception CastException
 -- FIXME: For now, all numeric constants are integer types because we
 -- can't tell (without a type inference pass) what type a constant
 -- really is.  Dalvik is untyped.
-data Constant = ConstantInt !UniqueId !Int64
-              | ConstantString !UniqueId BS.ByteString
-              | ConstantClass !UniqueId Type
+data Constant = ConstantInt {-# UNPACK #-} !UniqueId {-# UNPACK #-} !Int64
+              | ConstantString {-# UNPACK #-} !UniqueId BS.ByteString
+              | ConstantClass {-# UNPACK #-} !UniqueId Type
                 deriving (Typeable)
 
 instance Eq Constant where
@@ -202,10 +202,10 @@ instance Hashable Type where
 -- The 'basicBlockNumber' is the local identifier (within a method) of
 -- a 'BasicBlock'.  The unique ID is unique among all 'BasicBlock's in
 -- the 'DexFile'.
-data BasicBlock = BasicBlock { basicBlockId :: UniqueId
-                             , basicBlockNumber :: Int
+data BasicBlock = BasicBlock { basicBlockId :: {-# UNPACK #-} !UniqueId
+                             , basicBlockNumber :: {-# UNPACK #-} !Int
+                             , basicBlockPhiCount :: {-# UNPACK #-} !Int
                              , _basicBlockInstructions :: Vector Instruction
-                             , basicBlockPhiCount :: Int
                              , basicBlockSuccessors :: [BasicBlock]
                              , basicBlockPredecessors :: [BasicBlock]
                              , basicBlockMethod :: Method
@@ -246,152 +246,152 @@ instance Hashable BasicBlock where
 
 type UniqueId = Int
 
-data Instruction = Return { instructionId :: UniqueId
+data Instruction = Return { instructionId :: {-# UNPACK #-} !UniqueId
                           , instructionType :: Type
                           , instructionBasicBlock :: BasicBlock
                           , returnValue :: Maybe Value
                           }
-                 | MoveException { instructionId :: UniqueId
+                 | MoveException { instructionId :: {-# UNPACK #-} !UniqueId
                                  , instructionType :: Type
                                  , instructionBasicBlock :: BasicBlock
                                  }
-                 | MonitorEnter { instructionId :: UniqueId
+                 | MonitorEnter { instructionId :: {-# UNPACK #-} !UniqueId
                                 , instructionType :: Type
                                 , instructionBasicBlock :: BasicBlock
                                 , monitorReference :: Value
                                 }
-                 | MonitorExit { instructionId :: UniqueId
+                 | MonitorExit { instructionId :: {-# UNPACK #-} !UniqueId
                                , instructionType :: Type
                                , instructionBasicBlock :: BasicBlock
                                , monitorReference :: Value
                                }
-                 | CheckCast { instructionId :: UniqueId
+                 | CheckCast { instructionId :: {-# UNPACK #-} !UniqueId
                              , instructionType :: Type
                              , instructionBasicBlock :: BasicBlock
                              , castReference :: Value
                              , castType :: Type
                              }
-                 | InstanceOf { instructionId :: UniqueId
+                 | InstanceOf { instructionId :: {-# UNPACK #-} !UniqueId
                               , instructionType :: Type
                               , instructionBasicBlock :: BasicBlock
                               , instanceOfReference :: Value
                               , instanceOfType :: Type
                               }
-                 | ArrayLength { instructionId :: UniqueId
+                 | ArrayLength { instructionId :: {-# UNPACK #-} !UniqueId
                                , instructionType :: Type
                                , instructionBasicBlock :: BasicBlock
                                , arrayReference :: Value
                                }
-                 | NewInstance { instructionId :: UniqueId
+                 | NewInstance { instructionId :: {-# UNPACK #-} !UniqueId
                                , instructionType :: Type
                                , instructionBasicBlock :: BasicBlock
                                }
-                 | NewArray { instructionId :: UniqueId
+                 | NewArray { instructionId :: {-# UNPACK #-} !UniqueId
                             , instructionType :: Type
                             , instructionBasicBlock :: BasicBlock
                             , newArrayLength :: Value
                             , newArrayContents :: Maybe [Value]
                             }
-                 | FillArray { instructionId :: UniqueId
+                 | FillArray { instructionId :: {-# UNPACK #-} !UniqueId
                              , instructionType :: Type
                              , instructionBasicBlock :: BasicBlock
                              , fillArrayReference :: Value
                              , fillArrayContents :: [Int64]
                              }
-                 | Throw { instructionId :: UniqueId
+                 | Throw { instructionId :: {-# UNPACK #-} !UniqueId
                          , instructionType :: Type
                          , instructionBasicBlock :: BasicBlock
                          , throwReference :: Value
                          }
-                 | ConditionalBranch { instructionId :: UniqueId
+                 | ConditionalBranch { instructionId :: {-# UNPACK #-} !UniqueId
+                                     , branchTestType :: !LL.IfOp
                                      , instructionType :: Type
                                      , instructionBasicBlock :: BasicBlock
                                      , branchOperand1 :: Value
                                      , branchOperand2 :: Value
-                                     , branchTestType :: LL.IfOp
                                      , branchTarget :: BasicBlock
                                      , branchFallthrough :: BasicBlock
                                      }
-                 | UnconditionalBranch { instructionId :: UniqueId
+                 | UnconditionalBranch { instructionId :: {-# UNPACK #-} !UniqueId
                                        , instructionType :: Type
                                        , instructionBasicBlock :: BasicBlock
                                        , branchTarget :: BasicBlock
                                        }
-                 | Switch { instructionId :: UniqueId
+                 | Switch { instructionId :: {-# UNPACK #-} !UniqueId
                           , instructionType :: Type
                           , instructionBasicBlock :: BasicBlock
                           , switchValue :: Value
                           , switchTargets :: [(Int64, BasicBlock)]
                           , switchFallthrough :: BasicBlock
                           }
-                 | Compare { instructionId :: UniqueId
+                 | Compare { instructionId :: {-# UNPACK #-} !UniqueId
+                           , compareOperation :: !LL.CmpOp
                            , instructionType :: Type
                            , instructionBasicBlock :: BasicBlock
-                           , compareOperation :: LL.CmpOp
                            , compareOperand1 :: Value
                            , compareOperand2 :: Value
                            }
-                 | UnaryOp { instructionId :: UniqueId
+                 | UnaryOp { instructionId :: {-# UNPACK #-} !UniqueId
+                           , unaryOperation :: !LL.Unop
                            , instructionType :: Type
                            , instructionBasicBlock :: BasicBlock
                            , unaryOperand :: Value
-                           , unaryOperation :: LL.Unop
                            }
-                 | BinaryOp { instructionId :: UniqueId
+                 | BinaryOp { instructionId :: {-# UNPACK #-} !UniqueId
+                            , binaryOperation :: !LL.Binop
                             , instructionType :: Type
                             , instructionBasicBlock :: BasicBlock
                             , binaryOperand1 :: Value
                             , binaryOperand2 :: Value
-                            , binaryOperation :: LL.Binop
                             }
-                 | ArrayGet { instructionId :: UniqueId
+                 | ArrayGet { instructionId :: {-# UNPACK #-} !UniqueId
                             , instructionType :: Type
                             , instructionBasicBlock :: BasicBlock
                             , arrayReference :: Value
                             , arrayIndex :: Value
                             }
-                 | ArrayPut { instructionId :: UniqueId
+                 | ArrayPut { instructionId :: {-# UNPACK #-} !UniqueId
                             , instructionType :: Type
                             , instructionBasicBlock :: BasicBlock
                             , arrayReference :: Value
                             , arrayIndex :: Value
                             , arrayPutValue :: Value
                             }
-                 | StaticGet { instructionId :: UniqueId
+                 | StaticGet { instructionId :: {-# UNPACK #-} !UniqueId
                              , instructionType :: Type
                              , instructionBasicBlock :: BasicBlock
                              , staticOpField :: Field
                              }
-                 | StaticPut { instructionId :: UniqueId
+                 | StaticPut { instructionId :: {-# UNPACK #-} !UniqueId
                              , instructionType :: Type
                              , instructionBasicBlock :: BasicBlock
                              , staticOpField :: Field
                              , staticOpPutValue :: Value
                              }
-                 | InstanceGet { instructionId :: UniqueId
+                 | InstanceGet { instructionId :: {-# UNPACK #-} !UniqueId
                                , instructionType :: Type
                                , instructionBasicBlock :: BasicBlock
                                , instanceOpReference :: Value
                                , instanceOpField :: Field
                                }
-                 | InstancePut { instructionId :: UniqueId
+                 | InstancePut { instructionId :: {-# UNPACK #-} !UniqueId
                                , instructionType :: Type
                                , instructionBasicBlock :: BasicBlock
                                , instanceOpReference :: Value
                                , instanceOpField :: Field
                                , instanceOpPutValue :: Value
                             }
-                 | InvokeVirtual { instructionId :: UniqueId
+                 | InvokeVirtual { instructionId :: {-# UNPACK #-} !UniqueId
+                                 , invokeVirtualKind :: !InvokeVirtualKind
                                  , instructionType :: Type
                                  , instructionBasicBlock :: BasicBlock
-                                 , invokeVirtualKind :: InvokeVirtualKind
                                  , invokeVirtualMethod :: MethodRef
                                  , invokeVirtualArguments :: NonEmpty Value
                                  }
-                 | InvokeDirect { instructionId :: UniqueId
+                 | InvokeDirect { instructionId :: {-# UNPACK #-} !UniqueId
+                                , invokeDirectKind :: !InvokeDirectKind
                                 , instructionType :: Type
                                 , instructionBasicBlock :: BasicBlock
-                                , invokeDirectKind :: InvokeDirectKind
                                 , invokeDirectMethod :: MethodRef
                                 , invokeDirectMethodDef :: Maybe Method
                                 , invokeDirectArguments :: [Value]
@@ -401,7 +401,7 @@ data Instruction = Return { instructionId :: UniqueId
                    -- definition in this dex file.  However, we do
                    -- include the definition of the invoked method if
                    -- it is available.
-                 | Phi { instructionId :: UniqueId
+                 | Phi { instructionId :: {-# UNPACK #-} !UniqueId
                        , instructionType :: Type
                        , instructionBasicBlock :: BasicBlock
                        , phiValues :: [(BasicBlock, Value)]
@@ -425,10 +425,10 @@ instance FromValue Instruction where
   fromValue (InstructionV i) = return i
   fromValue _ = E.throwM $ CastException "Not an Instruction"
 
-data Parameter = Parameter { parameterId :: UniqueId
+data Parameter = Parameter { parameterId :: {-# UNPACK #-} !UniqueId
+                           , parameterIndex :: {-# UNPACK #-} !Int
                            , parameterType :: Type
                            , parameterName :: BS.ByteString
-                           , parameterIndex :: Int
                            , parameterMethod :: Method
                            }
 
@@ -450,10 +450,10 @@ instance FromValue Parameter where
   fromValue (ParameterV p) = return p
   fromValue _ = E.throwM $ CastException "Not a Parameter"
 
-data Method = Method { methodId :: UniqueId
+data Method = Method { methodId :: {-# UNPACK #-} !UniqueId
+                     , methodAccessFlags :: {-# UNPACK #-} !AccessFlags
                      , methodName :: BS.ByteString
                      , methodReturnType :: Type
-                     , methodAccessFlags :: AccessFlags
                      , methodParameters :: [Parameter]
                      , methodBody :: Maybe [BasicBlock]
                      , methodClass :: Class
@@ -482,11 +482,11 @@ instance Ord Method where
 instance Hashable Method where
   hashWithSalt s = hashWithSalt s . methodId
 
-data Class = Class { classId :: UniqueId
+data Class = Class { classId :: {-# UNPACK #-} !UniqueId
+                   , classAccessFlags :: {-# UNPACK #-} !AccessFlags
                    , classType :: Type
                    , className :: BS.ByteString
                    , classSourceName :: BS.ByteString
-                   , classAccessFlags :: AccessFlags
                    , classParent :: Maybe Type
                    , classParentReference :: Maybe Class
                    , classInterfaces :: [Type]
@@ -518,7 +518,7 @@ instance Ord Class where
 instance Hashable Class where
   hashWithSalt s = hashWithSalt s . classId
 
-data Field = Field { fieldId :: UniqueId
+data Field = Field { fieldId :: {-# UNPACK #-} !UniqueId
                    , fieldName :: BS.ByteString
                    , fieldType :: Type
                    , fieldClass :: Type
@@ -533,7 +533,7 @@ instance Ord Field where
 instance Hashable Field where
   hashWithSalt s = hashWithSalt s . fieldId
 
-data MethodRef = MethodRef { methodRefId :: UniqueId
+data MethodRef = MethodRef { methodRefId :: {-# UNPACK #-} !UniqueId
                            , methodRefClass :: Type
                            , methodRefReturnType :: Type
                            , methodRefParameterTypes :: [Type]
