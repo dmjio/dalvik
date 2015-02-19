@@ -23,7 +23,7 @@ Library
                     bytestring >= 0.9 && < 2,
                     text >= 0.11 && < 2,
                     zip-archive >= 0.2.3.2 && < 0.3,
-                    exceptions >= 0.5 && < 0.7,
+                    exceptions >= 0.5 && < 0.9,
                     floatshow >= 0.2.4 && < 0.3,
                     IntervalMap >= 0.3.0.0 && < 0.4,
                     GenericPretty >= 1.2 && < 1.3,
