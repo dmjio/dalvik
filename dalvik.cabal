@@ -25,16 +25,16 @@ Library
                     zip-archive >= 0.2.3.2 && < 0.3,
                     exceptions >= 0.5 && < 0.9,
                     floatshow >= 0.2.4 && < 0.3,
+                    data-binary-ieee754 >= 0.4.4 && < 0.5,
                     IntervalMap >= 0.3.0.0 && < 0.5,
+                    pretty >= 1.1.2 && < 2,
                     GenericPretty >= 1.2 && < 1.3,
-                    pretty,
                     transformers >= 0.3 && < 0.5,
                     unordered-containers >= 0.2.3.0 && < 0.3,
                     semigroups >= 0.5,
                     vector >= 0.10 && < 2,
                     split >= 0.2 && < 0.3,
                     hashable,
-                    pretty-show,
 -- needed for test code (test dependencies aren't available in the repl)
                     temporary >= 1.2.0.3 && < 2,
                     process,
@@ -74,6 +74,7 @@ Executable Dexdumper
   build-depends: base == 4.*,
                  bytestring,
                  containers,
+                 pretty,
                  dalvik
   hs-source-dirs: tools/Dexdumper
   Main-Is: Main.hs

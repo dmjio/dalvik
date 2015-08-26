@@ -1,140 +1,105 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Dalvik.Printer
-  ( insnString
-  , (+++)
-  , pSDI
-  , lstr
-  , squotes
+  ( prettyInstruction
+  , prettyHeader
+  , prettyClassDef
   , protoDesc
   , methodStr
   , getStr'
   , getTypeName'
   ) where
 
+import qualified Control.Exception as E
 import Data.Bits
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy.Builder as B
-import qualified Data.ByteString.Lazy.Builder.ASCII as A
-import Data.ByteString.Lazy.Builder (Builder)
+import qualified Data.ByteString.Char8 as BS
+import qualified Data.Foldable as F
 import Data.Int
-import Data.List
-import Data.Monoid
+import qualified Data.List as L
+import qualified Data.Map as Map
+import Data.Maybe ( mapMaybe )
+import Data.Monoid ( mconcat, mempty )
 import Data.Serialize.Get ( runGet )
 import Data.Serialize.Put ( runPut, putWord32le, putWord64le )
 import Data.Serialize.IEEE754 ( getFloat32le, getFloat64le )
-import Data.String
 import Data.Word
 import Text.FShow.RealFloat
+import Text.PrettyPrint.HughesPJClass as PP
+import Text.Printf ( printf )
 
+import qualified Dalvik.AccessFlags as AF
+import qualified Dalvik.DebugInfo as DI
 import Dalvik.Instruction
 import Dalvik.Types
 
-type Str = Builder
+methodComm :: MethodId -> PP.Doc
+methodComm mid = " // method@" <> word16HexFixed mid
 
-#if ! MIN_VERSION_bytestring(0,10,4)
-instance IsString Builder where
-  fromString = B.string7
-#endif
+typeComm :: TypeId -> PP.Doc
+typeComm tid = " // type@" <> word16HexFixed tid
 
-(+++) :: (Monoid s) => s -> s -> s
-(+++) = mappend
-{-# INLINE (+++) #-}
+fieldComm :: FieldId -> PP.Doc
+fieldComm fid = " // field@" <> word16HexFixed fid
 
-lstr :: Int -> String -> String
-lstr n s = s ++ replicate (n - length s) ' '
+stringComm :: StringId -> PP.Doc
+stringComm sid = " // string@" <> word16HexFixed (fromIntegral sid)
 
-pSDI :: BS.ByteString -> Str
-pSDI = B.byteString
+intComm8 :: Word8 -> PP.Doc
+intComm8 i = " // #" <> word8Hex i
 
-squotes :: Str -> Str
-squotes s = mconcat [ "'",  s, "'" ]
-{-# INLINE squotes #-}
+intComm8' :: Word8 -> PP.Doc
+intComm8' i = " // #" <> word8HexFixed i
 
-mkInsn :: (Monoid s, IsString s) => s -> [s] -> s
-mkInsn name args =
-  mconcat [name, " ", mconcat $ intersperse ", " args]
-{-# INLINE mkInsn #-}
+intComm16 :: Word16 -> PP.Doc
+intComm16 i = " // #" <> word16Hex i
 
-mkInsn'8 :: Str -> [Word8] -> Str
-mkInsn'8 name args = mkInsn name (map iregStr8 args)
-{-# INLINE mkInsn'8 #-}
+intComm16' :: Word16 -> PP.Doc
+intComm16' i = " // #" <> word16HexFixed i
 
-mkInsnb :: (Monoid s, IsString s) => s -> [s] -> [s] -> s
-mkInsnb name bargs args =
-  mconcat [ name, " {", mconcat (intersperse ", " bargs), "}, "
-          , mconcat (intersperse ", " args)
-          ]
-{-# INLINE mkInsnb #-}
+intComm32 :: Word32 -> PP.Doc
+intComm32 i = " // #" <> word32HexFixed i
 
-methodComm :: MethodId -> Str
-methodComm mid = " // method@" +++ A.word16HexFixed mid
+intComm64 :: Word64 -> PP.Doc
+intComm64 i = " // #" <> word64HexFixed i
 
-typeComm :: TypeId -> Str
-typeComm tid = " // type@" +++ A.word16HexFixed tid
-
-fieldComm :: FieldId -> Str
-fieldComm fid = " // field@" +++ A.word16HexFixed fid
-
-stringComm :: StringId -> Str
-stringComm sid = " // string@" +++ A.word16HexFixed (fromIntegral sid)
-
-intComm8 :: Word8 -> Str
-intComm8 i = " // #" +++ A.word8Hex i
-
-intComm8' :: Word8 -> Str
-intComm8' i = " // #" +++ A.word8HexFixed i
-
-intComm16 :: Word16 -> Str
-intComm16 i = " // #" +++ A.word16Hex i
-
-intComm16' :: Word16 -> Str
-intComm16' i = " // #" +++ A.word16HexFixed i
-
-intComm32 :: Word32 -> Str
-intComm32 i = " // #" +++ A.word32HexFixed i
-
-intComm64 :: Word64 -> Str
-intComm64 i = " // #" +++ A.word64HexFixed i
-
-offComm :: Int16 -> Str
-offComm i = " // " +++ sign +++ A.int16HexFixed i'
+offComm :: Int16 -> PP.Doc
+offComm i = " // " <> sign <> int16HexFixed i'
   where (sign, i') | i < 0 = ("-", -i)
                    | otherwise = ("+", i)
 
-offComm32 :: Int32 -> Str
-offComm32 i = " // " +++ A.int32HexFixed i
+offComm32 :: Int32 -> PP.Doc
+offComm32 i = " // " <> int32HexFixed i
 
-offComm' :: Word32 -> Str
-offComm' i = " // " +++ sign +++ A.word32HexFixed i'
+offComm' :: Word32 -> PP.Doc
+offComm' i = " // " <> sign <> word32HexFixed i'
   where (sign, i') | i < 0 = ("-", -i)
                    | otherwise = ("+", i)
-regStr :: Reg -> Str
+
+regStr :: Reg -> PP.Doc
 regStr (R4 r) = iregStr8 r
 regStr (R8 r) = iregStr8 r
 regStr (R16 r) = iregStr16 r
 
-iregStr8 :: Word8 -> Str
-iregStr8 r = "v" +++  A.word8Dec r
+iregStr8 :: Word8 -> PP.Doc
+iregStr8 r = "v" <> word8Dec r
 
-iregStr16 :: Word16 -> Str
-iregStr16 r = "v" +++  A.word16Dec r
+iregStr16 :: Word16 -> PP.Doc
+iregStr16 r = "v" <> word16Dec r
 
-moveTypeString :: (IsString s) => MoveType -> s
+moveTypeString :: MoveType -> PP.Doc
 moveTypeString MNormal = "move"
 moveTypeString MWide = "move-wide"
 moveTypeString MObject = "move-object"
 
-moveSizeString :: (IsString s) => Reg -> s
+moveSizeString :: Reg -> PP.Doc
 moveSizeString (R4 _) = ""
 moveSizeString (R8 _) = "/from16"
 moveSizeString (R16 _) = "/16"
 
-constStr :: DexFile -> Str -> Reg -> ConstArg -> Str
+constStr :: DexFile -> PP.Doc -> Reg -> ConstArg -> PP.Doc
 constStr dex instr d c = mkInsn instr [regStr d, constString dex c]
 
-ifOpStr :: (IsString s) => IfOp -> s
+ifOpStr :: IfOp -> PP.Doc
 ifOpStr Eq = "eq"
 ifOpStr Ne = "ne"
 ifOpStr Lt = "lt"
@@ -142,7 +107,7 @@ ifOpStr Ge = "ge"
 ifOpStr Gt = "gt"
 ifOpStr Le = "le"
 
-typeStr :: (IsString s) => CType -> s
+typeStr :: CType -> PP.Doc
 typeStr Byte = "byte"
 typeStr Char = "char"
 typeStr Short = "short"
@@ -151,7 +116,7 @@ typeStr Long = "long"
 typeStr Float = "float"
 typeStr Double = "double"
 
-unopStr :: (IsString s, Monoid s) => Unop -> s
+unopStr :: Unop -> PP.Doc
 unopStr NegInt = "neg-int"
 unopStr NotInt = "not-int"
 unopStr NegLong = "neg-long"
@@ -160,7 +125,7 @@ unopStr NegFloat = "neg-float"
 unopStr NegDouble = "neg-double"
 unopStr (Convert ty1 ty2) = mconcat [typeStr ty1, "-to-",  typeStr ty2]
 
-binopStr :: (IsString s) => Binop -> s
+binopStr :: Binop -> PP.Doc
 binopStr Add = "add"
 binopStr Sub = "sub"
 binopStr Mul = "mul"
@@ -190,49 +155,46 @@ int64ToDouble =
   putWord64le .
   fromIntegral
 
-ffmt :: Float -> Builder
+ffmt :: Float -> PP.Doc
 ffmt f | isNaN f = "nan"
-       | otherwise = B.string7 $ fshowFFloat (Just 6) (FF f) ""
+       | otherwise = PP.text $ fshowFFloat (Just 6) (FF f) ""
 
-dfmt :: Double -> Builder
+dfmt :: Double -> PP.Doc
 dfmt d | isNaN d = "nan"
-       | otherwise = B.string7 $ fshowFFloat (Just 6) (FD d) ""
+       | otherwise = PP.text $ fshowFFloat (Just 6) (FD d) ""
 
-constString :: DexFile -> ConstArg -> Str
+constString :: DexFile -> ConstArg -> PP.Doc
 constString _ (Const4 i) =
-  "#int " +++ A.int8Dec (fromIntegral i) +++ intComm8 (fromIntegral i)
+  "#int " <> int8Dec (fromIntegral i) <> intComm8 (fromIntegral i)
 constString _ (Const16 i) =
-  "#int " +++ A.int16Dec (fromIntegral i) +++ intComm16 (fromIntegral i)
+  "#int " <> int16Dec (fromIntegral i) <> intComm16 (fromIntegral i)
 constString _ (ConstHigh16 i) =
-  "#int " +++ A.int32Dec i +++
-  intComm16 (fromIntegral (i `shiftR` 16) :: Word16)
+  "#int " <> int32Dec i <> intComm16 (fromIntegral (i `shiftR` 16) :: Word16)
 constString _ (ConstWide16 i) =
-  "#int " +++ A.int64Dec i +++ intComm16 (fromIntegral i)
+  "#int " <> int64Dec i <> intComm16 (fromIntegral i)
 constString _ (Const32 w) =
   -- dexdump always prints these as floats, even though they might not be.
-  "#float " +++ ffmt (int32ToFloat w) +++ intComm32 (fromIntegral w :: Word32)
+  "#float " <> ffmt (int32ToFloat w) <> intComm32 (fromIntegral w :: Word32)
 constString _ (ConstWide32 i) =
   -- dexdump always prints these as floats, even though they might not be.
-  "#float " +++ ffmt (int32ToFloat (fromIntegral i)) +++
-  intComm32 (fromIntegral i)
+  "#float " <> ffmt (int32ToFloat (fromIntegral i)) <> intComm32 (fromIntegral i)
 constString _ (ConstWide w) =
   -- dexdump always prints these as doubles, even though they might not be.
-  "#double " +++ dfmt (int64ToDouble w) +++ intComm64 (fromIntegral w)
+  "#double " <> dfmt (int64ToDouble w) <> intComm64 (fromIntegral w)
 constString _ (ConstWideHigh16 i) =
-  "#long " +++ A.int64Dec i +++
-  intComm16 (fromIntegral (i `shiftR` 48) :: Word16)
+  "#long " <> int64Dec i <> intComm16 (fromIntegral (i `shiftR` 48) :: Word16)
 constString dex (ConstString sid) =
-  "\"" +++ getStr' dex sid +++ "\"" +++ stringComm sid
+  "\"" <> getStr' dex sid <> "\"" <> stringComm sid
 constString dex (ConstStringJumbo sid) =
-  "\"" +++ getStr' dex sid +++ "\"" +++ stringComm sid
+  "\"" <> getStr' dex sid <> "\"" <> stringComm sid
 constString dex (ConstClass tid) =
-  getTypeName' dex tid +++ typeComm tid
+  getTypeName' dex tid <> typeComm tid
 
-accessOpStr :: (IsString s, Monoid s) => AccessOp -> s
-accessOpStr (Get ty) = "get" +++ accessTypeStr ty
-accessOpStr (Put ty) = "put" +++ accessTypeStr ty
+accessOpStr :: AccessOp -> PP.Doc
+accessOpStr (Get ty) = "get" <> accessTypeStr ty
+accessOpStr (Put ty) = "put" <> accessTypeStr ty
 
-accessTypeStr :: (IsString s) => Maybe AccessType -> s
+accessTypeStr :: Maybe AccessType -> PP.Doc
 accessTypeStr Nothing = ""
 accessTypeStr (Just AWide) = "-wide"
 accessTypeStr (Just AObject) = "-object"
@@ -241,232 +203,523 @@ accessTypeStr (Just AByte) = "-byte"
 accessTypeStr (Just AChar) = "-char"
 accessTypeStr (Just AShort) = "-short"
 
-ikindStr :: (IsString s) => InvokeKind -> s
+ikindStr :: InvokeKind -> PP.Doc
 ikindStr Virtual = "virtual"
 ikindStr Super = "super"
 ikindStr Direct = "direct"
 ikindStr Static = "static"
 ikindStr Interface = "interface"
 
-getStr' :: DexFile -> StringId -> Str
+getStr' :: DexFile -> StringId -> PP.Doc
 getStr' _ sid | sid == -1 = "unknown"
 getStr' dex sid =
-  maybe ("<unknown string ID: " +++ A.word32HexFixed sid +++ ">") pSDI $
+  maybe ("<unknown string ID: " <> word32HexFixed sid <> ">") pSDI $
   getStr dex sid
 
-getTypeName' :: DexFile -> TypeId -> Str
+getTypeName' :: DexFile -> TypeId -> PP.Doc
 getTypeName' dex tid =
-  maybe ("<unknown type ID: " +++ A.word16HexFixed tid +++ ">") pSDI $
+  maybe ("<unknown type ID: " <> word16HexFixed tid <> ">") pSDI $
   getTypeName dex tid
 
-getTypeName'' :: DexFile -> TypeId -> Str
+getTypeName'' :: DexFile -> TypeId -> PP.Doc
 getTypeName'' dex tid =
   maybe msg (pSDI . tailSDI) $ getTypeName dex tid
     where tailSDI = BS.map slashToDot . BS.init . BS.tail
-          slashToDot 36 = 46
-          slashToDot 47 = 46
+          slashToDot '/' = '.'
+          slashToDot '$' = '.'
           slashToDot c = c
-          msg = "<unknown type ID: " +++ A.word16HexFixed tid +++ ">"
+          msg = "<unknown type ID: " <> word16HexFixed tid <> ">"
 
-fieldStr :: DexFile -> FieldId -> Str
+fieldStr :: DexFile -> FieldId -> PP.Doc
 fieldStr dex fid =
   case getField dex fid of
-    Nothing -> "<unknown field ID: " +++ A.word16HexFixed fid +++ ">"
+    Nothing -> "<unknown field ID: " <> word16HexFixed fid <> ">"
     Just fld ->
-      getTypeName' dex (fieldClassId fld) +++ "." +++
-      getStr' dex (fieldNameId fld) +++ ":" +++
+      getTypeName' dex (fieldClassId fld) <> "." <>
+      getStr' dex (fieldNameId fld) <> ":" <>
       getTypeName' dex (fieldTypeId fld)
 
-protoDesc' :: DexFile -> ProtoId -> Str
+protoDesc' :: DexFile -> ProtoId -> PP.Doc
 protoDesc' dex pid =
   case getProto dex pid of
-    Nothing -> "<unknown prototype ID: " +++ A.word16HexFixed pid +++ ">"
+    Nothing -> "<unknown prototype ID: " <> word16HexFixed pid <> ">"
     Just proto -> protoDesc dex proto
 
-methodStr :: DexFile -> MethodId -> Str
+methodStr :: DexFile -> MethodId -> PP.Doc
 methodStr dex mid =
   case getMethod dex mid of
-    Nothing -> "<unknown method ID: " +++ A.word16HexFixed mid +++ ">"
-    Just meth -> getTypeName'' dex (methClassId meth) +++ "." +++
-                 getStr' dex (methNameId meth) +++ ":" +++
+    Nothing -> "<unknown method ID: " <> word16HexFixed mid <> ">"
+    Just meth -> getTypeName'' dex (methClassId meth) <> "." <>
+                 getStr' dex (methNameId meth) <> ":" <>
                  protoDesc' dex (methProtoId meth)
 
-methodStr' :: DexFile -> MethodId -> Str
+methodStr' :: DexFile -> MethodId -> PP.Doc
 methodStr' dex mid =
   case getMethod dex mid of
-    Nothing -> "<unknown method ID: " +++ A.word16HexFixed mid +++ ">"
+    Nothing -> "<unknown method ID: " <> word16HexFixed mid <> ">"
     Just meth ->
-      getTypeName' dex (methClassId meth) +++ "." +++
-      getStr' dex (methNameId meth) +++ ":" +++
+      getTypeName' dex (methClassId meth) <> "." <>
+      getStr' dex (methNameId meth) <> ":" <>
       protoDesc' dex (methProtoId meth)
 
-protoDesc :: DexFile -> Proto -> Str
+protoDesc :: DexFile -> Proto -> PP.Doc
 protoDesc dex proto =
   mconcat [ "(", argStr, ")", retStr ]
   where argStr = mconcat $ map (getTypeName' dex) (protoParams proto)
         retStr = getTypeName' dex (protoRet proto)
 
-insnString :: DexFile -> Word32 -> Instruction -> Str
-insnString _ _ Nop = "nop" +++ " // spacer"
-insnString _ _ (Move mty dst src) =
+prettyField :: String -> PP.Doc -> PP.Doc
+prettyField str v = padRight 20 str <> ":" <+> v
+
+prettyField16 :: String -> Word16 -> PP.Doc
+prettyField16 str (-1) = prettyField str "-1"
+prettyField16 str v = prettyField str (word16Dec v)
+
+prettyField32 :: String -> Word32 -> PP.Doc
+prettyField32 str (-1) = prettyField str "-1"
+prettyField32 str v = prettyField str (word32Dec v)
+
+prettyFieldHex :: String -> Word32 -> PP.Doc
+prettyFieldHex str v = prettyField str (mconcat [word32Dec v, "(0x ",  word24HexFixed v, ")"])
+
+prettyFieldHex4 :: String -> Word32 -> PP.Doc
+prettyFieldHex4 str v = prettyField str (mconcat [word32Dec v, " (0x", word16HexFixed (fromIntegral v), ")"])
+
+prettyFieldHexS :: String -> Word32 -> PP.Doc -> PP.Doc
+prettyFieldHexS n v s =
+  prettyField n $ mconcat [ "0x", hp v, " (", s, ")" ]
+  where
+    hp = if v >= 0x10000
+         then word20HexFixed
+         else (word16HexFixed . fromIntegral)
+
+escape :: String -> String
+escape [] = []
+escape ('\0' : s) = '\\' : '0' : escape s
+escape ('\n' : s) = '\\' : 'n' : escape s
+escape (c : s) = c : escape s
+
+escapebs :: BS.ByteString -> BS.ByteString
+escapebs = BS.pack . escape . BS.unpack
+
+prettyHeader :: FilePath -> DexHeader -> PP.Doc
+prettyHeader fp hdr =
+  vsep [ "Opened" <+> PP.quotes (PP.text fp) <> ", DEX version " <> PP.quotes (pSDI (dexVersion hdr))
+          , "DEX file header:"
+          , prettyField "magic" (PP.quotes (pSDI (escapebs (BS.append (dexMagic hdr) (dexVersion hdr)))))
+          , prettyField "checksum" (word32HexFixed (dexChecksum hdr))
+          , prettyField "signature" sig
+          , prettyField32 "file_size" (dexFileLen hdr)
+          , prettyField32 "header_size" (dexHdrLen hdr)
+          , prettyField32 "link_size" (dexLinkSize hdr)
+          , prettyFieldHex "link_off" (dexLinkOff hdr)
+          , prettyField32 "string_ids_size" (dexNumStrings hdr)
+          , prettyFieldHex "string_ids_off" (dexOffStrings hdr)
+          , prettyField32 "type_ids_size" (dexNumTypes hdr)
+          , prettyFieldHex "type_ids_off" (dexOffTypes hdr)
+          , prettyField32 "field_ids_size" (dexNumFields hdr)
+          , prettyFieldHex "field_ids_off" (dexOffFields hdr)
+          , prettyField32 "method_ids_size" (dexNumMethods hdr)
+          , prettyFieldHex "method_ids_off" (dexOffMethods hdr)
+          , prettyField32 "class_defs_size" (dexNumClassDefs hdr)
+          , prettyFieldHex "class_defs_off" (dexOffClassDefs hdr)
+          , prettyField32 "data_size" (dexDataSize hdr)
+          , prettyFieldHex "data_off" (dexDataOff hdr)
+          ]
+  where
+    sig = mconcat [ mconcat (take 2 sigStrings), "...", mconcat (drop 18 sigStrings) ]
+    sigStrings = map word8HexFixed (dexSHA1 hdr)
+
+prettyClassDef :: DexFile -> (TypeId, Class) -> PP.Doc
+prettyClassDef dex (i, cls) =
+  vsep [ PP.hcat [ "Class #", word16Dec i, " header:" ]
+          , prettyField16 "class_idx" (classId cls)
+          , prettyFieldHex4 "access_flags" (classAccessFlags cls)
+          , prettyField16 "superclass_idx" (classSuperId cls)
+          , prettyFieldHex "interfaces_off" (classInterfacesOff cls)
+          , prettyField32 "source_file_idx" (classSourceNameId cls)
+          , prettyFieldHex "annotations_off" (classAnnotsOff cls)
+          , prettyFieldHex "class_data_off" (classDataOff cls)
+          , prettyField32 "static_fields_size" (fromIntegral (length (classStaticFields cls)))
+          , prettyField32 "instance_fields_size" (fromIntegral (length (classInstanceFields cls)))
+          , prettyField32 "direct_methods_size" (fromIntegral (length (classDirectMethods cls)))
+          , prettyField32 "virtual_methods_size" (fromIntegral (length (classVirtualMethods cls)))
+          , ""
+          , PP.hcat ["Class #", word16Dec i, "          -"]
+          , prettyField "  Class descriptor" (PP.quotes (getTypeName' dex (classId cls)))
+          , prettyFieldHexS "  Access flags" (classAccessFlags cls) (AF.flagsString AF.AClass (classAccessFlags cls))
+          , prettyField "  Superclass" (PP.quotes (getTypeName' dex (classSuperId cls)))
+          , "  Interfaces       -"
+          , vsep (map (prettyInterface dex) (zip [0..] (classInterfaces cls)))
+          , "  Static fields    -"
+          , vsep (map (prettyEncodedField dex) (zip [0..] (classStaticFields cls)))
+          , "  Instance fields  -"
+          , vsep (map (prettyEncodedField dex) (zip [0..] (classInstanceFields cls)))
+          , "  Direct methods   -"
+          , vsep (map (prettyEncodedMethod dex) (zip [0..] (classDirectMethods cls)))
+          , "  Virtual methods  -"
+          , vsep (map (prettyEncodedMethod dex) (zip [0..] (classVirtualMethods cls)))
+          ]
+
+prettyInterface :: DexFile -> (Word32, TypeId) -> PP.Doc
+prettyInterface dex (n, iface) =
+  mconcat [ "    #", PP.int (fromIntegral n), ": ", PP.quotes (getTypeName' dex iface) ]
+
+prettyEncodedField :: DexFile -> (Word32, EncodedField) -> PP.Doc
+prettyEncodedField dex (n, f) =
+  case getField dex (fieldId f) of
+    Nothing -> "<unknown field ID: " <> word16HexFixed (fieldId f) <> ">"
+    Just fld ->
+      vsep [ mconcat ["    #", word32Dec n, "              : (in ", getTypeName' dex (fieldClassId fld), ")"]
+              , prettyField "      name" (PP.quotes (getStr' dex (fieldNameId fld)))
+              , prettyField "      type" (PP.quotes (getTypeName' dex (fieldTypeId fld)))
+              , prettyFieldHexS "      access" (fieldAccessFlags f) (AF.flagsString AF.AField (fieldAccessFlags f))
+              ]
+
+prettyEncodedMethod :: DexFile -> (Word32, EncodedMethod) -> PP.Doc
+prettyEncodedMethod dex (n, m) =
+  case (mmeth, mmeth >>= (getProto dex . methProtoId)) of
+    (Just method, Just proto) ->
+      let flags = methAccessFlags m
+      in vsep [ "    #" <> word32Dec n <> "              : (in" <+> getTypeName' dex (methClassId method) <> ")"
+                 , prettyField "      name" (PP.quotes (getStr' dex (methNameId method)))
+                 , prettyField "      type" (PP.quotes (protoDesc dex proto))
+                 , prettyFieldHexS "      access" flags (AF.flagsString AF.AMethod flags)
+                 , maybe ("     code:    (none)") (prettyCode dex flags (methId m)) (methCode m)
+                 ]
+    (Nothing, _) -> "<unknown method ID: " <> word16HexFixed (methId m) <> ">"
+    (Just method, Nothing) -> "<unknown prototype ID: " <> word16HexFixed (methProtoId method) <> ">"
+  where
+    mmeth = getMethod dex (methId m)
+
+vsep :: [PP.Doc] -> PP.Doc
+vsep = F.foldl' ($+$) mempty
+
+prettyCode :: DexFile -> AF.AccessFlags -> MethodId -> CodeItem -> PP.Doc
+prettyCode dex flags mid codeItem =
+  vsep [ "      code       -"
+          , prettyField16 "      registers" (codeRegs codeItem)
+          , prettyField16 "      ins" (codeInSize codeItem)
+          , prettyField16 "      outs" (codeOutSize codeItem)
+          , prettyField "      insns size" (word32Dec (fromIntegral (length insnUnits)) <+> "16-bit code units")
+          , word24HexFixed nameAddr <> ":                                        |[" <> word24HexFixed nameAddr <> "] " <> methodStr dex mid
+          , insnText
+          , prettyField "      catches" (if null tries then "(none)" else word32Dec (fromIntegral (length tries)))
+          , vsep (map (prettyTryBlock dex codeItem) tries)
+          , prettyField "      positions" ""
+          , vsep (map prettyPosition (reverse (dbgPositions debugState)))
+          , prettyField "      locals" ""
+          , vsep (map (prettyLocal dex) locals)
+          ]
+  where
+    tries = codeTryItems codeItem
+    insnUnits = codeInsns codeItem
+    debugState = either (const DI.emptyDebugState) id (DI.executeDebugInsns dex codeItem flags mid)
+    addr = codeInsnOff codeItem
+    nameAddr = addr - 16
+    decodeErrorMsg = maybe "Unknown error" decodeErrorAsString . E.fromException
+    insnText = either (\msg -> "error parsing instructions: " <> PP.text (decodeErrorMsg msg))
+                      (formatInstructions dex addr 0 insnUnits)
+                      (decodeInstructions insnUnits)
+    locals = L.sortBy cmpLocal [ (r, l) | (r, ls) <- Map.toList (dbgLocals debugState)
+                                        , l <- ls
+                                        , hasLocal l
+                                        ]
+    cmpLocal (_, LocalInfo n _ e _ _ _) (_, LocalInfo n' _ e' _ _ _) =
+      compare (e, n) (e', n')
+    hasLocal (LocalInfo _ _ _ nid _ _) = nid /= (-1)
+
+prettyLocal :: DexFile -> (Word32, LocalInfo) -> PP.Doc
+prettyLocal dex (r, LocalInfo _ s e nid tid sid) =
+  mconcat [ "        0x", word16HexFixed (fromIntegral s), " - 0x", word16HexFixed (fromIntegral e)
+          , " reg=", word32Dec r, " ", getStr' dex (fromIntegral nid), " "
+          , getTypeName' dex (fromIntegral tid), " ", if sid == -1 then "" else getStr' dex (fromIntegral sid)
+          ]
+
+prettyPosition :: PositionInfo -> PP.Doc
+prettyPosition (PositionInfo a l) = "        0x" <> word16HexFixed (fromIntegral a) <> " line=" <> word32Dec l
+
+prettyTryBlock :: DexFile -> CodeItem -> TryItem -> PP.Doc
+prettyTryBlock dex codeItem tryItem =
+  vsep [ mconcat [ "        0x", word16HexFixed (fromIntegral (tryStartAddr tryItem)), " - 0x", word16HexFixed (fromIntegral end) ]
+          , vsep [ "        " <> getTypeName' dex ty <> " -> 0x" <> word16HexFixed (fromIntegral addr)
+                    | (ty, addr) <- handlers
+                    ]
+          , vsep [ "        <any> -> 0x" <> word16HexFixed (fromIntegral addr)
+                    | addr <- mapMaybe chAllAddr catches
+                    ]
+          ]
+  where
+    end = tryStartAddr tryItem + fromIntegral (tryInsnCount tryItem)
+    catches = filter ((== tryHandlerOff tryItem) . fromIntegral . chHandlerOff) (codeHandlers codeItem)
+    handlers = mconcat (map chHandlers catches)
+
+formatInstructions :: DexFile -> Word32 -> Word32 -> [Word16] -> [Instruction] -> PP.Doc
+formatInstructions _ _ _ [] [] = mempty
+formatInstructions _ _ _ [] is =
+  "ERROR: No more code units (" <> PP.text (show is) <> " instructions left)"
+formatInstructions _ _ _ ws [] =
+  "ERROR: No more instructions (" <> PP.int (length ws) <> " code units left)"
+formatInstructions dex addr off ws (i:is) =
+  mconcat [ word24HexFixed addr
+          , ": "
+          , unitDoc
+          , "|"
+          , word16HexFixed (fromIntegral off)
+          , ": "
+          , idoc
+          ] $+$ formatInstructions dex (addr + (l' * 2)) (off + l') ws' is
+  where
+    (iws, ws') = L.splitAt l ws
+    istrs = [ word8HexFixed (fromIntegral (w .&. 0x00FF)) <>
+              word8HexFixed (fromIntegral ((w .&. 0xFF00) `shiftR` 8))
+            | w <- iws
+            ]
+    istrs' | length istrs < 8 = take 8 (istrs ++ repeat "    ")
+           | otherwise = take 7 istrs ++ ["... "]
+    l = insnUnitCount i
+    l' = fromIntegral l
+    unitDoc = mconcat (PP.punctuate " " istrs')
+    idoc = prettyInstruction dex off i
+
+prettyInstruction :: DexFile -> Word32 -> Instruction -> PP.Doc
+prettyInstruction _ _ Nop = "nop" <> " // spacer"
+prettyInstruction _ _ (Move mty dst src) =
   mconcat
   [ moveTypeString mty
   , moveSizeString dst, " "
   , regStr dst, ", ", regStr src
   ]
-insnString _ _ (Move1 MResult r) = "move-result " +++ regStr r
-insnString _ _ (Move1 MResultWide r) = "move-result-wide " +++ regStr r
-insnString _ _ (Move1 MResultObject r) = "move-result-object " +++ regStr r
-insnString _ _ (Move1 MException r) = "move-exception " +++ regStr r
-insnString _ _ ReturnVoid = "return-void"
-insnString _ _ (Return MNormal r) = "return " +++ regStr r
-insnString _ _ (Return MWide r) = "return-wide " +++ regStr r
-insnString _ _ (Return MObject r) = "return-object " +++ regStr r
-insnString dex _ (LoadConst d c@(Const4 _)) =
+prettyInstruction _ _ (Move1 MResult r) = "move-result " <> regStr r
+prettyInstruction _ _ (Move1 MResultWide r) = "move-result-wide " <> regStr r
+prettyInstruction _ _ (Move1 MResultObject r) = "move-result-object " <> regStr r
+prettyInstruction _ _ (Move1 MException r) = "move-exception " <> regStr r
+prettyInstruction _ _ ReturnVoid = "return-void"
+prettyInstruction _ _ (Return MNormal r) = "return " <> regStr r
+prettyInstruction _ _ (Return MWide r) = "return-wide " <> regStr r
+prettyInstruction _ _ (Return MObject r) = "return-object " <> regStr r
+prettyInstruction dex _ (LoadConst d c@(Const4 _)) =
   constStr dex "const/4" d c
-insnString dex _ (LoadConst d c@(Const16 _)) =
+prettyInstruction dex _ (LoadConst d c@(Const16 _)) =
   constStr dex "const/16" d c
-insnString dex _ (LoadConst d c@(ConstHigh16 _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstHigh16 _)) =
   constStr dex "const/high16" d c
-insnString dex _ (LoadConst d c@(ConstWide16 _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstWide16 _)) =
   constStr dex "const-wide/16" d c
-insnString dex _ (LoadConst d c@(Const32 _)) =
+prettyInstruction dex _ (LoadConst d c@(Const32 _)) =
   constStr dex "const" d c
-insnString dex _ (LoadConst d c@(ConstWide32 _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstWide32 _)) =
   constStr dex "const-wide/32" d c
-insnString dex _ (LoadConst d c@(ConstWide _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstWide _)) =
   constStr dex "const-wide" d c
-insnString dex _ (LoadConst d c@(ConstWideHigh16 _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstWideHigh16 _)) =
   constStr dex "const-wide/high16" d c
-insnString dex _ (LoadConst d c@(ConstString _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstString _)) =
   constStr dex "const-string" d c
-insnString dex _ (LoadConst d c@(ConstStringJumbo _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstStringJumbo _)) =
   constStr dex "const-string/jumbo" d c
-insnString dex _ (LoadConst d c@(ConstClass _)) =
+prettyInstruction dex _ (LoadConst d c@(ConstClass _)) =
   constStr dex "const-class" d c
-insnString _ _ (MonitorEnter r) = "monitor-enter v" +++ A.word8Dec r
-insnString _ _ (MonitorExit r) = "monitor-exit v" +++ A.word8Dec r
-insnString dex _ (CheckCast r tid) =
-  mconcat ["check-cast v", A.word8Dec r,  ", ", getTypeName' dex tid] +++
+prettyInstruction _ _ (MonitorEnter r) = "monitor-enter v" <> word8Dec r
+prettyInstruction _ _ (MonitorExit r) = "monitor-exit v" <> word8Dec r
+prettyInstruction dex _ (CheckCast r tid) =
+  mconcat ["check-cast v", word8Dec r,  ", ", getTypeName' dex tid] <>
   typeComm tid
-insnString dex _ (InstanceOf dst ref tid) =
+prettyInstruction dex _ (InstanceOf dst ref tid) =
   mkInsn "instance-of"
-         [ iregStr8 dst, iregStr8 ref, getTypeName' dex tid ] +++
+         [ iregStr8 dst, iregStr8 ref, getTypeName' dex tid ] <>
   typeComm tid
-insnString _ _ (ArrayLength dst ref) =
+prettyInstruction _ _ (ArrayLength dst ref) =
   mkInsn'8 "array-length" [ dst, ref ]
-insnString dex _ (NewInstance dst tid) =
-  mkInsn "new-instance" [ iregStr8 dst, getTypeName' dex tid ] +++
+prettyInstruction dex _ (NewInstance dst tid) =
+  mkInsn "new-instance" [ iregStr8 dst, getTypeName' dex tid ] <>
   typeComm tid
-insnString dex _ (NewArray dst sz tid) =
+prettyInstruction dex _ (NewArray dst sz tid) =
   mkInsn "new-array"
-         [ iregStr8 dst, iregStr8 sz, getTypeName' dex tid ] +++
+         [ iregStr8 dst, iregStr8 sz, getTypeName' dex tid ] <>
   typeComm tid
-insnString dex _ (FilledNewArray tid rs) =
+prettyInstruction dex _ (FilledNewArray tid rs) =
   mkInsnb "filled-new-array"
-          (map iregStr8 rs) [ getTypeName' dex tid ] +++
+          (map iregStr8 rs) [ getTypeName' dex tid ] <>
   typeComm tid
-insnString dex _ (FilledNewArrayRange tid rs) =
+prettyInstruction dex _ (FilledNewArrayRange tid rs) =
   mkInsnb "filled-new-array/range"
-          (map iregStr16 rs) [ getTypeName' dex tid ] +++
+          (map iregStr16 rs) [ getTypeName' dex tid ] <>
   typeComm tid
-insnString _ a (FillArrayData dst off) =
+prettyInstruction _ a (FillArrayData dst off) =
   mkInsn "fill-array-data"
-         [ iregStr8 dst, A.word32HexFixed (a + fromIntegral off) ] +++
+         [ iregStr8 dst, word32HexFixed (a + fromIntegral off) ] <>
   offComm' off
-insnString _ _ (Throw r) = "throw v" +++ A.word8Dec r
-insnString _ a (Goto off) =
-  "goto " +++ A.word16HexFixed (fromIntegral (a + fromIntegral off)) +++
+prettyInstruction _ _ (Throw r) = "throw v" <> word8Dec r
+prettyInstruction _ a (Goto off) =
+  "goto " <> word16HexFixed (fromIntegral (a + fromIntegral off)) <>
   offComm (fromIntegral off :: Int16)
-insnString _ a (Goto16 off) =
-  "goto/16 " +++ A.word16HexFixed (fromIntegral (a + fromIntegral off)) +++
+prettyInstruction _ a (Goto16 off) =
+  "goto/16 " <> word16HexFixed (fromIntegral (a + fromIntegral off)) <>
   offComm off
-insnString _ a (Goto32 off) =
-  "goto/32 " +++ A.word32HexFixed (fromIntegral (a + fromIntegral off)) +++
+prettyInstruction _ a (Goto32 off) =
+  "goto/32 " <> word32HexFixed (fromIntegral (a + fromIntegral off)) <>
   offComm32 off
-insnString _ a (PackedSwitch r off) =
+prettyInstruction _ a (PackedSwitch r off) =
   mkInsn "packed-switch"
-         [ iregStr8 r, A.word32HexFixed (a + fromIntegral off) ] +++
+         [ iregStr8 r, word32HexFixed (a + fromIntegral off) ] <>
   offComm' off
-insnString _ a (SparseSwitch r off) =
+prettyInstruction _ a (SparseSwitch r off) =
   mkInsn "sparse-switch"
-         [ iregStr8 r, A.word32HexFixed (a + fromIntegral off) ] +++
+         [ iregStr8 r, word32HexFixed (a + fromIntegral off) ] <>
   offComm' off
-insnString _ _ (Cmp CLFloat dst r1 r2) =
+prettyInstruction _ _ (Cmp CLFloat dst r1 r2) =
   mkInsn'8 "cmpl-float" [dst, r1, r2]
-insnString _ _ (Cmp CGFloat dst r1 r2) =
+prettyInstruction _ _ (Cmp CGFloat dst r1 r2) =
   mkInsn'8 "cmpg-float" [dst, r1, r2]
-insnString _ _ (Cmp CLDouble dst r1 r2) =
+prettyInstruction _ _ (Cmp CLDouble dst r1 r2) =
   mkInsn'8 "cmpl-double" [dst, r1, r2]
-insnString _ _ (Cmp CGDouble dst r1 r2) =
+prettyInstruction _ _ (Cmp CGDouble dst r1 r2) =
   mkInsn'8 "cmpg-double" [dst, r1, r2]
-insnString _ _ (Cmp CLong dst r1 r2) =
+prettyInstruction _ _ (Cmp CLong dst r1 r2) =
   mkInsn'8 "cmp-long" [dst, r1, r2]
-insnString _ a (If op r1 r2 off) =
-  mkInsn ("if-" +++ ifOpStr op)
+prettyInstruction _ a (If op r1 r2 off) =
+  mkInsn ("if-" <> ifOpStr op)
          [ iregStr8 r1, iregStr8 r2
-         , A.word16HexFixed (fromIntegral (a + fromIntegral off))
+         , word16HexFixed (fromIntegral (a + fromIntegral off))
          ]
-  +++ offComm off
-insnString _ a (IfZero op r off) =
-  mkInsn ("if-" +++ ifOpStr op +++ "z")
-         [ iregStr8 r, A.word16HexFixed (fromIntegral (a + fromIntegral off)) ]
-  +++ offComm off
-insnString _ _ (ArrayOp op val arr idx) =
-  mkInsn'8 ("a" +++ accessOpStr op) [ val, arr, idx ]
-insnString dex _ (InstanceFieldOp op val obj fid) =
-  mkInsn ("i" +++ accessOpStr op)
+  <> offComm off
+prettyInstruction _ a (IfZero op r off) =
+  mkInsn ("if-" <> ifOpStr op <> "z")
+         [ iregStr8 r, word16HexFixed (fromIntegral (a + fromIntegral off)) ]
+  <> offComm off
+prettyInstruction _ _ (ArrayOp op val arr idx) =
+  mkInsn'8 ("a" <> accessOpStr op) [ val, arr, idx ]
+prettyInstruction dex _ (InstanceFieldOp op val obj fid) =
+  mkInsn ("i" <> accessOpStr op)
          [ iregStr8 val, iregStr8 obj, fieldStr dex fid ]
-  +++ fieldComm fid
-insnString dex _ (StaticFieldOp op val fid) =
-  mkInsn ("s" +++ accessOpStr op) [ iregStr8 val, fieldStr dex fid ]
-  +++ fieldComm fid
-insnString dex _ (Invoke kind range mid args) =
-  mkInsn ("invoke-" +++
-          ikindStr kind +++
+  <> fieldComm fid
+prettyInstruction dex _ (StaticFieldOp op val fid) =
+  mkInsn ("s" <> accessOpStr op) [ iregStr8 val, fieldStr dex fid ]
+  <> fieldComm fid
+prettyInstruction dex _ (Invoke kind range mid args) =
+  mkInsn ("invoke-" <>
+          ikindStr kind <>
           if range then "/range" else "")
-         [ "{" +++
-           mconcat (intersperse  ", " (map iregStr16 args)) +++
-           "}"
+         [ PP.brackets (mconcat (PP.punctuate ", " (map iregStr16 args)))
          , methodStr' dex mid
-         ] +++
+         ] <>
   methodComm mid
-insnString _ _ (Unop op r1 r2) =
+prettyInstruction _ _ (Unop op r1 r2) =
   mkInsn'8 (unopStr op) [r1, r2]
-insnString _ _ (IBinop op False dst r1 r2) =
-  mkInsn'8 (binopStr op +++ "-int") [ dst, r1, r2 ]
-insnString _ _ (IBinop op True dst r1 r2) =
-  mkInsn'8 (binopStr op +++ "-long") [ dst, r1, r2 ]
-insnString _ _ (FBinop op False dst r1 r2) =
-  mkInsn'8 (binopStr op +++ "-float") [ dst, r1, r2 ]
-insnString _ _ (FBinop op True dst r1 r2) =
-  mkInsn'8 (binopStr op +++ "-double") [ dst, r1, r2 ]
-insnString _ _ (IBinopAssign op False dst src) =
-  mkInsn'8 (binopStr op +++ "-int/2addr") [ dst, src ]
-insnString _ _ (IBinopAssign op True dst src) =
-  mkInsn'8 (binopStr op +++ "-long/2addr") [ dst, src ]
-insnString _ _ (FBinopAssign op False dst src) =
-  mkInsn'8 (binopStr op +++ "-float/2addr") [ dst, src ]
-insnString _ _ (FBinopAssign op True dst src) =
-  mkInsn'8 (binopStr op +++ "-double/2addr") [ dst, src ]
-insnString _ _ (BinopLit16 RSub dst src i) =
+prettyInstruction _ _ (IBinop op False dst r1 r2) =
+  mkInsn'8 (binopStr op <> "-int") [ dst, r1, r2 ]
+prettyInstruction _ _ (IBinop op True dst r1 r2) =
+  mkInsn'8 (binopStr op <> "-long") [ dst, r1, r2 ]
+prettyInstruction _ _ (FBinop op False dst r1 r2) =
+  mkInsn'8 (binopStr op <> "-float") [ dst, r1, r2 ]
+prettyInstruction _ _ (FBinop op True dst r1 r2) =
+  mkInsn'8 (binopStr op <> "-double") [ dst, r1, r2 ]
+prettyInstruction _ _ (IBinopAssign op False dst src) =
+  mkInsn'8 (binopStr op <> "-int/2addr") [ dst, src ]
+prettyInstruction _ _ (IBinopAssign op True dst src) =
+  mkInsn'8 (binopStr op <> "-long/2addr") [ dst, src ]
+prettyInstruction _ _ (FBinopAssign op False dst src) =
+  mkInsn'8 (binopStr op <> "-float/2addr") [ dst, src ]
+prettyInstruction _ _ (FBinopAssign op True dst src) =
+  mkInsn'8 (binopStr op <> "-double/2addr") [ dst, src ]
+prettyInstruction _ _ (BinopLit16 RSub dst src i) =
   mkInsn "rsub-int"
-         [iregStr8 dst, iregStr8 src, "#int " +++ A.int16Dec i] +++
+         [iregStr8 dst, iregStr8 src, "#int " <> int16Dec i] <>
   intComm16' (fromIntegral i)
-insnString _ _ (BinopLit16 op dst src i) =
-  mkInsn (binopStr op +++ "-int/lit16")
-         [iregStr8 dst, iregStr8 src, "#int " +++ A.int16Dec i] +++
+prettyInstruction _ _ (BinopLit16 op dst src i) =
+  mkInsn (binopStr op <> "-int/lit16")
+         [iregStr8 dst, iregStr8 src, "#int " <> int16Dec i] <>
   intComm16' (fromIntegral i)
-insnString _ _ (BinopLit8 op dst src i) =
-  mkInsn (binopStr op +++ "-int/lit8")
-         [iregStr8 dst, iregStr8 src, "#int " +++ A.int8Dec i] +++
+prettyInstruction _ _ (BinopLit8 op dst src i) =
+  mkInsn (binopStr op <> "-int/lit8")
+         [iregStr8 dst, iregStr8 src, "#int " <> int8Dec i] <>
   intComm8' (fromIntegral i)
-insnString _ _ i@(PackedSwitchData{}) =
-  "packed-switch-data (" +++ A.int32Dec (fromIntegral size) +++ " units)"
+prettyInstruction _ _ i@(PackedSwitchData{}) =
+  "packed-switch-data (" <> int32Dec (fromIntegral size) <> " units)"
     where size = insnUnitCount i
-insnString _ _ i@(SparseSwitchData{}) =
-  "sparse-switch-data (" +++ A.int32Dec (fromIntegral size) +++ " units)"
+prettyInstruction _ _ i@(SparseSwitchData{}) =
+  "sparse-switch-data (" <> int32Dec (fromIntegral size) <> " units)"
     where size = insnUnitCount i
-insnString _ _ i@(ArrayData{}) =
-  "array-data (" +++ A.int32Dec (fromIntegral size) +++ " units)"
+prettyInstruction _ _ i@(ArrayData{}) =
+  "array-data (" <> int32Dec (fromIntegral size) <> " units)"
     where size = insnUnitCount i
+
+-- Helpers
+
+
+-- | Right pad a string with spaces until it is the specified width
+padRight :: Int -> String -> PP.Doc
+padRight n s = PP.text (s ++ replicate (n - length s) ' ')
+
+-- | Lift a bytestring into a 'Doc' unsafely
+pSDI :: BS.ByteString -> PP.Doc
+pSDI = PP.text . BS.unpack
+
+mkInsn :: PP.Doc -> [PP.Doc] -> PP.Doc
+mkInsn name args = name <+> mconcat (PP.punctuate ", " args)
+{-# INLINE mkInsn #-}
+
+mkInsn'8 :: PP.Doc -> [Word8] -> PP.Doc
+mkInsn'8 name args = mkInsn name (map iregStr8 args)
+{-# INLINE mkInsn'8 #-}
+
+mkInsnb :: PP.Doc -> [PP.Doc] -> [PP.Doc] -> PP.Doc
+mkInsnb name bargs args =
+  name <+> PP.braces (mconcat (PP.punctuate ", " bargs)) <> "," <+> mconcat (PP.punctuate ", " args)
+{-# INLINE mkInsnb #-}
+
+word16Hex :: Word16 -> PP.Doc
+word16Hex w = PP.text (printf "%x" w)
+
+word16HexFixed :: Word16 -> PP.Doc
+word16HexFixed w = PP.text (printf "%0.4x" w)
+
+word8Hex :: Word8 -> PP.Doc
+word8Hex w = PP.text (printf "%x" w)
+
+word8HexFixed :: Word8 -> PP.Doc
+word8HexFixed w = PP.text (printf "%0.2x" w)
+
+word24HexFixed :: Word32 -> PP.Doc
+word24HexFixed w = mconcat [ word8HexFixed (fromIntegral (w .&. 0x00FF0000) `shiftR` 16)
+                           , word16HexFixed (fromIntegral (w .&. 0x0000FFFF))
+                           ]
+
+word20HexFixed :: Word32 -> PP.Doc
+word20HexFixed w = mconcat [ word8Hex (fromIntegral (w .&. 0x00FF0000) `shiftR` 16)
+                           , word16HexFixed (fromIntegral (w .&. 0x0000FFFF))
+                           ]
+
+word32HexFixed :: Word32 -> PP.Doc
+word32HexFixed w = PP.text (printf "%0.8x" w)
+
+word64HexFixed :: Word64 -> PP.Doc
+word64HexFixed w = PP.text (printf "%0.16x" w)
+
+int16HexFixed :: Int16 -> PP.Doc
+int16HexFixed w = PP.text (printf "%0.4x" w)
+
+int32HexFixed :: Int32 -> PP.Doc
+int32HexFixed w = PP.text (printf "%0.8x" w)
+
+word8Dec :: Word8 -> PP.Doc
+word8Dec w = PP.text (printf "%d" w)
+
+word16Dec :: Word16 -> PP.Doc
+word16Dec w = PP.text (printf "%d" w)
+
+word32Dec :: Word32 -> PP.Doc
+word32Dec w = PP.text (printf "%d" w)
+
+int8Dec :: Int8 -> PP.Doc
+int8Dec w = PP.text (printf "%d" w)
+
+int16Dec :: Int16 -> PP.Doc
+int16Dec w = PP.text (printf "%d" w)
+
+int32Dec :: Int32 -> PP.Doc
+int32Dec w = PP.text (printf "%d" w)
+
+int64Dec :: Int64 -> PP.Doc
+int64Dec w = PP.text (printf "%d" w)

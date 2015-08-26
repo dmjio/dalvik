@@ -73,7 +73,6 @@ import qualified Data.Set as Set
 import Data.Typeable ( Typeable )
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
-import qualified Text.Show.Pretty as PP
 
 import Dalvik.AccessFlags
 import Dalvik.ClassName
@@ -200,7 +199,6 @@ data Type = VoidType
           deriving (Eq, Ord, Read, Show, Generic)
 
 instance S.Serialize Type
-instance PP.PrettyVal Type
 
 instance Hashable Type where
   hashWithSalt s VoidType = hashWithSalt s (1 :: Int)

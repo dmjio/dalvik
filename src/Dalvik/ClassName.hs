@@ -14,7 +14,6 @@ import qualified Data.ByteString.Char8 as BS
 import Data.Hashable
 import Data.Monoid
 import qualified Data.Serialize as S
-import qualified Text.Show.Pretty as PP
 
 -- | An abstract representation of a Java class name.  These can be
 -- rendered into mangled type expression format: e.g.,
@@ -26,9 +25,6 @@ data ClassName = ClassName [BS.ByteString]
 instance S.Serialize ClassName where
   put (ClassName cs) = S.put cs
   get = ClassName <$> S.get
-
-instance PP.PrettyVal ClassName where
-  prettyVal = PP.prettyVal . humanClassName
 
 instance Hashable ClassName where
   hashWithSalt s (ClassName cs) = hashWithSalt s cs
