@@ -187,7 +187,64 @@ data Class
     , classVirtualMethods :: [EncodedMethod]
     , classDataOff :: Word32
     , classStaticValuesOff :: Word32
+    , classAnnotations :: ClassAnnotations
     } deriving (Show)
+
+data EncodedValue = EncodedByte Int8
+                  | EncodedShort Int16
+                  | EncodedChar Char
+                  | EncodedInt Int32
+                  | EncodedLong Int64
+                  | EncodedFloat Float
+                  | EncodedDouble Double
+                  | EncodedStringRef StringId
+                  | EncodedTypeRef TypeId
+                  | EncodedFieldRef FieldId
+                  | EncodedMethodRef MethodId
+                  | EncodedEnumRef FieldId
+                  | EncodedArray [EncodedValue]
+                  | EncodedAnnotation Annotation
+                  | EncodedNull
+                  | EncodedBool Bool
+                  deriving (Show)
+
+data AnnotationVisibility = AVBuild
+                            -- ^ Discarded after the build
+                          | AVRuntime
+                            -- ^ Available to the application at run time
+                          | AVSystem
+                            -- ^ Available to the system at run time
+                          deriving (Eq, Ord, Show)
+
+data Annotation
+  = Annotation
+    { annotTypeId :: TypeId
+    , annotElements :: [(StringId, EncodedValue)]
+    }
+  deriving (Show)
+
+data VisibleAnnotation
+  = VisibleAnnotation
+    { vaVisibility :: AnnotationVisibility
+    , vaAnnotation :: Annotation
+    }
+  deriving (Show)
+
+data ClassAnnotations
+  = ClassAnnotations
+    { classAnnotationsAnnot :: [VisibleAnnotation]
+    , classFieldAnnotations :: [(FieldId, [VisibleAnnotation])]
+    , classMethodAnnotations :: [(MethodId, [VisibleAnnotation])]
+    , classParamAnnotations :: [(MethodId, [[VisibleAnnotation]])]
+    }
+  deriving (Show)
+
+noClassAnnotations :: ClassAnnotations
+noClassAnnotations = ClassAnnotations { classAnnotationsAnnot = []
+                                      , classFieldAnnotations = []
+                                      , classMethodAnnotations = []
+                                      , classParamAnnotations = []
+                                      }
 
 data TryItem
   = TryItem

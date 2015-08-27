@@ -349,24 +349,75 @@ prettyClassDef dex (i, cls) =
           , prettyField "  Class descriptor" (PP.quotes (getTypeName' dex (classId cls)))
           , prettyFieldHexS "  Access flags" (classAccessFlags cls) (AF.flagsString AF.AClass (classAccessFlags cls))
           , prettyField "  Superclass" (PP.quotes (getTypeName' dex (classSuperId cls)))
+          , "  Annotations      -"
+          , PP.nest 4 $ vsep (map (prettyVisibleAnnotation dex) cannots)
           , "  Interfaces       -"
           , vsep (map (prettyInterface dex) (zip [0..] (classInterfaces cls)))
           , "  Static fields    -"
-          , vsep (map (prettyEncodedField dex) (zip [0..] (classStaticFields cls)))
+          , vsep (map (prettyEncodedField dex fannots) (zip [0..] (classStaticFields cls)))
           , "  Instance fields  -"
-          , vsep (map (prettyEncodedField dex) (zip [0..] (classInstanceFields cls)))
+          , vsep (map (prettyEncodedField dex fannots) (zip [0..] (classInstanceFields cls)))
           , "  Direct methods   -"
-          , vsep (map (prettyEncodedMethod dex) (zip [0..] (classDirectMethods cls)))
+          , vsep (map (prettyEncodedMethod dex mannots) (zip [0..] (classDirectMethods cls)))
           , "  Virtual methods  -"
-          , vsep (map (prettyEncodedMethod dex) (zip [0..] (classVirtualMethods cls)))
+          , vsep (map (prettyEncodedMethod dex mannots) (zip [0..] (classVirtualMethods cls)))
           ]
+  where
+    ClassAnnotations { classAnnotationsAnnot = cannots
+                     , classFieldAnnotations = fannots
+                     , classMethodAnnotations = mannots
+                     , classParamAnnotations = pannots
+                     } = classAnnotations cls
+
+
+prettyAnnotationVisibility :: AnnotationVisibility -> PP.Doc
+prettyAnnotationVisibility v =
+  case v of
+    AVBuild -> "BUILD"
+    AVRuntime -> "RUNTIME"
+    AVSystem -> "SYSTEM"
+
+prettyVisibleAnnotation :: DexFile -> VisibleAnnotation -> PP.Doc
+prettyVisibleAnnotation dex va =
+  PP.hcat [ "<" <> prettyAnnotationVisibility (vaVisibility va) <> ">"
+          , " "
+          , prettyAnnotation dex (vaAnnotation va)
+          ]
+
+prettyAnnotation :: DexFile -> Annotation -> PP.Doc
+prettyAnnotation dex a =
+  getTypeName' dex (annotTypeId a) <> PP.parens (PP.hcat (PP.punctuate ", " (map prettyElement (annotElements a))))
+  where
+    prettyElement (enameIx, eval) = getStr' dex enameIx <> "=" <> prettyEncodedValue dex eval
+
+
+prettyEncodedValue :: DexFile -> EncodedValue -> PP.Doc
+prettyEncodedValue dex ev =
+  case ev of
+    EncodedByte i -> "(int8)" <> PP.int (fromIntegral i)
+    EncodedShort i -> "(int16)" <> PP.int (fromIntegral i)
+    EncodedChar c -> PP.quotes (PP.char c)
+    EncodedInt i -> "(int32)" <> PP.int (fromIntegral i)
+    EncodedLong i -> "(int64)" <> PP.integer (fromIntegral i)
+    EncodedFloat f -> "(float)" <> PP.float f
+    EncodedDouble d -> "(double)" <> PP.double d
+    EncodedStringRef sid -> PP.doubleQuotes (getStr' dex sid)
+    EncodedTypeRef tid -> getTypeName' dex tid
+    EncodedFieldRef fid -> fieldStr dex fid
+    EncodedMethodRef mid -> methodStr dex mid
+    EncodedEnumRef fid -> fieldStr dex fid
+    EncodedArray vs -> PP.brackets $ PP.hcat (PP.punctuate ", " (map (prettyEncodedValue dex) vs))
+    EncodedAnnotation a -> prettyAnnotation dex a
+    EncodedNull -> "(null)"
+    EncodedBool b -> PP.text (show b)
+
 
 prettyInterface :: DexFile -> (Word32, TypeId) -> PP.Doc
 prettyInterface dex (n, iface) =
   mconcat [ "    #", PP.int (fromIntegral n), ": ", PP.quotes (getTypeName' dex iface) ]
 
-prettyEncodedField :: DexFile -> (Word32, EncodedField) -> PP.Doc
-prettyEncodedField dex (n, f) =
+prettyEncodedField :: DexFile -> [(FieldId, [VisibleAnnotation])] -> (Word32, EncodedField) -> PP.Doc
+prettyEncodedField dex annots (n, f) =
   case getField dex (fieldId f) of
     Nothing -> "<unknown field ID: " <> word16HexFixed (fieldId f) <> ">"
     Just fld ->
@@ -376,15 +427,19 @@ prettyEncodedField dex (n, f) =
               , prettyFieldHexS "      access" (fieldAccessFlags f) (AF.flagsString AF.AField (fieldAccessFlags f))
               ]
 
-prettyEncodedMethod :: DexFile -> (Word32, EncodedMethod) -> PP.Doc
-prettyEncodedMethod dex (n, m) =
+prettyEncodedMethod :: DexFile -> [(MethodId, [VisibleAnnotation])] -> (Word32, EncodedMethod) -> PP.Doc
+prettyEncodedMethod dex annots (n, m) =
   case (mmeth, mmeth >>= (getProto dex . methProtoId)) of
     (Just method, Just proto) ->
       let flags = methAccessFlags m
+          adoc | Just vannots <- lookup (methId m) annots =
+                   "      annots" $+$ PP.nest 8 (vsep (map (prettyVisibleAnnotation dex) vannots))
+               | otherwise = PP.empty
       in vsep [ "    #" <> word32Dec n <> "              : (in" <+> getTypeName' dex (methClassId method) <> ")"
                  , prettyField "      name" (PP.quotes (getStr' dex (methNameId method)))
                  , prettyField "      type" (PP.quotes (protoDesc dex proto))
                  , prettyFieldHexS "      access" flags (AF.flagsString AF.AMethod flags)
+                 , adoc
                  , maybe ("     code:    (none)") (prettyCode dex flags (methId m)) (methCode m)
                  ]
     (Nothing, _) -> "<unknown method ID: " <> word16HexFixed (methId m) <> ">"
@@ -392,6 +447,7 @@ prettyEncodedMethod dex (n, m) =
   where
     mmeth = getMethod dex (methId m)
 
+-- | Like 'PP.vcat', except it never collapses overlapping lines
 vsep :: [PP.Doc] -> PP.Doc
 vsep = F.foldl' ($+$) mempty
 

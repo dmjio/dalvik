@@ -20,7 +20,7 @@ module Dalvik.SSA.Internal.Serialize (
   ) where
 
 import Control.Applicative
-import Control.Arrow ( second )
+import Control.Arrow ( first, second )
 import Control.Monad ( unless )
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Builder as LBS
@@ -32,10 +32,9 @@ import qualified Data.IntMap as IM
 import qualified Data.List.NonEmpty as NEL
 import Data.Map ( Map )
 import qualified Data.Map as M
-import Data.Maybe ( fromMaybe, maybeToList )
+import Data.Maybe ( fromMaybe )
 import Data.Monoid
 import qualified Data.Serialize as S
-import qualified Data.Set as Set
 import qualified Data.Vector as V
 
 import Dalvik.SSA.Internal.Pretty ()
@@ -109,6 +108,8 @@ putDex df = do
   putList (putField tt) (dexFields df)
   putList (putMethodRef tt) (dexMethodRefs df)
   putList (putClass tt) (dexClasses df)
+  putList (putAnnotations tt) (map (first classId) (HM.toList (_dexClassAnnotations df)))
+  putList (putAnnotations tt) (map (first methodRefId . snd) (HM.toList (_dexMethodAnnotations df)))
 
 getDex :: Knot -> S.Get (DexFile, Knot)
 getDex fknot = do
@@ -129,13 +130,135 @@ getDex fknot = do
   (classes, knot3) <- getListAccum (getClass fknot) knot2
   let cache = foldr (\klass -> HM.insert (classType klass) klass) HM.empty classes
       ncache = foldr (\klass -> HM.insert (className klass) klass) HM.empty classes
+
+  -- We added support for annotations after the rest of the
+  -- serialization infrastructure was in place.  Some existing data
+  -- files exist without annotations; this check lets us safely
+  -- deserialize them (without annotations, of course).
+  isE <- S.isEmpty
+  (classAnnots, methodAnnots) <- case isE of
+    False -> do
+      classAnnots <- getList (getClassAnnotation knot3)
+      methodAnnots <- getList (getMethodAnnotation knot3)
+      return (classAnnots, methodAnnots)
+    True -> return ([], [])
   return (DexFile { _dexClasses = V.fromList classes
                   , _dexConstants = V.fromList constants
                   , _dexTypes = V.fromList (IM.elems tt)
                   , dexIdSrc = idSrc
                   , _dexClassesByType = cache
                   , _dexClassesByName = ncache
+                  , _dexClassAnnotations = HM.fromList classAnnots
+                  , _dexMethodAnnotations = HM.fromList [ (mkMethodRefKey mref, (mref, annots))
+                                                        | (mref, annots) <- methodAnnots
+                                                        ]
                   }, knot3)
+  where
+    mkMethodRefKey mref = (methodRefClass mref, methodRefName mref, methodRefParameterTypes mref)
+
+putAnnotations :: Map Type Int -> (UniqueId, [VisibleAnnotation]) -> S.Put
+putAnnotations tt (cid, annots) = do
+  S.put cid
+  putList putVisibleAnnotation annots
+  where
+    putVisibleAnnotation :: VisibleAnnotation -> S.Put
+    putVisibleAnnotation va = do
+      putAnnotationVisibility (annotationVisibility va)
+      putAnnotation tt (annotationValue va)
+
+putAnnotation :: Map Type Int -> Annotation -> S.Put
+putAnnotation tt a = do
+  putType tt (annotationType a)
+  putList putAnnotationArgument (annotationArguments a)
+  where
+    putAnnotationArgument (name, val) = do
+      S.put name
+      putAnnotationValue tt val
+
+getAnnotation :: Knot -> S.Get Annotation
+getAnnotation k0 = do
+  t <- getType (knotTypeTable k0)
+  args <- getList getAnnotationArgument
+  return Annotation { annotationType = t
+                    , annotationArguments = args
+                    }
+  where
+    getAnnotationArgument = do
+      name <- S.get
+      v <- getAnnotationValue k0
+      return (name, v)
+
+putAnnotationValue :: Map Type Int -> AnnotationValue -> S.Put
+putAnnotationValue tt val =
+  case val of
+    AVInt i -> S.putWord8 0 >> S.put i
+    AVChar c -> S.putWord8 1 >> S.put c
+    AVFloat f -> S.putWord8 2 >> S.put f
+    AVDouble d -> S.putWord8 3 >> S.put d
+    AVString s -> S.putWord8 4 >> S.put s
+    AVType t -> S.putWord8 5 >> putType tt t
+    AVField f -> S.putWord8 6 >> S.put (fieldId f)
+    AVMethod m -> S.putWord8 7 >> S.put (methodRefId m)
+    AVEnum f -> S.putWord8 8 >> S.put (fieldId f)
+    AVArray vs -> S.putWord8 9 >> putList (putAnnotationValue tt) vs
+    AVAnnotation a -> S.putWord8 10 >> putAnnotation tt a
+    AVNull -> S.putWord8 11
+    AVBool b -> S.putWord8 12 >> S.put b
+
+getAnnotationValue :: Knot -> S.Get AnnotationValue
+getAnnotationValue k = do
+  tag <- S.getWord8
+  case tag of
+    0 -> AVInt <$> S.get
+    1 -> AVChar <$> S.get
+    2 -> AVFloat <$> S.get
+    3 -> AVDouble <$> S.get
+    4 -> AVString <$> S.get
+    5 -> AVType <$> getType (knotTypeTable k)
+    6 -> AVField <$> getField' k
+    7 -> AVMethod <$> getMethodRef' k
+    8 -> AVEnum <$> getField' k
+    9 -> AVArray <$> getList (getAnnotationValue k)
+    10 -> AVAnnotation <$> getAnnotation k
+    11 -> return AVNull
+    12 -> AVBool <$> S.get
+    _ -> error ("Unknown annotation value tag while deserializing: " ++ show tag)
+
+putAnnotationVisibility :: AnnotationVisibility -> S.Put
+putAnnotationVisibility v =
+  case v of
+    AVBuild -> S.putWord8 0
+    AVRuntime -> S.putWord8 1
+    AVSystem -> S.putWord8 2
+
+getAnnotationVisibility :: S.Get AnnotationVisibility
+getAnnotationVisibility = do
+  b <- S.getWord8
+  case b of
+    0 -> return AVBuild
+    1 -> return AVRuntime
+    2 -> return AVSystem
+    _ -> error ("Invalid annotation visibility while deserializing: " ++ show b)
+
+getClassAnnotation :: Knot -> S.Get (Class, [VisibleAnnotation])
+getClassAnnotation k0 = do
+  cls <- getClass' k0
+  annots <- getList (getVisibleAnnotation k0)
+  return (cls, annots)
+
+getMethodAnnotation :: Knot -> S.Get (MethodRef, [VisibleAnnotation])
+getMethodAnnotation k0 = do
+  m <- getMethodRef' k0
+  annots <- getList (getVisibleAnnotation k0)
+  return (m, annots)
+
+getVisibleAnnotation :: Knot -> S.Get VisibleAnnotation
+getVisibleAnnotation k0 = do
+  vis <- getAnnotationVisibility
+  a <- getAnnotation k0
+  return VisibleAnnotation { annotationVisibility = vis
+                           , annotationValue = a
+                           }
 
 getTypeTable :: S.Get (IntMap Type)
 getTypeTable = do
@@ -188,6 +311,28 @@ getType tt = do
   case IM.lookup tid tt of
     Just t -> return t
     Nothing -> error ("Deserializing type with unknown id: " ++ show tid)
+
+getField' :: Knot -> S.Get Field
+getField' k0 = do
+  fid <- S.get
+  let flds = knotFields k0
+  case IM.lookup fid (knotFields k0) of
+    Nothing -> error ("Deserializing field with unknown id: " ++ show (fid, IM.findMin flds, IM.findMax flds, IM.size flds))
+    Just f -> return f
+
+getClass' :: Knot -> S.Get Class
+getClass' k0 = do
+  cid <- S.get
+  case IM.lookup cid (knotClasses k0) of
+    Nothing -> error ("Deserializing class with unknown id: " ++ show cid)
+    Just cls -> return cls
+
+getMethodRef' :: Knot -> S.Get MethodRef
+getMethodRef' k = do
+  mid <- S.get
+  case IM.lookup mid (knotMethodRefs k) of
+    Nothing -> error ("Deserializing unknown method ref id: " ++ show mid)
+    Just mref -> return mref
 
 putClass :: Map Type Int -> Class -> S.Put
 putClass tt klass = do
@@ -849,19 +994,3 @@ getListAccum p knot0 = S.getWord64le >>= go ([], knot0)
       (elt, k') <- p k
       go (elt : lst, k') (n - 1)
 
-dexMethodRefs :: DexFile -> [MethodRef]
-dexMethodRefs df = Set.toList $ Set.fromList $
-                   [ mref
-                   | k <- dexClasses df
-                   , m <- classDirectMethods k ++ classVirtualMethods k
-                   , body <- maybeToList (methodBody m)
-                   , block <- body
-                   , i <- basicBlockInstructions block
-                   , mref <- maybeMethodRef i
-                   ]
-  where
-    maybeMethodRef i =
-      case i of
-        InvokeVirtual { invokeVirtualMethod = mref } -> [mref]
-        InvokeDirect { invokeDirectMethod = mref } -> [mref]
-        _ -> []

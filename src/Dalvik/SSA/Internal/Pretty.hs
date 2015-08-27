@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -- | This module defines a pretty printer for the SSA-based IR.
 --
@@ -335,34 +336,37 @@ prettyBlockDoc bb@BasicBlock { basicBlockNumber = bnum
       [] -> PP.text "no predecessors"
       _ -> arrayLiteralDoc $ map (PP.int . basicBlockNumber) pblocks
 
-prettyMethodDoc :: Method -> Doc
-prettyMethodDoc m@Method { methodReturnType = rt
-                         , methodName = mname
-                         , methodAccessFlags = flags
-                         } =
+prettyMethodDoc :: Maybe DexFile -> Method -> Doc
+prettyMethodDoc mdf m@Method { methodReturnType = rt
+                             , methodName = mname
+                             , methodAccessFlags = flags
+                             } =
   case methodBody m of
-    Nothing -> intro
-    Just blocks -> intro <+> PP.char '{' $+$ PP.vcat (map prettyBlockDoc blocks) $+$ end
+    Nothing -> annotDoc $+$ intro
+    Just blocks -> annotDoc $+$ intro <+> PP.char '{' $+$ PP.vcat (map prettyBlockDoc blocks) $+$ end
   where
     ps = methodParameters m
     intro = prettyTypeDoc rt <+> safeString mname <> prettyFormalList ps <+> PP.text (flagsString AMethod flags)
     end = PP.char '}'
 
+    annots = maybe [] (\df -> dexMethodAnnotation df m) mdf
+    annotDoc = PP.vcat (map prettyVisibleAnnotation annots)
+
 prettyFieldDefDoc :: (AccessFlags, Field) -> Doc
 prettyFieldDefDoc (flags, fld) =
   prettyTypeDoc (fieldType fld) <+> safeString (fieldName fld) <+> PP.text (flagsString AField flags)
 
-prettyClassDoc :: Class -> Doc
-prettyClassDoc klass =
-  header $+$ meta $+$ body $+$ end
+prettyClassDoc :: Maybe DexFile -> Class -> Doc
+prettyClassDoc mdf klass =
+  annotDoc $+$ header $+$ meta $+$ body $+$ end
   where
     header = PP.text (flagsString AClass (classAccessFlags klass)) <+> PP.text "class" <+> safeString (className klass) <+> PP.char '{'
     staticFields = map prettyFieldDefDoc (classStaticFields klass)
     instanceFields = map prettyFieldDefDoc (classInstanceFields klass)
     static = PP.vcat (staticFields ++ directMethods)
     virtual = PP.vcat (instanceFields ++ virtualMethods)
-    directMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classDirectMethods klass)
-    virtualMethods = L.intersperse (PP.text "") $ map prettyMethodDoc (classVirtualMethods klass)
+    directMethods = L.intersperse (PP.text "") $ map (prettyMethodDoc mdf) (classDirectMethods klass)
+    virtualMethods = L.intersperse (PP.text "") $ map (prettyMethodDoc mdf) (classVirtualMethods klass)
     body = PP.nest 2 (static $+$ PP.text "" $+$ virtual)
     super = case classParent klass of
       Nothing -> PP.empty
@@ -372,8 +376,48 @@ prettyClassDoc klass =
     meta = PP.nest 2 (super $+$ interfaces)
     end = PP.char '}'
 
+    annots = maybe [] (\df -> dexClassAnnotation df klass) mdf
+    annotDoc = PP.vcat (map prettyVisibleAnnotation annots)
+
+prettyVisibleAnnotation :: VisibleAnnotation -> Doc
+prettyVisibleAnnotation va =
+  prettyAnnotation (annotationValue va) <+> ";" <+> prettyAnnotationVisibility (annotationVisibility va)
+
+prettyAnnotation :: Annotation -> Doc
+prettyAnnotation a =
+  "@" <> prettyTypeDoc (annotationType a) <> args
+  where
+    args = case annotationArguments a of
+      [] -> PP.empty
+      as -> PP.parens (PP.hcat (PP.punctuate ", " (map prettyArg as)))
+    prettyArg (name, aval) = PP.text (decodeMUTF8 name) <> "=" <> prettyAnnotationValue aval
+
+prettyAnnotationValue :: AnnotationValue -> Doc
+prettyAnnotationValue av =
+  case av of
+    AVInt i -> PP.integer i
+    AVChar c -> PP.quotes (PP.char c)
+    AVFloat f -> PP.float f
+    AVDouble d -> PP.double d
+    AVString s -> PP.doubleQuotes (PP.text (decodeMUTF8 s))
+    AVType t -> prettyTypeDoc t
+    AVField f -> PP.text (decodeMUTF8 (fieldName f))
+    AVMethod m -> PP.text (decodeMUTF8 (methodRefName m))
+    AVEnum e -> PP.text (decodeMUTF8 (fieldName e))
+    AVArray vals -> PP.brackets (PP.hcat (PP.punctuate ", " (map prettyAnnotationValue vals)))
+    AVAnnotation a -> prettyAnnotation a
+    AVNull -> "null"
+    AVBool b -> if b then "true" else "false"
+
+prettyAnnotationVisibility :: AnnotationVisibility -> Doc
+prettyAnnotationVisibility v =
+  case v of
+    AVSystem -> "<system>"
+    AVBuild -> "<build>"
+    AVRuntime -> "<runtime>"
+
 prettyDexDoc :: DexFile -> Doc
-prettyDexDoc df = PP.vcat (map prettyClassDoc (dexClasses df))
+prettyDexDoc df = PP.vcat (map (prettyClassDoc (Just df)) (dexClasses df))
 
 instance PP.Pretty InvokeVirtualKind where
   pPrint = prettyVirtualKindDoc
@@ -403,13 +447,13 @@ instance Show Class where
   show = PP.prettyShow
 
 instance PP.Pretty Class where
-  pPrint = prettyClassDoc
+  pPrint = prettyClassDoc Nothing
 
 instance Show Method where
   show = PP.prettyShow
 
 instance PP.Pretty Method where
-  pPrint = prettyMethodDoc
+  pPrint = prettyMethodDoc Nothing
 
 instance Show Parameter where
   show = PP.prettyShow

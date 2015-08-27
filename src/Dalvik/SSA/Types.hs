@@ -7,9 +7,12 @@ module Dalvik.SSA.Types (
   DexFile(..),
   dexFileClass,
   dexFields,
+  dexMethodRefs,
   dexConstants,
   dexTypes,
   dexClasses,
+  dexClassAnnotation,
+  dexMethodAnnotation,
   Type(..),
   Class(..),
   classStaticField,
@@ -47,6 +50,10 @@ module Dalvik.SSA.Types (
   instructionOperands,
   InvokeDirectKind(..),
   InvokeVirtualKind(..),
+  VisibleAnnotation(..),
+  Annotation(..),
+  AnnotationValue(..),
+  DT.AnnotationVisibility(..),
   LL.CmpOp(..),
   LL.IfOp(..),
   LL.Binop(..),
@@ -78,6 +85,7 @@ import Dalvik.AccessFlags
 import Dalvik.ClassName
 -- Low-level instructions
 import qualified Dalvik.Instruction as LL
+import qualified Dalvik.Types as DT
 
 -- | A Dalvik Dex file represented in SSA form.
 data DexFile =
@@ -89,7 +97,23 @@ data DexFile =
           , _dexClassesByName :: !(HashMap BS.ByteString Class)
             -- ^ An index by Class.className to the class. These are
             -- dotted fully-qualified names
+          , _dexClassAnnotations :: !(HashMap Class [VisibleAnnotation])
+          , _dexMethodAnnotations :: !(HashMap MethodAnnotationKey (MethodRef, [VisibleAnnotation]))
+            -- ^ See Note [Annotations]
           } deriving (Typeable)
+
+type MethodAnnotationKey = (Type, BS.ByteString, [Type])
+
+-- | Look up the annotations on a 'Class'
+dexClassAnnotation :: DexFile -> Class -> [VisibleAnnotation]
+dexClassAnnotation df k = fromMaybe [] $ HM.lookup k (_dexClassAnnotations df)
+
+-- | Look up the annotations on a 'Method'
+dexMethodAnnotation :: DexFile -> Method -> [VisibleAnnotation]
+dexMethodAnnotation df m = maybe [] snd $ HM.lookup key (_dexMethodAnnotations df)
+  where
+    (ptypes, _) = methodSignature m
+    key = (classType (methodClass m), methodName m, ptypes)
 
 dexFileClass :: DexFile -> Type -> Maybe Class
 dexFileClass df t = HM.lookup t (_dexClassesByType df)
@@ -142,6 +166,40 @@ data CastException = CastException String
                    deriving (Eq, Ord, Show, Typeable)
 
 instance E.Exception CastException
+
+-- | The 'VisibleAnnotation' is a wrapper around a Java 'Annotation'
+-- that records the visibility of the annotation.  Some annotations
+-- can be discarded at build time, while others are available at run
+-- time to the application.
+data VisibleAnnotation = VisibleAnnotation { annotationVisibility :: DT.AnnotationVisibility
+                                           , annotationValue :: Annotation
+                                           }
+
+-- | An annotation has a type (which is always a class type) and
+-- compile-time constant arguments.  The argument language available
+-- is separate from the constants used in the rest of the IR.
+data Annotation = Annotation { annotationType :: Type
+                               -- ^ This must be a class (i.e.,
+                               -- reference type); should this just be
+                               -- a ClassName?
+                             , annotationArguments :: [(BS.ByteString, AnnotationValue)]
+                             }
+                deriving (Eq, Ord, Typeable)
+
+data AnnotationValue = AVInt !Integer
+                     | AVChar !Char
+                     | AVFloat !Float
+                     | AVDouble !Double
+                     | AVString BS.ByteString
+                     | AVType Type
+                     | AVField Field
+                     | AVMethod MethodRef
+                     | AVEnum Field
+                     | AVArray [AnnotationValue]
+                     | AVAnnotation Annotation
+                     | AVNull
+                     | AVBool !Bool
+                     deriving (Eq, Ord, Typeable)
 
 
 -- FIXME: For now, all numeric constants are integer types because we
@@ -674,7 +732,7 @@ instructionOperands i =
 -- file, 'dexFields' will return it while just inspecting the fields
 -- of all available classes will not find it.
 dexFields :: DexFile -> [Field]
-dexFields df = Set.toList $ Set.fromList (ifields ++ cfields)
+dexFields df = Set.toList $ Set.fromList $ concat [ifields, cfields, afields]
   where
     cfields = [ f
               | klass <- dexClasses df
@@ -688,6 +746,11 @@ dexFields df = Set.toList $ Set.fromList (ifields ++ cfields)
               , i <- basicBlockInstructions block
               , f <- referencedField i
               ]
+    afields = [ f
+              | va <- allAnnotations df
+              , (_, val) <- annotationArguments (annotationValue va)
+              , f <- annotationValueFieldRefs val
+              ]
     referencedField i =
       case i of
         StaticGet { staticOpField = f } -> [f]
@@ -695,3 +758,65 @@ dexFields df = Set.toList $ Set.fromList (ifields ++ cfields)
         InstanceGet { instanceOpField = f } -> [f]
         InstancePut { instanceOpField = f } -> [f]
         _ -> []
+
+dexMethodRefs :: DexFile -> [MethodRef]
+dexMethodRefs df =
+  Set.toList $ Set.fromList $ concat [ irefs, arefs, amrefs ]
+  where
+    irefs = [ mref
+            | k <- dexClasses df
+            , m <- classDirectMethods k ++ classVirtualMethods k
+            , body <- maybeToList (methodBody m)
+            , block <- body
+            , i <- basicBlockInstructions block
+            , mref <- maybeMethodRef i
+            ]
+    arefs = [ mref
+            | va <- allAnnotations df
+            , (_, val) <- annotationArguments (annotationValue va)
+            , mref <- annotationValueMethodRefs val
+            ]
+    amrefs = [ mref
+             | (mref, _) <- HM.elems (_dexMethodAnnotations df)
+             ]
+    maybeMethodRef i =
+      case i of
+        InvokeVirtual { invokeVirtualMethod = mref } -> [mref]
+        InvokeDirect { invokeDirectMethod = mref } -> [mref]
+        _ -> []
+
+allAnnotations :: DexFile -> [VisibleAnnotation]
+allAnnotations df = concat $ map snd (HM.toList (_dexClassAnnotations df)) ++ map (snd . snd) (HM.toList (_dexMethodAnnotations df))
+
+annotationValueFieldRefs :: AnnotationValue -> [Field]
+annotationValueFieldRefs = go []
+  where
+    go acc v =
+      case v of
+        AVField f -> f : acc
+        AVEnum f -> f : acc
+        AVArray vs -> F.foldl' go acc vs
+        AVAnnotation a -> F.foldl' go acc [ val | (_, val) <- annotationArguments a ]
+        _ -> acc
+
+annotationValueMethodRefs :: AnnotationValue -> [MethodRef]
+annotationValueMethodRefs = go []
+  where
+    go acc v =
+      case v of
+        AVMethod m -> m : acc
+        AVArray vs -> F.foldl' go acc vs
+        AVAnnotation a -> F.foldl' go acc [ val | (_, val) <- annotationArguments a ]
+        _ -> acc
+
+{- Note [Annotations]
+
+All of classes, methods, fields, and individual parameters can have
+annotations.
+
+Instead of putting annotations directly on those objects in the IR, we
+store them in side tables (held by the top-level DexFile).  This is
+mostly a matter of implementation convenience, excused by the fact
+that annotations are accessed only infrequently.
+
+-}

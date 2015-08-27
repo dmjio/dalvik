@@ -58,6 +58,7 @@ module Dalvik.SSA (
   module Dalvik.SSA.Internal.Serialize
   ) where
 
+import Control.Applicative
 import qualified Control.Monad.Catch as E
 import Control.Monad ( foldM, liftM )
 import Control.Monad.Fix
@@ -76,6 +77,8 @@ import qualified Data.Set as S
 import Data.Vector ( Vector )
 import qualified Data.Vector as V
 import qualified Text.PrettyPrint.HughesPJClass as PP
+
+import Prelude
 
 import qualified Dalvik.AccessFlags as DT
 import qualified Dalvik.Instruction as DT
@@ -111,7 +114,7 @@ import qualified Dalvik.SSA.Internal.Stubs as St
 -- > main = do
 -- >   dexfile = ...
 -- >   ssafile <- toSSA [dexfile]
-toSSA :: (MonadFix m, E.MonadThrow m)
+toSSA :: (Functor m, MonadFix m, E.MonadThrow m)
          => Maybe Stubs -- ^ Custom stub methods
          -> Maybe DexFile -- ^ A base Dex file to build on top of
          -> [DT.DexFile] -- ^ Input dex files (to be merged)
@@ -140,14 +143,19 @@ toSSA mstubs mbase dfs = do
                     , SSA._dexClassesByName =
                         HM.foldr addNameMap HM.empty (knotClasses tiedKnot)
                     , dexIdSrc = knotMaxId tiedKnot
+                    , _dexClassAnnotations = HM.fromList (concat (knotClassAnnotations tiedKnot))
+                    , _dexMethodAnnotations = HM.fromList [ (methodAnnotationKey mref, (mref, annots))
+                                                          | (mref, annots) <- concat (knotMethodAnnotations tiedKnot)
+                                                          ]
                     }
   where
     addNameMap klass m = HM.insert (className klass) klass m
     addTypeMap klass m = HM.insert (classType klass) klass m
+    methodAnnotationKey mref = (methodRefClass mref, methodRefName mref, methodRefParameterTypes mref)
 
 -- | We tie the knot by starting with an empty knot and processing a
 -- dex file at a time.  Each dex file proceeds by class.
-tieKnot :: (MonadFix m, E.MonadThrow m)
+tieKnot :: (Functor m, MonadFix m, E.MonadThrow m)
            => Maybe Stubs
            -> Maybe DexFile
            -> [DT.DexFile]
@@ -164,7 +172,7 @@ tieKnot mstubs mbase dfs tiedKnot = do
   where
     go = foldM translateDex (emptyKnot mbase) dfs
 
-translateDex :: (MonadFix m, E.MonadThrow m) => Knot -> DT.DexFile -> KnotMonad m Knot
+translateDex :: (Functor m, MonadFix m, E.MonadThrow m) => Knot -> DT.DexFile -> KnotMonad m Knot
 translateDex knot0 df = do
   -- Note that we have to set the DexFile being processed here (it
   -- starts off undefined) and that we also reset the two caches that
@@ -172,6 +180,7 @@ translateDex knot0 df = do
   modify $ \s -> s { knotDexFile = df
                    , knotDexFields = M.empty
                    , knotDexMethods = M.empty
+                   , knotDexClasses = M.empty
                    }
   knot1 <- foldM (translateType df) knot0 $ M.toList (DT.dexTypeNames df)
   -- After we have translated all of the types in this dex file, we
@@ -180,7 +189,76 @@ translateDex knot0 df = do
   modify $ \s -> s { knotDexTypes = knotTypes knot1 }
   knot2 <- foldM translateFieldRef knot1 $ M.toList (DT.dexFields df)
   knot3 <- foldM translateMethodRef knot2 $ M.toList (DT.dexMethods df)
-  foldM translateClass knot3 $ M.toList (DT.dexClasses df)
+  knot4 <- foldM translateClass knot3 $ M.toList (DT.dexClasses df)
+
+  let annotBlocks = map (\(_, cls) -> (DT.classId cls, DT.classAnnotations cls)) (M.toList (DT.dexClasses df))
+  classAnnotMap <- foldM translateClassAnnotations [] annotBlocks
+  methAnnotMap <- foldM translateMethodAnnotations [] annotBlocks
+  return knot4 { knotClassAnnotations = classAnnotMap : knotClassAnnotations knot4
+               , knotMethodAnnotations = methAnnotMap : knotMethodAnnotations knot4
+               }
+
+translateMethodAnnotations :: (Functor m, E.MonadThrow m)
+                           => [(MethodRef, [VisibleAnnotation])]
+                           -> (DT.TypeId, DT.ClassAnnotations)
+                           -> KnotMonad m [(MethodRef, [VisibleAnnotation])]
+translateMethodAnnotations acc0 (_, annotBlock) =
+  foldM go acc0 (DT.classMethodAnnotations annotBlock)
+  where
+    go acc (mid, annots) = do
+      mref <- getTranslatedMethodRef mid
+      annots' <- mapM translateVisibleAnnotation annots
+      return ((mref, annots') : acc)
+
+translateClassAnnotations :: (Functor m, E.MonadThrow m)
+                          => [(Class, [VisibleAnnotation])]
+                          -> (DT.TypeId, DT.ClassAnnotations)
+                          -> KnotMonad m [(Class, [VisibleAnnotation])]
+translateClassAnnotations acc (clsId, annotBlock) = do
+  klass <- getTranslatedClass clsId
+  annots <- mapM translateVisibleAnnotation (DT.classAnnotationsAnnot annotBlock)
+  return ((klass, annots) : acc)
+
+translateVisibleAnnotation :: (Functor m, E.MonadThrow m) => DT.VisibleAnnotation -> KnotMonad m VisibleAnnotation
+translateVisibleAnnotation va = do
+  a' <- translateAnnotation (DT.vaAnnotation va)
+  return $! VisibleAnnotation { annotationVisibility = DT.vaVisibility va
+                              , annotationValue = a'
+                              }
+
+translateAnnotation :: (Functor m, E.MonadThrow m) => DT.Annotation -> KnotMonad m Annotation
+translateAnnotation a = do
+  at <- getTranslatedType (DT.annotTypeId a)
+  args <- mapM translateAnnotationElement (DT.annotElements a)
+  return $! Annotation { annotationType = at
+                       , annotationArguments = args
+                       }
+
+translateAnnotationElement :: (Functor m, E.MonadThrow m) => (DT.StringId, DT.EncodedValue) -> KnotMonad m (BS.ByteString, AnnotationValue)
+translateAnnotationElement (sid, ev) = do
+  name <- getStr' sid
+  v <- translateEncodedValue ev
+  return (name, v)
+
+translateEncodedValue :: (Functor m, E.MonadThrow m) => DT.EncodedValue -> KnotMonad m AnnotationValue
+translateEncodedValue ev =
+  case ev of
+    DT.EncodedByte b -> return $ AVInt (fromIntegral b)
+    DT.EncodedShort s -> return $ AVInt (fromIntegral s)
+    DT.EncodedChar c -> return $ AVChar c
+    DT.EncodedInt i -> return $ AVInt (fromIntegral i)
+    DT.EncodedLong l -> return $ AVInt (fromIntegral l)
+    DT.EncodedFloat f -> return $ AVFloat f
+    DT.EncodedDouble d -> return $ AVDouble d
+    DT.EncodedStringRef sid -> AVString <$> getStr' sid
+    DT.EncodedTypeRef tid -> AVType <$> getTranslatedType tid
+    DT.EncodedFieldRef fid -> AVField <$> getTranslatedField fid
+    DT.EncodedMethodRef mid -> AVMethod <$> getTranslatedMethodRef mid
+    DT.EncodedEnumRef eid -> AVEnum <$> getTranslatedField eid
+    DT.EncodedArray evs -> AVArray <$> mapM translateEncodedValue evs
+    DT.EncodedAnnotation a -> AVAnnotation <$> translateAnnotation a
+    DT.EncodedNull -> return AVNull
+    DT.EncodedBool b -> return (AVBool b)
 
 type KnotMonad m = RWST Knot () KnotState m
 
@@ -193,6 +271,8 @@ data Knot = Knot { knotClasses :: !(HashMap BS.ByteString Class)
                  , knotTypes :: !(HashMap BS.ByteString Type)
                  , knotConstants :: [Constant]
                  , knotMaxId :: !Int
+                 , knotClassAnnotations :: [[(Class, [VisibleAnnotation])]]
+                 , knotMethodAnnotations :: [[(MethodRef, [VisibleAnnotation])]]
                  }
 
 getMethodRef :: (E.MonadThrow m) => DT.MethodId -> KnotMonad m MethodRef
@@ -217,6 +297,8 @@ emptyKnot mbase =
        , knotTypes = maybe HM.empty collectTypes mbase
        , knotConstants = []
        , knotMaxId = 0
+       , knotClassAnnotations = maybe [] ((:[]) . HM.toList) (fmap _dexClassAnnotations mbase)
+       , knotMethodAnnotations = maybe [] ((:[]) . map snd . HM.toList) (fmap _dexMethodAnnotations mbase)
        }
   where
     collectClasses = foldr addClass HM.empty . dexClasses
@@ -258,6 +340,8 @@ data KnotState =
               -- single dex.
             , knotDexMethods :: !(Map DT.MethodId (BS.ByteString, BS.ByteString, [Type]))
               -- ^ Likewise this one
+            , knotDexClasses :: !(Map DT.TypeId BS.ByteString)
+              -- ^ And this
             , knotDexTypes :: !(HashMap BS.ByteString Type)
               -- ^ This is the set of all types encountered so far, up
               -- to and including the current dex file.
@@ -272,6 +356,7 @@ initialKnotState mstubs mbase =
             , knotClassConstantCache = klasses -- HM.empty
             , knotDexFields = M.empty
             , knotDexMethods = M.empty
+            , knotDexClasses = M.empty
             , knotDexTypes = maybe HM.empty collectTypes mbase
             , knotStubs = mstubs
             }
@@ -369,6 +454,7 @@ translateClass k (_, klass) = do
     return (c, k2)
 
   classString <- getTypeName (DT.classId klass)
+  modify $ \s -> s { knotDexClasses = M.insert (DT.classId klass) classString (knotDexClasses s) }
   -- See Note [Duplicate Class Definitions]
   case HM.member classString (knotClasses k2) of
     True -> return k2
@@ -1255,6 +1341,26 @@ getTranslatedMethod mid = do
     Just stringKey -> do
       ms <- asks knotMethodDefs
       return $ HM.lookup stringKey ms
+
+getTranslatedMethodRef :: (E.MonadThrow m) => DT.MethodId -> KnotMonad m MethodRef
+getTranslatedMethodRef mid = do
+  mrefs <- gets knotDexMethods
+  case M.lookup mid mrefs of
+    Nothing -> E.throwM $ DT.NoMethodAtIndex mid
+    Just stringKey -> do
+      ms <- asks knotMethodRefs
+      let errMsg = error ("No method ref for id: " ++ show mid)
+      return $ fromMaybe errMsg $ HM.lookup stringKey ms
+
+getTranslatedClass :: (E.MonadThrow m) => DT.TypeId -> KnotMonad m Class
+getTranslatedClass cid = do
+  mclasses <- gets knotDexClasses
+  case M.lookup cid mclasses of
+    Nothing -> E.throwM $ DT.NoClassAtIndex cid
+    Just stringKey -> do
+      cs <- asks knotClasses
+      let errMsg = error ("No class found for id " ++ show (cid, stringKey))
+      return $ fromMaybe errMsg $ HM.lookup stringKey cs
 
 -- | Translate an entry from the DexFile fields map.  These do not
 -- contain access flags, but have everything else.

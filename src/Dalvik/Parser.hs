@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 module Dalvik.Parser
   ( loadDexIO
   , loadDex
@@ -6,11 +7,14 @@ module Dalvik.Parser
 
 import Control.Applicative
 import Control.Monad
+import qualified Data.Binary.IEEE754 as IEEE
+import Data.Bits
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8()
+import qualified Data.Char as CH
 import qualified Data.Map as Map
 import Data.Map (Map)
-import Data.Serialize.Get
+import Data.Serialize
 import Data.Word
 
 import Dalvik.LEB128
@@ -275,6 +279,129 @@ parseCodeItem hdr bs = do
 parseTryItem :: Get TryItem
 parseTryItem = TryItem <$> getWord32le <*> getWord16le <*> getWord16le
 
+parseEncodedValue :: Get EncodedValue
+parseEncodedValue = do
+  descByte <- getWord8
+  let valueType = descByte .&. 0x1f
+      valueArg = fromIntegral (descByte `shiftR` 5)
+      nBytes = valueArg + 1
+  case valueType of
+    0x00 -> (EncodedByte . fromIntegral) <$> getWord8
+    0x02 -> EncodedShort <$> parseBytesNle nBytes
+    0x03 -> (EncodedChar . CH.chr) <$> parseBytesNle nBytes
+    0x04 -> EncodedInt <$> parseBytesNle nBytes
+    0x06 -> EncodedLong <$> parseBytesNle nBytes
+    0x10 -> (EncodedFloat . IEEE.wordToFloat) <$> parseBytesNle nBytes
+    0x11 -> (EncodedDouble . IEEE.wordToDouble) <$> parseBytesNle nBytes
+    0x17 -> EncodedStringRef <$> parseBytesNle nBytes
+    0x18 -> EncodedTypeRef <$> parseBytesNle nBytes
+    0x19 -> EncodedFieldRef <$> parseBytesNle nBytes
+    0x1a -> EncodedMethodRef <$> parseBytesNle nBytes
+    0x1b -> EncodedEnumRef <$> parseBytesNle nBytes
+    0x1c -> do
+      -- This is a conversion from an unsigned 32 bit value to a 64
+      -- bit signed value, so it should be okay.  On a 32 bit system,
+      -- this might not be valid; however, such a system would not
+      -- have sufficient memory to parse a billion elements anyway.
+      nElts <- getULEB128
+      EncodedArray <$> replicateM (fromIntegral nElts) parseEncodedValue
+    0x1d -> EncodedAnnotation <$> parseEncodedAnnotation
+    0x1e -> return EncodedNull
+    0x1f -> return $ EncodedBool (valueArg /= 0)
+    _ -> fail ("Unexpected encoded value type: " ++ show valueType)
+
+parseEncodedAnnotation :: Get Annotation
+parseEncodedAnnotation = do
+  tyIdx <- fromIntegral <$> getULEB128
+  nMappings <- fromIntegral <$> getULEB128
+  Annotation tyIdx <$> replicateM nMappings parseAnnotationElement
+
+parseAnnotationElement :: Get (StringId, EncodedValue)
+parseAnnotationElement = (,) <$> getULEB128 <*> parseEncodedValue
+
+parseAnnotationVisibility :: Get AnnotationVisibility
+parseAnnotationVisibility = do
+  val <- getWord8
+  case val of
+    0x0 -> return AVBuild
+    0x1 -> return AVRuntime
+    0x2 -> return AVSystem
+    _ -> fail ("Unexpected annotation visibility: " ++ show val)
+
+-- | An annotation_directory describes all of the annotations in a
+-- given class.
+parseAnnotationDirectory :: BS.ByteString -> Get ClassAnnotations
+parseAnnotationDirectory bs = do
+  classAnnotOff <- getWord32le
+  nFieldAnnots <- getWord32le
+  nMethodAnnots <- getWord32le
+  nParamAnnots <- getWord32le
+  classAnnots <- subGet' bs classAnnotOff [] (parseAnnotationSetItem bs)
+  fieldAnnots <- replicateM (fromIntegral nFieldAnnots) (parseFieldAnnotations bs)
+  methodAnnots <- replicateM (fromIntegral nMethodAnnots) (parseMethodAnnotations bs)
+  paramAnnots <- replicateM (fromIntegral nParamAnnots) (parseParamAnnotations bs)
+  return ClassAnnotations { classAnnotationsAnnot = classAnnots
+                          , classFieldAnnotations = fieldAnnots
+                          , classMethodAnnotations = methodAnnots
+                          , classParamAnnotations = paramAnnots
+                          }
+
+parseParamAnnotations :: BS.ByteString -> Get (MethodId, [[VisibleAnnotation]])
+parseParamAnnotations bs = do
+  methodIdx <- getWord32le
+  listOff <- getWord32le
+  annots <- subGet' bs listOff [] (parseAnnotationSetRefList bs)
+  return (fromIntegral methodIdx, annots)
+
+parseAnnotationSetRefList :: BS.ByteString -> Get [[VisibleAnnotation]]
+parseAnnotationSetRefList bs = do
+  nElts <- getWord32le
+  listOffsets <- replicateM (fromIntegral nElts) getWord32le
+  mapM (\off -> subGet' bs off [] (parseAnnotationSetItem bs)) listOffsets
+
+-- | Parse the annotations for the fields of a class
+parseFieldAnnotations :: BS.ByteString -> Get (FieldId, [VisibleAnnotation])
+parseFieldAnnotations bs = do
+  -- This is specified as a uint here, but field indexes are actually
+  -- 16 bit.  The conversion should be fine.
+  fieldIdx <- getWord32le
+  annotsOff <- getWord32le
+  annots <- subGet' bs annotsOff [] (parseAnnotationSetItem bs)
+  return (fromIntegral fieldIdx, annots)
+
+parseMethodAnnotations :: BS.ByteString -> Get (MethodId, [VisibleAnnotation])
+parseMethodAnnotations bs = do
+  methodIdx <- getWord32le
+  annotsOff <- getWord32le
+  annots <- subGet' bs annotsOff [] (parseAnnotationSetItem bs)
+  return (fromIntegral methodIdx, annots)
+
+parseAnnotationSetItem :: BS.ByteString -> Get [VisibleAnnotation]
+parseAnnotationSetItem bs = do
+  nAnnots <- getWord32le
+  annotOffsets <- replicateM (fromIntegral nAnnots) getWord32le
+  let err = error "Unexpected 0 offset while parsing set item"
+  mapM (\off -> subGet' bs off err parseAnnotationItem) annotOffsets
+
+parseAnnotationItem :: Get VisibleAnnotation
+parseAnnotationItem = VisibleAnnotation <$> parseAnnotationVisibility <*> parseEncodedAnnotation
+
+-- | Parse N bytes (little endian) and reconstruct them into a signed numeric type
+--
+-- Note the location 'fromIntegral' call: it is important.  The return
+-- type 'n' constrains the initial value of the fold, which
+-- transitively constrains the type of the 'fromIntegral' on the
+-- bytes.  Without this, they will remain as bytes and the shifts will
+-- just discard all of the high bits.
+--
+-- The other twist is that the signed types need to be sign extended,
+-- while unsigned types need to be zero extended.  The type of 'n'
+-- makes the function work for both cases.
+parseBytesNle :: (Bits n, Integral n) => Int -> Get n
+parseBytesNle nBytes = do
+  bytes <- replicateM nBytes getWord8
+  return $ foldr (.|.) 0 [ fromIntegral byte `shiftL` (8 * shiftBy) | (shiftBy, byte) <- zip [0..] bytes ]
+
 parseEncodedCatchHandler :: Int -> Get CatchHandler
 parseEncodedCatchHandler startRem = do
   r <- remaining
@@ -342,6 +469,7 @@ parseClassDef hdr bs = do
   ifaces          <- subGet' bs interfacesOff [] parseTypeList
   sourceNameId    <- getWord32le
   annotationsOff  <- getWord32le
+  annotations     <- subGet' bs annotationsOff noClassAnnotations (parseAnnotationDirectory bs)
   dataOff         <- getWord32le
   staticValuesOff <- getWord32le
   (staticFields, instanceFields,
@@ -361,6 +489,7 @@ parseClassDef hdr bs = do
            , classVirtualMethods = virtualMethods
            , classDataOff = dataOff
            , classStaticValuesOff = staticValuesOff
+           , classAnnotations = annotations
            }
 
 parseClassData :: DexHeader -> BS.ByteString
@@ -376,6 +505,8 @@ parseClassData hdr bs = do
   directMethods <- parseEncodedMethods hdr bs directMethodCount Nothing
   virtualMethods <- parseEncodedMethods hdr bs virtualMethodCount Nothing
   return (staticFields, instanceFields, directMethods, virtualMethods)
+
+
 
 {-
 parseData :: BS.ByteString -> Word32 -> Get BS.ByteString
