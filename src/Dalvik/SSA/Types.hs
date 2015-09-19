@@ -298,15 +298,14 @@ basicBlockSuccessors = V.toList . _basicBlockSuccessors
 basicBlockPredecessors :: BasicBlock -> [BasicBlock]
 basicBlockPredecessors = V.toList . _basicBlockPredecessors
 
--- | The last non-phi instruction in the block.  There may not be one
--- if the block is empty.
+-- | The last non-phi instruction in the block.
 --
--- Note: we could have this always succeed by adding explicit jumps at
--- the end of empty blocks.
-basicBlockTerminator :: BasicBlock -> Maybe Instruction
-basicBlockTerminator bb
-  | basicBlockPhiCount bb >= len = Nothing
-  | otherwise = Just $ insns V.! (len - 1)
+-- There is always a final non-phi instruction because we insert
+-- explicit control flow transfers as necessary.  However, the
+-- returned instruction may not be a typical terminator instruction in
+-- some cases.  See Note [Non-Empty Blocks] in Dalvik.SSA for details.
+basicBlockTerminator :: BasicBlock -> Instruction
+basicBlockTerminator bb = insns V.! (len - 1)
   where
     insns = _basicBlockInstructions bb
     len = V.length insns

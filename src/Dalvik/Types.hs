@@ -39,6 +39,7 @@ data DecodeError = PrematureEnd Word8 Word16
                  | ArgumentTypeMismatch MethodId [Reg16]
                  | ClassAlreadyDefined String
                  | NoReceiverForVirtualCall String
+                 | EmptyBlockWithNonSingletonSuccessorList Int
                  deriving (Eq, Ord, Show, Typeable)
 
 instance Exception DecodeError
@@ -88,6 +89,8 @@ decodeErrorAsString (ClassAlreadyDefined s) =
   printf "Class %s was already defined in another apk or dex file" s
 decodeErrorAsString (NoReceiverForVirtualCall s) =
   printf "No receiver for virtual call: %s" s
+decodeErrorAsString (EmptyBlockWithNonSingletonSuccessorList bid) =
+  printf "Empty block with a non-singleton successor list: %d" bid
 
 data DexHeader =
   DexHeader

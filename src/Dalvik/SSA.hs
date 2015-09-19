@@ -607,9 +607,24 @@ translateBlock tm labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
   (b, mknot'') <- mfix $ \final -> do
     (phis, mknot') <- foldM (makePhi labeling tiedMknot (fst final)) ([], mknot) blockPhis
     (insns, mknot'') <- foldM (translateInstruction labeling tiedMknot bnum (fst final)) ([], mknot') (zip [indexStart..] insts')
+
+    -- If we fall through to a single block (via a non-terminator
+    -- instruction), we need to add a synthetic terminator (an
+    -- unconditional jump).
+    --
+    -- This gives us the nice property that no blocks are empty.
+    --
+    -- See Note [Non-Empty Blocks]
+    syntheticTerminator <- case (insts', BB.basicBlockSuccessors bbs bnum) of
+      ([], [singleSuccessor]) -> makeSyntheticTerminator tiedMknot (fst final) singleSuccessor
+      ([], _) -> E.throwM (DT.EmptyBlockWithNonSingletonSuccessorList bnum)
+      (_, [singleSuccessor])
+        | not (isPrimitiveTerminatorInstruction (last insts')) ->
+          makeSyntheticTerminator tiedMknot (fst final) singleSuccessor
+      _ -> return []
     let blk = BasicBlock { basicBlockId = bid
                          , basicBlockNumber = bnum
-                         , _basicBlockInstructions = V.fromList $ phis ++ reverse insns
+                         , _basicBlockInstructions = V.fromList $ phis ++ reverse insns ++ syntheticTerminator
                          , basicBlockPhiCount = length phis
                          , SSA._basicBlockSuccessors = V.fromList $ map (getFinalBlock tiedMknot) $ BB.basicBlockSuccessors bbs bnum
                          , SSA._basicBlockPredecessors = V.fromList $ map (getFinalBlock tiedMknot) $ BB.basicBlockPredecessors bbs bnum
@@ -620,10 +635,33 @@ translateBlock tm labeling tiedMknot (bs, mknot) (bnum, indexStart, insts) = do
   where
     bbs = labelingBasicBlocks labeling
 
--- FIXME: We could insert unconditional branches at the end of any
--- basic blocks that fallthrough without an explicit transfer
--- instruction...  That might not be useful, though, since there are
--- already implicit terminators in the presence of exceptions.
+makeSyntheticTerminator :: (MonadFix m, E.MonadThrow m)
+                        => MethodKnot
+                        -> BasicBlock
+                        -> BlockNumber
+                        -> KnotMonad m [Instruction]
+makeSyntheticTerminator tiedMknot bb successor = do
+  iid <- freshId
+  return [UnconditionalBranch { instructionId = iid
+                              , instructionType = VoidType
+                              , instructionBasicBlock = bb
+                              , branchTarget = getFinalBlock tiedMknot successor
+                              }]
+
+isPrimitiveTerminatorInstruction :: DT.Instruction -> Bool
+isPrimitiveTerminatorInstruction i =
+  case i of
+    DT.ReturnVoid -> True
+    DT.Return {} -> True
+    DT.Throw {} -> True
+    DT.Goto {} -> True
+    DT.Goto16 {} -> True
+    DT.Goto32 {} -> True
+    DT.PackedSwitch {} -> True
+    DT.SparseSwitch {} -> True
+    DT.If {} -> True
+    DT.IfZero {} -> True
+    _ -> False
 
 srcLabelForReg :: (E.MonadThrow m, FromRegister r)
                   => Labeling
@@ -1490,5 +1528,32 @@ convenient.  Instead, people provide no-op stubs exposing the same
 classes and methods linked into their own applications.  The dalvik
 loader just ignores the duplicates in the application and links the
 calls to the private framework methods.
+
+-}
+
+{- Note [Non-Empty Blocks]
+
+We maintain the invariant that no block can be empty.  Moreover, no
+block contains only phi nodes.
+
+This is a convenient invariant, as we can then make
+'basicBlockTerminator' total, as we can always just return the last
+instruction and have it guaranteed to not be a phi node.
+
+To ensure this invariant, any empty blocks have an explicit
+unconditional jump to the fallthrough block added to them.  Moreover,
+we also add explicit unconditional jumps to the end of any block that
+does not end in an explicit terminator instruction but has only a
+single successor.
+
+While this means that *most* blocks end in a terminator instruction, a
+few still do not.  For example, instructions that can raise an
+exception that is caught within the same method can end a block and
+have two successors: one to the normal control flow target and another
+to the exception handler.
+
+This means that the function 'basicBlockTerminator' is total but may
+not return a standard terminator instruction.  This is noted in the
+documentation to that function as well.
 
 -}
