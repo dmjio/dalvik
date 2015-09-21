@@ -41,7 +41,7 @@ tests = T.buildTest $ do
          , T.testGroup "Method Register Assignment" $ map (methRegTests getDex)
               [ ( "LTest;", "intLongAdd", "(IJ)J" -- static method.
                 , javaInputs </> "Test.java"
-                , Just [(Nothing,2), (Nothing,3)] )
+                , Just [(Nothing,3), (Nothing,4)] )
 
               , ( "LTest;", "staticNop", "()V"  -- static method, no params.
                 , javaInputs </> "Test.java"
