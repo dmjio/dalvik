@@ -1,9 +1,9 @@
 SimplePhi { numBlocks = 7
-          , phis = [ (0, fromList ["1", "%23"])
-                   , (1, fromList ["0", "%32"])
-                   , (2, fromList ["%17", "%27"])
-                   , (3, fromList ["%16", "%28"])
-                   , (4, fromList ["0", "%29"])
+          , phis = [ (0, fromList ["1", "%25"])
+                   , (1, fromList ["0", "%34"])
+                   , (2, fromList ["%18", "%29"])
+                   , (3, fromList ["%17", "%30"])
+                   , (4, fromList ["0", "%31"])
                    ]
           , blockPhis = [(0, 1), (1, 1), (2, 3), (3, 3), (4, 3)]
           , assignedPhis = []
