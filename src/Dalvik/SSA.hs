@@ -538,7 +538,9 @@ translateMethod' klass (k, acc) em = do
   mrefs <- gets knotDexMethods
   let errMsg = E.throwM $ DT.NoMethodAtIndex (DT.methId em)
   stringKey <- maybe errMsg return $ M.lookup (DT.methId em) mrefs
-  return (k { knotMethodDefs = HM.insert stringKey tm (knotMethodDefs k) }, tm : acc)
+  case HM.lookup stringKey (knotMethodDefs k) of
+    Just tm' -> return (k, tm' : acc)
+    Nothing -> return (k { knotMethodDefs = HM.insert stringKey tm (knotMethodDefs k) }, tm : acc)
 
 makeParameter :: (E.MonadThrow m)
                  => Method
