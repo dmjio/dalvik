@@ -175,7 +175,7 @@ prettyInstructionDoc i =
             VoidType -> (PP.empty <>)
             _ -> (instBindDoc i <+>)
       in beginning $ PP.text "invoke" <+> prettyVirtualKindDoc k <+>
-           prettyTypeDoc (methodRefClass m) <> PP.text "." <> prettyMethodRefDoc m <> prettyArgumentList (F.toList vs)
+           prettyMethodRefDoc m <> prettyArgumentList (F.toList vs)
     InvokeDirect { invokeDirectKind = k
                  , invokeDirectMethod = m
                  , invokeDirectArguments = vs
@@ -184,7 +184,7 @@ prettyInstructionDoc i =
             VoidType -> (PP.empty <>)
             _ -> (instBindDoc i <+>)
       in beginning $ PP.text "invoke" <+> prettyDirectKindDoc k <+>
-           prettyTypeDoc (methodRefClass m) <> PP.text "." <> prettyMethodRefDoc m <> prettyArgumentList vs
+           prettyMethodRefDoc m <> prettyArgumentList vs
     Phi { phiValues = ivs } ->
       instBindDoc i <+> PP.text "phi" <+>
         arrayLiteralDoc (map phiValueDoc ivs)
@@ -194,7 +194,8 @@ phiValueDoc (bb, v) =
   PP.parens $ blockIdDoc bb <> PP.char ',' <+> valueDoc v
 
 prettyMethodRefDoc :: MethodRef -> Doc
-prettyMethodRefDoc = safeString . methodRefName
+prettyMethodRefDoc mref =
+  prettyTypeDoc (methodRefClass mref) <> PP.char '.' <> safeString (methodRefName mref)
 
 prettyVirtualKindDoc :: InvokeVirtualKind -> Doc
 prettyVirtualKindDoc k =
