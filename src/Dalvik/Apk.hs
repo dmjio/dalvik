@@ -8,7 +8,7 @@ module Dalvik.Apk (
   ) where
 
 import qualified Codec.Archive.Zip as Z
-import Control.Applicative
+import qualified Conduit as C
 import Control.Concurrent ( newMVar, modifyMVar )
 import Control.Exception ( handle, ErrorCall )
 import qualified Data.ByteString.Lazy as LBS
@@ -28,12 +28,14 @@ import Dalvik.Types as DT
 -- | Load the first .dex file found in an Apk
 loadDexFromApkIO :: FilePath -> IO (Either String DexFile)
 loadDexFromApkIO f = handle handler $ do
-  a <- Z.toArchive <$> LBS.readFile f
-  case Z.findEntryByPath "classes.dex" a of
-    Nothing -> return $ Left ("Could not find classes.dex in " ++ f)
-    -- Should we have the parser work over lazy bytestrings instead?
-    Just e -> return $ loadDex $ LBS.toStrict (Z.fromEntry e)
-
+  Z.withArchive f $ do
+    enames <- Z.entryNames
+    case filter (=="classes.dex") enames of
+      [] -> return $ Left ("Could not find classes.dex in " ++ f)
+      [_] -> do
+        lbs <- Z.sourceEntry "classes.dex" C.sinkLazy
+        return $ loadDex $ LBS.toStrict lbs
+      _ -> return $ Left ("Multiple classes.dex files in " ++ f)
   where handler :: ErrorCall -> IO (Either String DexFile)
         handler err = return (Left ("Could not find classes.dex in apk: " ++ show err))
 
