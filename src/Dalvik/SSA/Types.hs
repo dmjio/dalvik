@@ -141,6 +141,13 @@ instance Ord Value where
 instance Hashable Value where
   hashWithSalt s = hashWithSalt s . valueId
 
+instance NFData Value where
+  rnf v =
+    case v of
+      InstructionV i -> i `deepseq` ()
+      ConstantV c -> c `deepseq` ()
+      ParameterV p -> p `deepseq` ()
+
 -- | A common interface to the three 'Value'-like types.
 class IsValue a where
   valueType :: a -> Type
@@ -262,6 +269,12 @@ data Type = VoidType
 
 instance S.Serialize Type
 
+instance NFData Type where
+  rnf t =
+    case t of
+      ReferenceType cn -> cn `seq` ()
+      _ -> ()
+
 instance Hashable Type where
   hashWithSalt s VoidType = hashWithSalt s (1 :: Int)
   hashWithSalt s ByteType = hashWithSalt s (2 :: Int)
@@ -329,6 +342,9 @@ instance Ord BasicBlock where
 
 instance Hashable BasicBlock where
   hashWithSalt s = hashWithSalt s . basicBlockId
+
+instance NFData BasicBlock where
+  rnf b = b `seq` ()
 
 type UniqueId = Int
 
@@ -502,6 +518,9 @@ instance Ord Instruction where
 instance Hashable Instruction where
   hashWithSalt s = hashWithSalt s . instructionId
 
+instance NFData Instruction where
+  rnf i = i `seq` ()
+
 instance IsValue Instruction where
   valueId = instructionId
   valueType = instructionType
@@ -526,6 +545,9 @@ instance Ord Parameter where
 
 instance Hashable Parameter where
   hashWithSalt s = hashWithSalt s . parameterId
+
+instance NFData Parameter where
+  rnf p = parameterType p `seq` parameterName p `seq` parameterMethod p `seq` ()
 
 instance IsValue Parameter where
   valueId = parameterId
@@ -565,9 +587,6 @@ methodSignature m = (map parameterType ps, methodReturnType m)
         [] -> error "methodSignature: No parameters in a virtual function"
         _:rest -> rest
 
-instance NFData Method where
-  rnf m = m `seq` ()
-
 instance Eq Method where
   (==) = (==) `on` methodId
 
@@ -576,6 +595,14 @@ instance Ord Method where
 
 instance Hashable Method where
   hashWithSalt s = hashWithSalt s . methodId
+
+
+instance NFData Method where
+  rnf m = methodName m `seq`
+          methodReturnType m `deepseq`
+          _methodParameters m `deepseq`
+          _methodBody m `deepseq`
+          methodClass m `deepseq` ()
 
 data Class = Class { classId :: {-# UNPACK #-} !UniqueId
                    , classAccessFlags :: {-# UNPACK #-} !AccessFlags
@@ -628,6 +655,21 @@ instance Ord Class where
 instance Hashable Class where
   hashWithSalt s = hashWithSalt s . classId
 
+instance NFData Class where
+  rnf c = classType c `seq`
+          className c `seq`
+          classSourceName c `seq`
+          classParent c `deepseq`
+          classParentReference c `deepseq`
+          _classInterfaces c `deepseq`
+          _classDirectMethods c `deepseq`
+          _classVirtualMethods c `deepseq`
+          _classStaticFields c `deepseq`
+          _classInstanceFields c `deepseq`
+          _classStaticFieldMap c `deepseq`
+          _classInstanceFieldMap c `deepseq`
+          _classMethodMap c `deepseq` ()
+
 data Field = Field { fieldId :: {-# UNPACK #-} !UniqueId
                    , fieldName :: BS.ByteString
                    , fieldType :: Type
@@ -642,6 +684,9 @@ instance Ord Field where
 
 instance Hashable Field where
   hashWithSalt s = hashWithSalt s . fieldId
+
+instance NFData Field where
+  rnf f = fieldName f `seq` fieldType f `seq` fieldClass f `seq` ()
 
 data MethodRef = MethodRef { methodRefId :: {-# UNPACK #-} !UniqueId
                            , methodRefClass :: Type
@@ -659,11 +704,20 @@ instance Ord MethodRef where
 instance Hashable MethodRef where
   hashWithSalt s = hashWithSalt s . methodRefId
 
+instance NFData MethodRef where
+  rnf mr = methodRefClass mr `seq`
+           methodRefReturnType mr `deepseq`
+           methodRefParameterTypes mr `seq`
+           methodRefName mr `seq` ()
+
 data InvokeDirectKind = MethodInvokeStatic
                       | MethodInvokeDirect
                       deriving (Eq, Ord, Show, Generic)
 
 instance S.Serialize InvokeDirectKind
+
+instance NFData InvokeDirectKind where
+  rnf k = k `seq` ()
 
 instance Hashable InvokeDirectKind where
   hashWithSalt s MethodInvokeStatic = hashWithSalt s (1 :: Int)
@@ -675,6 +729,9 @@ data InvokeVirtualKind = MethodInvokeInterface
                        deriving (Eq, Ord, Show, Generic)
 
 instance S.Serialize InvokeVirtualKind
+
+instance NFData InvokeVirtualKind where
+  rnf k = k `seq` ()
 
 instance Hashable InvokeVirtualKind where
   hashWithSalt s MethodInvokeInterface = hashWithSalt s (1 :: Int)
