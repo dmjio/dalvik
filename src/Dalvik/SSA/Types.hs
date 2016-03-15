@@ -65,6 +65,7 @@ module Dalvik.SSA.Types (
 
 import GHC.Generics ( Generic )
 
+import Control.DeepSeq
 import qualified Control.Monad.Catch as E
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Foldable as F
@@ -218,6 +219,9 @@ instance Ord Constant where
 
 instance Hashable Constant where
   hashWithSalt s = hashWithSalt s . constantId
+
+instance NFData Constant where
+  rnf c = c `seq` ()
 
 constantId :: Constant -> Int
 constantId (ConstantInt i _) = i
@@ -560,6 +564,9 @@ methodSignature m = (map parameterType ps, methodReturnType m)
       True -> case methodParameters m of
         [] -> error "methodSignature: No parameters in a virtual function"
         _:rest -> rest
+
+instance NFData Method where
+  rnf m = m `seq` ()
 
 instance Eq Method where
   (==) = (==) `on` methodId
