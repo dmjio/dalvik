@@ -38,6 +38,8 @@ import Data.Monoid
 import qualified Data.Serialize as S
 import qualified Data.Vector as V
 
+import Prelude
+
 import Dalvik.SSA.Internal.Pretty ()
 import Dalvik.SSA.Types
 
