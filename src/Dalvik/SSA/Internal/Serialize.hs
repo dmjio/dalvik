@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 -- | Support serializing Dalvik code in SSA form.
 --
@@ -262,7 +263,8 @@ getVisibleAnnotation k0 = do
 
 getTypeTable :: S.Get (IntMap Type)
 getTypeTable = do
-  lst <- S.get
+  lst :: [(Int, Type)]
+      <- S.get
   return $ foldr (\(i, t) -> IM.insert i t) IM.empty lst
 
 putTypeTable :: [Type] -> S.PutM (Map Type Int)
