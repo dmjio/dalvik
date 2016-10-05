@@ -73,7 +73,7 @@ parseDexHeader = do
   magic <- getByteString 4
   unless (magic == "dex\n") $ fail "Invalid magic string"
   version <- getByteString 4
-  unless (version == "035\0") $ fail "Unsupported version"
+  unless (version == "035\0" || version == "037\0") $ fail "Unsupported version"
   checksum <- getWord32le
   sha1 <- BS.unpack <$> getBytes 20
   fileLen <- getWord32le
