@@ -2,9 +2,10 @@ module Main ( main ) where
 
 import Control.Monad ( liftM )
 import qualified Data.ByteString as BS
-import Data.Either ( rights )
+import Data.Either ( lefts, rights )
 import Data.String ( fromString )
 import Options.Applicative
+import qualified System.Exit as IO
 import Text.Printf ( printf )
 
 import Dalvik.Apk
@@ -151,14 +152,19 @@ realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyOutput = output
                                                  , prettyBase = baseFile
                                                  } } = do
-  dexFiles <- liftM rights $ mapM loadDexFromAnyIO fileName
-  st <- commandStubs pc
-  base <- loadBase baseFile
-  ssaDex <- toSSA st base dexFiles
-  print ssaDex
-  case output of
-    Nothing -> return ()
-    Just outFile -> BS.writeFile outFile $ serializeDex ssaDex
+  edexes <- mapM loadDexFromAnyIO fileName
+  case lefts edexes of
+    [] -> do
+      st <- commandStubs pc
+      base <- loadBase baseFile
+      ssaDex <- toSSA st base (rights edexes)
+      print ssaDex
+      case output of
+        Nothing -> return ()
+        Just outFile -> BS.writeFile outFile $ serializeDex ssaDex
+    lfts -> do
+      print lfts
+      IO.exitFailure
 realMain Options { optCommand = pc@PrettyCommand { prettyFilename = fileName
                                                  , prettyClassName = Just cname
                                                  , prettyMethodName = Nothing
