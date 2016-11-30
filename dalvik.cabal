@@ -31,7 +31,7 @@ Library
                     IntervalMap >= 0.3.0.0 && < 0.5,
                     pretty,
                     GenericPretty >= 1.2 && < 1.3,
-                    transformers >= 0.3 && < 0.5,
+                    transformers >= 0.3 && < 0.6,
                     unordered-containers >= 0.2.3.0 && < 0.3,
                     semigroups >= 0.5,
                     vector >= 0.10 && < 2,
