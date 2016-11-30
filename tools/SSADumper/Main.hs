@@ -3,10 +3,13 @@ module Main ( main ) where
 import Control.Monad ( liftM )
 import qualified Data.ByteString as BS
 import Data.Either ( lefts, rights )
+import Data.Monoid
 import Data.String ( fromString )
 import Options.Applicative
 import qualified System.Exit as IO
 import Text.Printf ( printf )
+
+import Prelude
 
 import Dalvik.Apk
 import qualified Dalvik.Types as DT
