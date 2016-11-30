@@ -222,7 +222,7 @@ virtualDispatch cha i ikind mref receiver
 -- | Find all possible targets for a call to the given 'MethodRef'
 -- from a value of the given 'Type'.
 anyTarget :: ClassHierarchy -> Instruction -> InvokeVirtualKind -> MethodRef -> Type -> Set Method
-anyTarget cha i k mref t0 =
+anyTarget cha _i k mref t0 =
   case k of
     MethodInvokeInterface -> implementationsOfInterfaceMethod cha mref
     MethodInvokeSuper ->
