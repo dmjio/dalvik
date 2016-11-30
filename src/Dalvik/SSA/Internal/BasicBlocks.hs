@@ -158,7 +158,7 @@ basicBlocksAsList = V.toList . bbBlocks
 
 type Handlers = IntervalMap Int ExceptionRange
 handlersFor :: Handlers -> Int -> [ExceptionRange]
-handlersFor h = map snd . IM.containing h
+handlersFor h = map snd . IM.toList . IM.containing h
 
 data BBEnv =
   BBEnv { envInstVec :: Vector Instruction
@@ -248,7 +248,7 @@ exceptionBlockTypes toInstIdx bnumMap =
       -- is dead code (no exceptions can actually reach it at
       -- runtime).
       let instIdx = toInstIdx (fromIntegral offset)
-      in case IM.containing bnumMap instIdx of
+      in case IM.toList $ IM.containing bnumMap instIdx of
         [(_, bnum)] -> M.insert bnum name m
         _ -> m
 
@@ -264,14 +264,14 @@ instructionEndsBlock bbs ix = IS.member ix $ bbBlockEnds bbs
 -- | Get the block number for an instruction
 instructionBlockNumber :: BasicBlocks -> Int -> Maybe BlockNumber
 instructionBlockNumber bbs ix =
-  case IM.containing (bbFromInstruction bbs) ix of
+  case IM.toList $ IM.containing (bbFromInstruction bbs) ix of
     [(_, bnum)] -> Just bnum
     _ -> Nothing
 
 -- | Get the basic block ID for the instruction at the given index.
 basicBlockForInstruction :: BasicBlocks -> Int -> BlockNumber
 basicBlockForInstruction bbs ix =
-  case IM.containing (bbFromInstruction bbs) ix of
+  case IM.toList $ IM.containing (bbFromInstruction bbs) ix of
     [(_, bnum)] -> bnum
     _ -> error ("No BasicBlock for Instruction at index " ++ show ix)
 
@@ -330,7 +330,7 @@ buildCFG env bvec bmap blockEnds =
       -- (so we can ignore it).  Otherwise, record CFG information and
       -- the branch targets.
       | Just targets <- terminatorAbsoluteTargets env ix inst
-      , [(_, termBlock)] <- IM.containing bmap ix =
+      , [(_, termBlock)] <-  IM.toList $ IM.containing bmap ix =
         let instIndexToBlockNum = second (blockForInstruction bmap)
             targetBlocks = map instIndexToBlockNum targets
             addSuccsPreds (p, s, b) (condition, targetBlock) =
@@ -342,7 +342,7 @@ buildCFG env bvec bmap blockEnds =
 
 blockForInstruction :: IntervalMap Int BlockNumber -> Int -> BlockNumber
 blockForInstruction m ix =
-  case IM.containing m ix of
+  case IM.toList $ IM.containing m ix of
     [(_, b)] -> b
     _ -> error ("No BasicBlock for instruction at index " ++ show ix)
 

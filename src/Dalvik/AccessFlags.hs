@@ -12,7 +12,6 @@ module Dalvik.AccessFlags
 
 import Data.Bits
 import Data.List
-import Data.Monoid
 import Data.String
 import Data.Word
 import Text.Printf

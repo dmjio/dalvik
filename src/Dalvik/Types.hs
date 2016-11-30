@@ -9,7 +9,6 @@ import Data.Int
 import qualified Data.List as L
 import Data.Map (Map)
 import Data.Maybe ( fromMaybe )
-import Data.Monoid
 import Data.String ( fromString )
 import Data.Typeable
 import Data.Word

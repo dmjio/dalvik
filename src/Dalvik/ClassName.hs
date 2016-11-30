@@ -12,7 +12,6 @@ module Dalvik.ClassName (
 import Control.Applicative
 import qualified Data.ByteString.Char8 as BS
 import Data.Hashable
-import Data.Monoid
 import qualified Data.Serialize as S
 
 import Prelude
