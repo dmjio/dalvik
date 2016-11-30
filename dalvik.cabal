@@ -43,6 +43,10 @@ Library
                     filepath,
                     directory
 
+    -- As of 7.10, the bundled version of 'pretty' includes the class definition
+    if impl(ghc < 7.10.1)
+       build-depends: prettyclass >= 1 && < 2
+
     Hs-Source-Dirs: src
     Exposed-Modules: Dalvik.AccessFlags,
                      Dalvik.Apk,
