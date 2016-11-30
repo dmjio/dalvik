@@ -11,7 +11,7 @@ before_install:
 - export PATH=$HOME/.local/bin:$PATH
 - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
 - export PATH=/opt/ghc/$GHCVER/bin:$PATH
-- bash ./scripts/fetch-android-sdk.sh
+- bash $TRAVIS_BUILD_DIR/scripts/fetch-android-sdk.sh
 - export PATH=$PATH:$HOME/android/android-sdk-linux/build-tools/23.0.1
 
 matrix:
