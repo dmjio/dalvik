@@ -14,12 +14,6 @@ before_install:
 - bash ./scripts/fetch-android-sdk.sh
 - export PATH=$PATH:$HOME/android/android-sdk-linux/build-tools/23.0.1
 
-addons:
-  apt:
-    packages:
-    - ia32-libs
-    - openjdk-7-jdk
-
 matrix:
   include:
   - env: GHCVER=7.8.4 STACK_YAML=stack-7.8.yaml
@@ -29,6 +23,8 @@ matrix:
         - hvr-ghc
         packages:
         - ghc-7.8.4
+        - ia32-libs
+        - openjdk-7-jdk
   - env: GHCVER=7.10.3 STACK_YAML=stack-7.10.yaml
     addons:
       apt:
@@ -36,6 +32,8 @@ matrix:
         - hvr-ghc
         packages:
         - ghc-7.10.3
+        - ia32-libs
+        - openjdk-7-jdk
 
 script:
  - stack --no-terminal --skip-ghc-check build
