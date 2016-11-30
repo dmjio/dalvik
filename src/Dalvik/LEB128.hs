@@ -10,6 +10,8 @@ import Data.Int
 import Data.Word
 import Data.Serialize.Get
 
+import Prelude
+
 {- LEB128 decoding -}
 
 getSLEB128 :: Get Int32

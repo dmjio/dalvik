@@ -15,6 +15,8 @@ import Data.Typeable
 import Data.Word
 import Text.Printf
 
+import Prelude
+
 import Dalvik.AccessFlags
 
 data DecodeError = PrematureEnd Word8 Word16

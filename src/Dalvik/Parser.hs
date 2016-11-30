@@ -17,6 +17,8 @@ import Data.Map (Map)
 import Data.Serialize
 import Data.Word
 
+import Prelude
+
 import Dalvik.LEB128
 import Dalvik.Types
 

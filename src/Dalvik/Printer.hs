@@ -18,7 +18,7 @@ import Data.Int
 import qualified Data.List as L
 import qualified Data.Map as Map
 import Data.Maybe ( mapMaybe )
-import Data.Monoid ( mconcat, mempty )
+import qualified Data.Monoid as M
 import Data.Serialize.Get ( runGet )
 import Data.Serialize.Put ( runPut, putWord32le, putWord64le )
 import Data.Serialize.IEEE754 ( getFloat32le, getFloat64le )
@@ -26,6 +26,8 @@ import Data.Word
 import Text.FShow.RealFloat
 import Text.PrettyPrint.HughesPJClass as PP
 import Text.Printf ( printf )
+
+import Prelude
 
 import qualified Dalvik.AccessFlags as AF
 import qualified Dalvik.DebugInfo as DI
@@ -123,7 +125,7 @@ unopStr NegLong = "neg-long"
 unopStr NotLong = "not-long"
 unopStr NegFloat = "neg-float"
 unopStr NegDouble = "neg-double"
-unopStr (Convert ty1 ty2) = mconcat [typeStr ty1, "-to-",  typeStr ty2]
+unopStr (Convert ty1 ty2) = M.mconcat [typeStr ty1, "-to-",  typeStr ty2]
 
 binopStr :: Binop -> PP.Doc
 binopStr Add = "add"
@@ -264,8 +266,8 @@ methodStr' dex mid =
 
 protoDesc :: DexFile -> Proto -> PP.Doc
 protoDesc dex proto =
-  mconcat [ "(", argStr, ")", retStr ]
-  where argStr = mconcat $ map (getTypeName' dex) (protoParams proto)
+  M.mconcat [ "(", argStr, ")", retStr ]
+  where argStr = M.mconcat $ map (getTypeName' dex) (protoParams proto)
         retStr = getTypeName' dex (protoRet proto)
 
 prettyField :: String -> PP.Doc -> PP.Doc
@@ -280,14 +282,14 @@ prettyField32 str (-1) = prettyField str "-1"
 prettyField32 str v = prettyField str (word32Dec v)
 
 prettyFieldHex :: String -> Word32 -> PP.Doc
-prettyFieldHex str v = prettyField str (mconcat [word32Dec v, "(0x ",  word24HexFixed v, ")"])
+prettyFieldHex str v = prettyField str (M.mconcat [word32Dec v, "(0x ",  word24HexFixed v, ")"])
 
 prettyFieldHex4 :: String -> Word32 -> PP.Doc
-prettyFieldHex4 str v = prettyField str (mconcat [word32Dec v, " (0x", word16HexFixed (fromIntegral v), ")"])
+prettyFieldHex4 str v = prettyField str (M.mconcat [word32Dec v, " (0x", word16HexFixed (fromIntegral v), ")"])
 
 prettyFieldHexS :: String -> Word32 -> PP.Doc -> PP.Doc
 prettyFieldHexS n v s =
-  prettyField n $ mconcat [ "0x", hp v, " (", s, ")" ]
+  prettyField n $ M.mconcat [ "0x", hp v, " (", s, ")" ]
   where
     hp = if v >= 0x10000
          then word20HexFixed
@@ -327,7 +329,7 @@ prettyHeader fp hdr =
           , prettyFieldHex "data_off" (dexDataOff hdr)
           ]
   where
-    sig = mconcat [ mconcat (take 2 sigStrings), "...", mconcat (drop 18 sigStrings) ]
+    sig = M.mconcat [ M.mconcat (take 2 sigStrings), "...", M.mconcat (drop 18 sigStrings) ]
     sigStrings = map word8HexFixed (dexSHA1 hdr)
 
 prettyClassDef :: DexFile -> (TypeId, Class) -> PP.Doc
@@ -366,7 +368,6 @@ prettyClassDef dex (i, cls) =
     ClassAnnotations { classAnnotationsAnnot = cannots
                      , classFieldAnnotations = fannots
                      , classMethodAnnotations = mannots
-                     , classParamAnnotations = pannots
                      } = classAnnotations cls
 
 
@@ -414,14 +415,14 @@ prettyEncodedValue dex ev =
 
 prettyInterface :: DexFile -> (Word32, TypeId) -> PP.Doc
 prettyInterface dex (n, iface) =
-  mconcat [ "    #", PP.int (fromIntegral n), ": ", PP.quotes (getTypeName' dex iface) ]
+  M.mconcat [ "    #", PP.int (fromIntegral n), ": ", PP.quotes (getTypeName' dex iface) ]
 
 prettyEncodedField :: DexFile -> [(FieldId, [VisibleAnnotation])] -> (Word32, EncodedField) -> PP.Doc
-prettyEncodedField dex annots (n, f) =
+prettyEncodedField dex _annots (n, f) =
   case getField dex (fieldId f) of
     Nothing -> "<unknown field ID: " <> word16HexFixed (fieldId f) <> ">"
     Just fld ->
-      vsep [ mconcat ["    #", word32Dec n, "              : (in ", getTypeName' dex (fieldClassId fld), ")"]
+      vsep [ M.mconcat ["    #", word32Dec n, "              : (in ", getTypeName' dex (fieldClassId fld), ")"]
               , prettyField "      name" (PP.quotes (getStr' dex (fieldNameId fld)))
               , prettyField "      type" (PP.quotes (getTypeName' dex (fieldTypeId fld)))
               , prettyFieldHexS "      access" (fieldAccessFlags f) (AF.flagsString AF.AField (fieldAccessFlags f))
@@ -449,7 +450,7 @@ prettyEncodedMethod dex annots (n, m) =
 
 -- | Like 'PP.vcat', except it never collapses overlapping lines
 vsep :: [PP.Doc] -> PP.Doc
-vsep = F.foldl' ($+$) mempty
+vsep = F.foldl' ($+$) M.mempty
 
 prettyCode :: DexFile -> AF.AccessFlags -> MethodId -> CodeItem -> PP.Doc
 prettyCode dex flags mid codeItem =
@@ -487,7 +488,7 @@ prettyCode dex flags mid codeItem =
 
 prettyLocal :: DexFile -> (Word32, LocalInfo) -> PP.Doc
 prettyLocal dex (r, LocalInfo _ s e nid tid sid) =
-  mconcat [ "        0x", word16HexFixed (fromIntegral s), " - 0x", word16HexFixed (fromIntegral e)
+  M.mconcat [ "        0x", word16HexFixed (fromIntegral s), " - 0x", word16HexFixed (fromIntegral e)
           , " reg=", word32Dec r, " ", getStr' dex (fromIntegral nid), " "
           , getTypeName' dex (fromIntegral tid), " ", if sid == -1 then "" else getStr' dex (fromIntegral sid)
           ]
@@ -497,7 +498,7 @@ prettyPosition (PositionInfo a l) = "        0x" <> word16HexFixed (fromIntegral
 
 prettyTryBlock :: DexFile -> CodeItem -> TryItem -> PP.Doc
 prettyTryBlock dex codeItem tryItem =
-  vsep [ mconcat [ "        0x", word16HexFixed (fromIntegral (tryStartAddr tryItem)), " - 0x", word16HexFixed (fromIntegral end) ]
+  vsep [ M.mconcat [ "        0x", word16HexFixed (fromIntegral (tryStartAddr tryItem)), " - 0x", word16HexFixed (fromIntegral end) ]
           , vsep [ "        " <> getTypeName' dex ty <> " -> 0x" <> word16HexFixed (fromIntegral addr)
                     | (ty, addr) <- handlers
                     ]
@@ -508,16 +509,16 @@ prettyTryBlock dex codeItem tryItem =
   where
     end = tryStartAddr tryItem + fromIntegral (tryInsnCount tryItem)
     catches = filter ((== tryHandlerOff tryItem) . fromIntegral . chHandlerOff) (codeHandlers codeItem)
-    handlers = mconcat (map chHandlers catches)
+    handlers = M.mconcat (map chHandlers catches)
 
 formatInstructions :: DexFile -> Word32 -> Word32 -> [Word16] -> [Instruction] -> PP.Doc
-formatInstructions _ _ _ [] [] = mempty
+formatInstructions _ _ _ [] [] = M.mempty
 formatInstructions _ _ _ [] is =
   "ERROR: No more code units (" <> PP.text (show is) <> " instructions left)"
 formatInstructions _ _ _ ws [] =
   "ERROR: No more instructions (" <> PP.int (length ws) <> " code units left)"
 formatInstructions dex addr off ws (i:is) =
-  mconcat [ word24HexFixed addr
+  M.mconcat [ word24HexFixed addr
           , ": "
           , unitDoc
           , "|"
@@ -535,13 +536,13 @@ formatInstructions dex addr off ws (i:is) =
            | otherwise = take 7 istrs ++ ["... "]
     l = insnUnitCount i
     l' = fromIntegral l
-    unitDoc = mconcat (PP.punctuate " " istrs')
+    unitDoc = M.mconcat (PP.punctuate " " istrs')
     idoc = prettyInstruction dex off i
 
 prettyInstruction :: DexFile -> Word32 -> Instruction -> PP.Doc
 prettyInstruction _ _ Nop = "nop" <> " // spacer"
 prettyInstruction _ _ (Move mty dst src) =
-  mconcat
+  M.mconcat
   [ moveTypeString mty
   , moveSizeString dst, " "
   , regStr dst, ", ", regStr src
@@ -579,7 +580,7 @@ prettyInstruction dex _ (LoadConst d c@(ConstClass _)) =
 prettyInstruction _ _ (MonitorEnter r) = "monitor-enter v" <> word8Dec r
 prettyInstruction _ _ (MonitorExit r) = "monitor-exit v" <> word8Dec r
 prettyInstruction dex _ (CheckCast r tid) =
-  mconcat ["check-cast v", word8Dec r,  ", ", getTypeName' dex tid] <>
+  M.mconcat ["check-cast v", word8Dec r,  ", ", getTypeName' dex tid] <>
   typeComm tid
 prettyInstruction dex _ (InstanceOf dst ref tid) =
   mkInsn "instance-of"
@@ -657,7 +658,7 @@ prettyInstruction dex _ (Invoke kind range mid args) =
   mkInsn ("invoke-" <>
           ikindStr kind <>
           if range then "/range" else "")
-         [ PP.brackets (mconcat (PP.punctuate ", " (map iregStr16 args)))
+         [ PP.brackets (M.mconcat (PP.punctuate ", " (map iregStr16 args)))
          , methodStr' dex mid
          ] <>
   methodComm mid
@@ -713,7 +714,7 @@ pSDI :: BS.ByteString -> PP.Doc
 pSDI = PP.text . BS.unpack
 
 mkInsn :: PP.Doc -> [PP.Doc] -> PP.Doc
-mkInsn name args = name <+> mconcat (PP.punctuate ", " args)
+mkInsn name args = name <+> M.mconcat (PP.punctuate ", " args)
 {-# INLINE mkInsn #-}
 
 mkInsn'8 :: PP.Doc -> [Word8] -> PP.Doc
@@ -722,7 +723,7 @@ mkInsn'8 name args = mkInsn name (map iregStr8 args)
 
 mkInsnb :: PP.Doc -> [PP.Doc] -> [PP.Doc] -> PP.Doc
 mkInsnb name bargs args =
-  name <+> PP.braces (mconcat (PP.punctuate ", " bargs)) <> "," <+> mconcat (PP.punctuate ", " args)
+  name <+> PP.braces (M.mconcat (PP.punctuate ", " bargs)) <> "," <+> M.mconcat (PP.punctuate ", " args)
 {-# INLINE mkInsnb #-}
 
 word16Hex :: Word16 -> PP.Doc
@@ -738,12 +739,12 @@ word8HexFixed :: Word8 -> PP.Doc
 word8HexFixed w = PP.text (printf "%0.2x" w)
 
 word24HexFixed :: Word32 -> PP.Doc
-word24HexFixed w = mconcat [ word8HexFixed (fromIntegral (w .&. 0x00FF0000) `shiftR` 16)
+word24HexFixed w = M.mconcat [ word8HexFixed (fromIntegral (w .&. 0x00FF0000) `shiftR` 16)
                            , word16HexFixed (fromIntegral (w .&. 0x0000FFFF))
                            ]
 
 word20HexFixed :: Word32 -> PP.Doc
-word20HexFixed w = mconcat [ word8Hex (fromIntegral (w .&. 0x00FF0000) `shiftR` 16)
+word20HexFixed w = M.mconcat [ word8Hex (fromIntegral (w .&. 0x00FF0000) `shiftR` 16)
                            , word16HexFixed (fromIntegral (w .&. 0x0000FFFF))
                            ]
 

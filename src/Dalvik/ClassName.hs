@@ -15,6 +15,8 @@ import Data.Hashable
 import Data.Monoid
 import qualified Data.Serialize as S
 
+import Prelude
+
 -- | An abstract representation of a Java class name.  These can be
 -- rendered into mangled type expression format: e.g.,
 --
