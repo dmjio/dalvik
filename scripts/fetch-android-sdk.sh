@@ -2,8 +2,8 @@
 
 set -e
 
-if [ ! -d "$HOME/android" ]
-then
+# if [ ! -d "$HOME/android" ]
+# then
 
   pushd $HOME
 
@@ -19,4 +19,4 @@ then
   popd
   popd
 
-fi
+# fi
