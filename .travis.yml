@@ -11,12 +11,6 @@ before_install:
 - travis_retry curl -L https://www.stackage.org/stack/linux-x86_64 | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
 - export PATH=/opt/ghc/$GHCVER/bin:$PATH
 
-addons:
-  apt:
-    sources:
-    - guardianproject
-    packages:
-    - google-android-build-tools-installer
 matrix:
   include:
   - env: GHCVER=7.8.4 STACK_YAML=stack-7.8.yaml
@@ -24,15 +18,19 @@ matrix:
       apt:
         sources:
         - hvr-ghc
+        - guardianproject
         packages:
         - ghc-7.8.4
+        - google-android-build-tools-installer
   - env: GHCVER=7.10.3 STACK_YAML=stack-7.10.yaml
     addons:
       apt:
         sources:
         - hvr-ghc
+        - guardianproject
         packages:
         - ghc-7.10.3
+        - google-android-build-tools-installer
 
 script:
  - stack --no-terminal --skip-ghc-check build
